@@ -99,11 +99,21 @@ export default async function GameHistoryPage() {
                   </span>
                 </div>
 
-                <div className="text-xs text-gray-400 space-y-1">
-                  <div>完成任务: {completedTasks} / {totalTasks}</div>
-                  {endedAt && (
-                    <div>
-                      {endedAt.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                <div className="text-xs text-gray-400 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span>完成任务: {completedTasks} / {totalTasks}</span>
+                    {endedAt && (
+                      <span className="text-gray-500">
+                        {endedAt.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    )}
+                  </div>
+                  {totalTasks > 0 && (
+                    <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-pink-500 to-purple-500"
+                        style={{ width: `${Math.round((completedTasks / totalTasks) * 100)}%` }}
+                      />
                     </div>
                   )}
                 </div>
@@ -113,13 +123,24 @@ export default async function GameHistoryPage() {
                     <summary className="cursor-pointer text-gray-400 hover:text-gray-300">
                       查看任务详情
                     </summary>
-                    <ul className="mt-2 space-y-1 pl-4">
+                    <div className="mt-2 flex flex-wrap gap-2">
                       {(record.task_results ?? []).map((task, idx) => (
-                        <li key={idx} className="text-gray-500">
-                          {task.completed ? "✓" : "○"} {task.task_text ?? task.description ?? "(未知任务)"}
-                        </li>
+                        <span
+                          key={idx}
+                          className={
+                            `inline-flex items-center rounded-full px-2.5 py-1 border ` +
+                            (task.completed
+                              ? "bg-green-500/15 border-green-500/30 text-green-300"
+                              : "bg-white/10 border-white/20 text-gray-300")
+                          }
+                        >
+                          <span className={task.completed ? "text-green-300 mr-1" : "text-gray-300 mr-1"}>
+                            {task.completed ? "✓" : "○"}
+                          </span>
+                          <span className="truncate max-w-[12rem]">{task.task_text}</span>
+                        </span>
                       ))}
-                    </ul>
+                    </div>
                   </details>
                 )}
               </div>

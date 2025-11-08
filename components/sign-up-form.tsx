@@ -40,9 +40,6 @@ export function SignUpForm({
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/login`,
-        },
       });
       if (error) throw error;
       // 保存注册时的账号与密码到 localStorage（仅客户端）
