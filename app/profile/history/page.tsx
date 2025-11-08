@@ -9,7 +9,7 @@ type GameHistoryRecord = {
   winner_id: string | null;
   started_at: string | null;
   ended_at: string | null;
-  task_results: { description: string; completed: boolean }[];
+  task_results: { description?: string; task_text?: string | null; completed: boolean }[];
 };
 
 export default async function GameHistoryPage() {
@@ -116,7 +116,7 @@ export default async function GameHistoryPage() {
                     <ul className="mt-2 space-y-1 pl-4">
                       {(record.task_results ?? []).map((task, idx) => (
                         <li key={idx} className="text-gray-500">
-                          {task.completed ? "✓" : "○"} {task.description}
+                          {task.completed ? "✓" : "○"} {task.task_text ?? task.description ?? "(未知任务)"}
                         </li>
                       ))}
                     </ul>
