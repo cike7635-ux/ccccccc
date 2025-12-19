@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Mail, Lock, Eye, EyeOff, Shuffle } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, Shuffle, Key } from "lucide-react";
 
 export function SignUpForm({
   className,
@@ -19,6 +19,8 @@ export function SignUpForm({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRandom, setIsRandom] = useState(false);
+  // 状态名称也稍作优化，更贴切
+  const [licenseKey, setLicenseKey] = useState("");
   const router = useRouter();
 
   const generateRandomAccount = () => {
@@ -30,6 +32,8 @@ export function SignUpForm({
     setEmail(randomEmail);
     setPassword(randomPass);
     setIsRandom(true);
+    // *** 重要修改：此处已删除自动填充测试密钥的代码 ***
+    // 仅生成随机账号，不提供密钥，用户必须自行购买。
   };
 
   const handleSignUp = async (e: React.FormEvent) => {
@@ -38,13 +42,30 @@ export function SignUpForm({
     setIsLoading(true);
     setError(null);
 
+    // 验证密钥（必填）
+    if (!licenseKey.trim()) {
+      setError('请输入有效的产品密钥');
+      setIsLoading(false);
+      return;
+    }
+
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
+      const signUpResponse = await fetch('/api/auth/signup-with-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          keyCode: licenseKey.trim().toUpperCase(), // 变量名变了，但API字段名keyCode不变
+        }),
       });
-      if (error) throw error;
-      // 等待会话建立（SSR Cookie 同步可能存在短暂延迟）
+
+      const result = await signUpResponse.json();
+      if (!signUpResponse.ok) {
+        throw new Error(result.error || '注册失败：密钥无效或已被使用');
+      }
+
+      // ============ 你的原有成功逻辑（完全保留） ============
       try {
         let attempts = 0;
         while (attempts < 5) {
@@ -54,21 +75,18 @@ export function SignUpForm({
           attempts++;
         }
       } catch {}
-      // 保存注册时的账号与密码到 localStorage（仅客户端）
       try {
         localStorage.setItem(
           "account_credentials",
           JSON.stringify({ email, password })
         );
       } catch {}
-      // 注册成功后，立即初始化默认题库（服务端批量导入），成功后进入大厅
       try {
         const res = await fetch("/api/seed-default-tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
         });
         if (!res.ok) {
-          // 不阻塞跳转，兜底由大厅页完成
           console.warn("seed-default-tasks failed", await res.text());
         }
       } catch {}
@@ -78,7 +96,7 @@ export function SignUpForm({
         router.replace("/login");
       }
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      setError(error instanceof Error ? error.message : "注册过程中发生错误");
     } finally {
       setIsLoading(false);
     }
@@ -87,6 +105,30 @@ export function SignUpForm({
   return (
     <div className={cn("", className)} {...props}>
       <form onSubmit={handleSignUp} className="space-y-4">
+        {/* === 修改：文字全部从“邀请码”改为“密钥” === */}
+        <div>
+          <Label htmlFor="licenseKey" className="block text-sm text-gray-300 mb-2">
+            产品密钥 <span className="text-red-500">*</span>
+          </Label>
+          <div className="glass rounded-xl p-3 flex items-center space-x-2">
+            <Key className="w-5 h-5 text-gray-400" />
+            <Input
+              id="licenseKey"
+              type="text"
+              placeholder="请输入您购买的产品密钥（如：XY-30-ABC123）"
+              required
+              value={licenseKey}
+              onChange={(e) => setLicenseKey(e.target.value)}
+              className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0"
+            />
+          </div>
+          {/* 提示文字也同步修改，强调购买 */}
+          <p className="text-xs text-gray-500 mt-2 pl-1">
+            本游戏为会员制，需购买密钥方可注册。请前往淘宝店铺《希夷书斋》购买，或联系微信客服: xiyi1397。
+          </p>
+        </div>
+
+        {/* 以下原有部分保持不变 */}
         <div>
           <Label htmlFor="email" className="block text-sm text-gray-300 mb-2">
             邮箱
@@ -134,6 +176,7 @@ export function SignUpForm({
           onClick={generateRandomAccount}
           className="w-full glass py-3 rounded-xl font-medium hover:bg-white/10 transition-all flex items-center justify-center space-x-2"
         >
+          <Shuffle className="w-4 h-4" />
           <span>生成随机邮箱和密码</span>
         </Button>
 
@@ -144,7 +187,7 @@ export function SignUpForm({
           disabled={isLoading}
           className="w-full gradient-primary py-3.5 rounded-xl font-semibold glow-pink transition-all hover:scale-105 active:scale-95 mt-6 text-white"
         >
-          {isLoading ? "注册中，需要等待几十秒..." : "注册"}
+          {isLoading ? "注册中，需要等待几十秒，注册完成后可尝试刷新页面..." : "注册"}
         </Button>
       </form>
     </div>
