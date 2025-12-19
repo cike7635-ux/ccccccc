@@ -50,7 +50,7 @@ export function SignUpForm({
     }
 
     try {
-      const signUpResponse = await fetch('/api/auth/signup-with-key', {
+      const signUpResponse = await fetch('/auth/signup-with-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
