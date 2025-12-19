@@ -1,0 +1,33 @@
+name: 🔄 Update Lockfile
+
+on:
+  workflow_dispatch: # 手动触发，不会自动运行
+
+jobs:
+  update-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 检出代码
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏗️ 设置 PNPM 环境
+        uses: pnpm/action-setup@v4
+
+      - name: ⚙️ 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ‘20’
+          cache: ‘pnpm’
+
+      - name: 📦 安装依赖 (这将更新 pnpm-lock.yaml)
+        run: pnpm install
+
+      - name: 💾 提交更新后的锁文件
+        run: |
+          git config --global user.name ‘github-actions[bot]’
+          git config --global user.email ‘github-actions[bot]@users.noreply.github.com’
+          git add pnpm-lock.yaml
+          # 检查是否有变更，有则提交
+          git diff --staged --quiet || (git commit -m ‘chore: 自动更新 pnpm-lock.yaml’ && git push)
