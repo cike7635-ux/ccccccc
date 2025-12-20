@@ -92,20 +92,25 @@ export async function POST(request: NextRequest) {
 
     console.log('[API] 用户创建成功，ID:', authData.user.id);
 
-    // 5. 计算账户有效期并更新用户资料
+      // 5. 计算账户有效期并更新用户资料（已修复：添加默认值）
     let accountExpiresAt = null;
-    if (keyData.account_valid_for_days) {
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + keyData.account_valid_for_days);
-      accountExpiresAt = expiryDate.toISOString();
+    // 核心修复：确保 validDays 是一个有效的数字，默认值为 30
+    const validDays = keyData.account_valid_for_days ? Number(keyData.account_valid_for_days) : 30;
+    if (validDays > 0) {
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + validDays);
+        accountExpiresAt = expiryDate.toISOString();
+        console.log(`[API] 账户有效期设置为: ${accountExpiresAt} (基于 ${validDays} 天)`);
+    } else {
+        console.warn(`[API] 密钥 ${formattedKeyCode} 的 account_valid_for_days 值无效 (${keyData.account_valid_for_days})，未设置有效期。`);
     }
 
     const { error: profileError } = await supabase.from('profiles').upsert({
-      id: authData.user.id,
-      email: email.trim(),
-      access_key_id: keyData.id,
-      account_expires_at: accountExpiresAt,
-      updated_at: new Date().toISOString(),
+        id: authData.user.id,
+        email: email.trim(),
+        access_key_id: keyData.id,
+        account_expires_at: accountExpiresAt, // 这里现在肯定不会是undefined
+        updated_at: new Date().toISOString(),
     });
 
     if (profileError) {
