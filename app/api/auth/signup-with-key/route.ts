@@ -1,10 +1,10 @@
-// 简化测试版
-import { createRouteHandlerClient } from '@supabase/ssr'; 
+import { NextRequest, NextResponse } from 'next/server';
+
 export async function POST(request: NextRequest) {
   console.log('注册API被调用');
   return NextResponse.json({ 
     success: true, 
-    message: 'API工作正常',
+    message: 'API工作正常（测试版）',
     timestamp: new Date().toISOString()
   });
 }
