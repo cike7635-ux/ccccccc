@@ -10,6 +10,29 @@ import { Users, LogIn, Layers, ChevronDown, Hash, Github } from "lucide-react";
 import PreferencesModal from "@/components/profile/preferences-modal";
 import Link from "next/link";
 
+// 辅助函数：从JWT中解析创建时间
+function getJwtCreationTime(jwt: string): Date | null {
+  try {
+    // JWT格式: header.payload.signature
+    const payloadBase64 = jwt.split('.')[1];
+    if (!payloadBase64) return null;
+    
+    // Base64解码
+    const payloadJson = Buffer.from(payloadBase64, 'base64').toString();
+    const payload = JSON.parse(payloadJson);
+    
+    // iat是签发时间（秒），需要转换为毫秒
+    if (payload.iat) {
+      return new Date(payload.iat * 1000);
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('解析JWT失败:', error);
+    return null;
+  }
+}
+
 export default async function LobbyPage({ searchParams }: { searchParams?: { error?: string } }) {
   // 1. 创建Supabase客户端
   const cookieStore = await cookies();
@@ -25,7 +48,7 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
     redirect('/login');
   }
   
-  // 3. 获取会话信息（用于验证会话是否最新）
+  // 3. 获取当前会话
   const { data: { session: currentSession } } = await supabase.auth.getSession();
   if (!currentSession) {
     await supabase.auth.signOut();
@@ -50,27 +73,35 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
   }
   
   // ============ 【严格的多设备登录验证】 ============
-  // 核心逻辑：如果数据库中的最后登录时间晚于当前会话的创建时间
-  // 说明用户在其他设备上重新登录了，当前会话已失效
-  
+  // 从JWT中解析会话创建时间
+  const sessionCreatedTime = getJwtCreationTime(currentSession.access_token);
   const lastLoginTime = profile.last_login_at ? new Date(profile.last_login_at) : null;
-  const sessionCreatedTime = new Date(currentSession.created_at * 1000); // JWT时间是秒，需要转毫秒
   
-  if (lastLoginTime && lastLoginTime > sessionCreatedTime) {
-    console.log(`[严格模式] 检测到新登录，强制退出用户: ${user.email}`);
-    console.log(`  - 当前会话创建时间: ${sessionCreatedTime.toISOString()}`);
-    console.log(`  - 最后登录时间: ${lastLoginTime.toISOString()}`);
+  // 添加1秒容差，避免由于时间同步或处理延迟导致的误判
+  const tolerance = 1000; // 1秒
+  
+  if (lastLoginTime && sessionCreatedTime) {
+    // 计算时间差（毫秒）
+    const timeDiff = lastLoginTime.getTime() - sessionCreatedTime.getTime();
     
-    // 强制退出当前会话
-    await supabase.auth.signOut();
-    
-    // 重定向到登录页，携带错误信息
-    redirect('/login?error=session_expired&message=您的账号已在其他设备登录，请重新登录');
+    // 如果最后登录时间比会话创建时间晚（超过容差），说明有新登录
+    if (timeDiff > tolerance) {
+      console.log(`[严格模式] 检测到新登录，强制退出用户: ${user.email}`);
+      console.log(`  - JWT会话创建时间: ${sessionCreatedTime.toISOString()}`);
+      console.log(`  - 最后登录时间: ${lastLoginTime.toISOString()}`);
+      console.log(`  - 时间差: ${timeDiff}ms`);
+      
+      // 强制退出当前会话
+      await supabase.auth.signOut();
+      
+      // 重定向到登录页，携带错误信息
+      redirect('/login?error=session_expired&message=您的账号已在其他设备登录，请重新登录');
+    }
   }
   
   // 6. 可选的：记录当前登录到日志（用于调试）
   console.log(`[登录验证] 用户 ${user.email} 会话验证通过`);
-  console.log(`  - 会话创建时间: ${sessionCreatedTime.toISOString()}`);
+  console.log(`  - JWT会话创建时间: ${sessionCreatedTime ? sessionCreatedTime.toISOString() : '无法解析'}`);
   console.log(`  - 最后登录时间: ${lastLoginTime ? lastLoginTime.toISOString() : '无记录'}`);
   console.log(`  - 会话标识: ${profile.last_login_session || '无标识'}`);
   // ============ 会话验证结束 ============
