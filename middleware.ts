@@ -1,6 +1,6 @@
 // /middleware.ts
 import { updateSession } from "@/lib/supabase/middleware";
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
+import { createMiddlewareClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import type { Database } from '@/lib/database.types';
 
