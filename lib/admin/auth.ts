@@ -35,25 +35,20 @@ export async function validateAdminSession() {
   }
 }
 
+// 在 requireAdmin 函数中修改
 export async function requireAdmin() {
   const { isAdmin, user } = await validateAdminSession();
-  
-  console.log('📊 最终验证结果:', {
-    是否管理员: isAdmin,
-    用户邮箱: user?.email
-  });
   
   if (!isAdmin) {
     if (user) {
       // 已登录但不是管理员
-      console.log('➡️ 已登录但不是管理员，重定向到无权限页');
       redirect('/admin/unauthorized');
     } else {
-      // 未登录
-      console.log('➡️ 未登录，重定向到登录页');
-      redirect('/login');
+      // 未登录，重定向到管理员登录页
+      redirect('/admin/login?redirect=/admin');
     }
   }
+}
   
   console.log('🎯 验证通过，继续渲染');
 }
