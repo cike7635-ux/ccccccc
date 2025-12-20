@@ -25,19 +25,57 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
     redirect('/login');
   }
   
-  // 3. 检查会员有效期
+  // 3. 获取会话信息（用于验证会话是否最新）
+  const { data: { session: currentSession } } = await supabase.auth.getSession();
+  if (!currentSession) {
+    await supabase.auth.signOut();
+    redirect('/login?error=no_session');
+  }
+  
+  // 4. 获取用户资料（包括会话信息和有效期）
   const { data: profile } = await supabase
     .from('profiles')
-    .select('account_expires_at')
+    .select('account_expires_at, last_login_at, last_login_session')
     .eq('id', user.id)
     .single();
   
+  if (!profile) {
+    redirect('/login?error=profile_not_found');
+  }
+  
+  // 5. 检查会员有效期
   const isExpired = !profile?.account_expires_at || new Date(profile.account_expires_at) < new Date();
   if (isExpired) {
     redirect('/account-expired');
   }
   
-  // 4. 原有的业务逻辑
+  // ============ 【严格的多设备登录验证】 ============
+  // 核心逻辑：如果数据库中的最后登录时间晚于当前会话的创建时间
+  // 说明用户在其他设备上重新登录了，当前会话已失效
+  
+  const lastLoginTime = profile.last_login_at ? new Date(profile.last_login_at) : null;
+  const sessionCreatedTime = new Date(currentSession.created_at * 1000); // JWT时间是秒，需要转毫秒
+  
+  if (lastLoginTime && lastLoginTime > sessionCreatedTime) {
+    console.log(`[严格模式] 检测到新登录，强制退出用户: ${user.email}`);
+    console.log(`  - 当前会话创建时间: ${sessionCreatedTime.toISOString()}`);
+    console.log(`  - 最后登录时间: ${lastLoginTime.toISOString()}`);
+    
+    // 强制退出当前会话
+    await supabase.auth.signOut();
+    
+    // 重定向到登录页，携带错误信息
+    redirect('/login?error=session_expired&message=您的账号已在其他设备登录，请重新登录');
+  }
+  
+  // 6. 可选的：记录当前登录到日志（用于调试）
+  console.log(`[登录验证] 用户 ${user.email} 会话验证通过`);
+  console.log(`  - 会话创建时间: ${sessionCreatedTime.toISOString()}`);
+  console.log(`  - 最后登录时间: ${lastLoginTime ? lastLoginTime.toISOString() : '无记录'}`);
+  console.log(`  - 会话标识: ${profile.last_login_session || '无标识'}`);
+  // ============ 会话验证结束 ============
+  
+  // 7. 原有的业务逻辑
   const { data: themes } = await listAvailableThemes();
   const errorMessage = searchParams?.error ?? "";
   
