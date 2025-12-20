@@ -34,15 +34,18 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
     
-    // 3. 创建Supabase客户端（安全方式）
+    // 3. 创建Supabase客户端（使用 Next.js 15 的正确方式）
     let supabase;
     try {
-      const cookieStore = cookies();
+      // 注意：在 Next.js 15 中，cookies() 返回的是 Promise
+      const cookieStore = await cookies();
+      
       supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL || '',
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
         {
           cookies: {
+            // 使用异步方式获取所有 cookies
             getAll() {
               try {
                 return cookieStore.getAll();
@@ -56,9 +59,13 @@ export async function POST(request: NextRequest) {
                 cookiesToSet.forEach(({ name, value, options }) => {
                   try {
                     cookieStore.set(name, value, options);
-                  } catch {}
+                  } catch {
+                    // 忽略设置 cookie 的错误
+                  }
                 });
-              } catch {}
+              } catch {
+                // 忽略整体错误
+              }
             },
           },
         }
@@ -72,8 +79,7 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
     
-    // 4. 验证密钥有效性（新增逻辑）
-    let licenseKeyValid = false;
+    // 4. 验证密钥有效性
     try {
       const { data: licenseKey, error: licenseError } = await supabase
         .from('license_keys')
@@ -81,36 +87,34 @@ export async function POST(request: NextRequest) {
         .eq('key_code', keyCode)
         .single();
       
-      if (!licenseError && licenseKey) {
-        // 检查密钥是否已使用
-        if (licenseKey.is_used) {
-          return NextResponse.json({ 
-            success: false, 
-            error: '密钥已使用',
-            message: '该密钥已被使用，请使用新的密钥'
-          }, { status: 400 });
-        }
-        
-        // 检查密钥是否过期
-        if (licenseKey.expires_at) {
-          const expiryDate = new Date(licenseKey.expires_at);
-          const now = new Date();
-          if (expiryDate < now) {
-            return NextResponse.json({ 
-              success: false, 
-              error: '密钥已过期',
-              message: '该密钥已过期，请使用有效的密钥'
-            }, { status: 400 });
-          }
-        }
-        
-        licenseKeyValid = true;
-      } else {
+      if (licenseError || !licenseKey) {
         return NextResponse.json({ 
           success: false, 
           error: '密钥无效',
           message: '请输入有效的产品密钥'
         }, { status: 400 });
+      }
+      
+      // 检查密钥是否已使用
+      if (licenseKey.is_used) {
+        return NextResponse.json({ 
+          success: false, 
+          error: '密钥已使用',
+          message: '该密钥已被使用，请使用新的密钥'
+        }, { status: 400 });
+      }
+      
+      // 检查密钥是否过期
+      if (licenseKey.expires_at) {
+        const expiryDate = new Date(licenseKey.expires_at);
+        const now = new Date();
+        if (expiryDate < now) {
+          return NextResponse.json({ 
+            success: false, 
+            error: '密钥已过期',
+            message: '该密钥已过期，请使用有效的密钥'
+          }, { status: 400 });
+        }
       }
     } catch (keyError) {
       console.error('验证密钥时出错:', keyError);
@@ -123,13 +127,13 @@ export async function POST(request: NextRequest) {
     
     // 5. 检查邮箱是否已注册
     try {
-      const { data: existingUser, error: userCheckError } = await supabase
+      const { data: existingUser } = await supabase
         .from('profiles')
         .select('id')
         .eq('email', email.toLowerCase())
-        .maybeSingle(); // 使用maybeSingle避免未找到记录时报错
+        .maybeSingle(); // 使用 maybeSingle 避免未找到记录时报错
       
-      if (!userCheckError && existingUser) {
+      if (existingUser) {
         return NextResponse.json({ 
           success: false, 
           error: '邮箱已注册',
@@ -150,7 +154,6 @@ export async function POST(request: NextRequest) {
         options: {
           // 禁用邮箱确认，直接验证邮箱
           emailConfirm: false,
-          // 如果不需要邮箱验证，可以设置data
           data: {
             email_confirmed_at: new Date().toISOString()
           }
