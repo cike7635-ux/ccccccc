@@ -13,7 +13,7 @@ import Link from 'next/link';
 
 export default function RenewPage() {
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClient();
   const [licenseKey, setLicenseKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
