@@ -1,43 +1,20 @@
-// /app/admin/page.tsx - 简洁的管理员登录页
+// /app/admin/page.tsx - 管理员登录页（使用密钥）
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
+import { verifyAdminKey } from '@/lib/admin/auth-utils';
 
 export default function AdminLoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [adminKey, setAdminKey] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-
-  // 检查是否已经登录且是管理员
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const supabase = createBrowserClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-        );
-
-        const { data: { user } } = await supabase.auth.getUser();
-        
-        if (user) {
-          // 简单检查是否是管理员（中间件会最终验证）
-          const adminEmails = ['2200691917@qq.com'];
-          if (adminEmails.includes(user.email?.toLowerCase() || '')) {
-            // 已经是管理员，跳转到仪表板
-            router.push('/admin/dashboard');
-          }
-        }
-      } catch (error) {
-        console.error('检查认证状态失败:', error);
-      }
-    };
-
-    checkAuth();
-  }, [router]);
+  const searchParams = useSearchParams();
+  const redirectParam = searchParams.get('redirect') || '/admin/dashboard';
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,12 +22,20 @@ export default function AdminLoginPage() {
     setLoading(true);
 
     try {
+      // 1. 验证管理员密钥
+      if (!verifyAdminKey(adminKey)) {
+        setError('管理员密钥错误');
+        setLoading(false);
+        return;
+      }
+
+      // 2. 创建 Supabase 客户端
       const supabase = createBrowserClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
       );
 
-      // 登录
+      // 3. 登录
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
@@ -60,14 +45,14 @@ export default function AdminLoginPage() {
         throw signInError;
       }
 
-      // 登录成功，中间件会处理重定向
-      // 这里只需要刷新页面
+      // 4. 登录成功，根据redirect参数重定向
+      console.log(`[管理员登录] 成功，重定向到: ${redirectParam}`);
+      router.push(redirectParam);
       router.refresh();
 
     } catch (err: any) {
-      console.error('登录失败:', err);
+      console.error('管理员登录失败:', err);
       setError(err.message || '登录失败，请检查邮箱和密码');
-    } finally {
       setLoading(false);
     }
   };
@@ -77,7 +62,7 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900">管理员登录</h1>
-          <p className="text-gray-600 mt-2">请使用管理员账户登录</p>
+          <p className="text-gray-600 mt-2">请使用管理员账户和密钥登录</p>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm p-8">
@@ -90,7 +75,7 @@ export default function AdminLoginPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="请输入管理员邮箱"
+                placeholder="2200691917@qq.com"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 required
                 disabled={loading}
@@ -110,6 +95,27 @@ export default function AdminLoginPage() {
                 required
                 disabled={loading}
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                管理员密钥
+                <span className="text-xs text-gray-500 ml-2">
+                  （环境变量：NEXT_PUBLIC_ADMIN_KEY）
+                </span>
+              </label>
+              <input
+                type="password"
+                value={adminKey}
+                onChange={(e) => setAdminKey(e.target.value)}
+                placeholder="请输入管理员密钥"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+                disabled={loading}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                当前密钥：{process.env.NEXT_PUBLIC_ADMIN_KEY ? '已设置' : '未设置'}
+              </p>
             </div>
 
             {error && (
