@@ -1,4 +1,4 @@
-// /app/login/page.tsx - 修复版本
+// /app/login/page.tsx - 修复重定向逻辑
 import Link from "next/link";
 import { LoginForm } from "@/components/login-form";
 import { SignUpForm } from "@/components/sign-up-form";
@@ -33,12 +33,34 @@ export default async function Page({
     // 检查是否是管理员
     const admin = isAdminEmail(user.email);
     
-    // ⭐ 关键修复：优先使用redirect参数
-    // 如果有redirect参数（从中间件来），就去那里
-    // 如果没有，管理员去后台，普通用户去游戏大厅
-    const targetPath = redirectParam || (admin ? "/admin/dashboard" : "/lobby");
+    // ⭐⭐ 关键修复：新的重定向逻辑
+    let targetPath = redirectParam || "/lobby"; // 默认去游戏大厅
     
-    console.log(`[登录页] 重定向到: ${targetPath}`);
+    if (admin) {
+      console.log(`[登录页] 管理员用户登录: ${user.email}`);
+      
+      // ⭐ 重要：管理员在游戏登录页登录，清除管理员验证标记
+      // 这样管理员玩游戏时不会被强制重定向到后台
+      // 注意：这是在服务器端，我们需要告诉客户端清除cookie
+      // 我们将在客户端组件中处理这个
+      
+      // 管理员在游戏登录页登录，应该去游戏大厅
+      // 除非有明确的redirect参数指向其他地方
+      if (!redirectParam) {
+        targetPath = "/lobby";
+        console.log(`[登录页] 管理员玩游戏，重定向到: ${targetPath}`);
+      }
+    } else {
+      console.log(`[登录页] 普通用户登录，重定向到: ${targetPath}`);
+    }
+    
+    // 如果有redirect参数，优先使用
+    if (redirectParam) {
+      console.log(`[登录页] 使用redirect参数: ${redirectParam}`);
+      targetPath = redirectParam;
+    }
+    
+    console.log(`[登录页] 最终重定向到: ${targetPath}`);
     redirect(targetPath);
   }
 
