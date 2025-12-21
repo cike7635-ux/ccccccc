@@ -1,4 +1,4 @@
-// /app/renew/page.tsx
+// /app/renew/page.tsx - 修复版本
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertCircle, CalendarDays, Key, ExternalLink, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CalendarDays, Key, ExternalLink, CheckCircle2, ArrowLeft, ShoppingCart } from 'lucide-react';
 import Link from 'next/link';
 
 export default function RenewPage() {
@@ -44,7 +44,70 @@ export default function RenewPage() {
     fetchProfile();
   }, [supabase, router]);
 
-  // 2. 处理续费提交
+  // 2. 隐藏底部导航栏
+  useEffect(() => {
+    // 隐藏导航栏函数
+    const hideBottomNav = () => {
+      const selectors = [
+        'nav',
+        'footer',
+        '[class*="nav"]',
+        '[class*="Nav"]',
+        '[class*="bottom"]',
+        '[class*="Bottom"]',
+        '[class*="footer"]',
+        '[role="navigation"]',
+        'header'
+      ];
+      
+      selectors.forEach(selector => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+          (el as HTMLElement).style.display = 'none';
+        });
+      });
+    };
+    
+    // 立即执行
+    hideBottomNav();
+    
+    // 延迟执行，确保DOM加载完成
+    setTimeout(hideBottomNav, 100);
+    setTimeout(hideBottomNav, 500);
+    
+    // 监听DOM变化
+    const observer = new MutationObserver(hideBottomNav);
+    observer.observe(document.body, { 
+      childList: true, 
+      subtree: true,
+      attributes: true
+    });
+    
+    return () => {
+      observer.disconnect();
+      // 恢复导航栏显示（其他页面会重新渲染，所以这里只是清理）
+      const selectors = [
+        'nav',
+        'footer',
+        '[class*="nav"]',
+        '[class*="Nav"]',
+        '[class*="bottom"]',
+        '[class*="Bottom"]',
+        '[class*="footer"]',
+        '[role="navigation"]',
+        'header'
+      ];
+      
+      selectors.forEach(selector => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+          (el as HTMLElement).style.display = '';
+        });
+      });
+    };
+  }, []);
+
+  // 3. 处理续费提交
   const handleRenew = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -111,6 +174,19 @@ export default function RenewPage() {
 
   return (
     <div className="container max-w-4xl mx-auto p-4 py-8 md:py-12 space-y-8">
+      {/* 返回按钮 - 添加在左上角 */}
+      <div className="mb-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => router.push('/profile')}
+          className="flex items-center gap-2 text-gray-400 hover:text-white"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          返回我的
+        </Button>
+      </div>
+
       {/* 页面标题 */}
       <div className="text-center space-y-2">
         <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-brand-pink to-brand-rose bg-clip-text text-transparent">
@@ -263,13 +339,18 @@ export default function RenewPage() {
               </div>
 
               <div className="pt-4 border-t border-white/10">
-                <Button asChild variant="outline" className="w-full">
+                {/* 修改按钮样式，让文字和背景对比明显 */}
+                <Button
+                  asChild
+                  className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white hover:from-orange-600 hover:to-red-600"
+                >
                   <Link
-                    href="https://shop.xiyi.asia" // 请替换为你的实际店铺链接
+                    href="https://shop.xiyi.asia"
                     target="_blank"
                     rel="noopener noreferrer"
+                    className="flex items-center justify-center"
                   >
-                    <ExternalLink className="w-4 h-4 mr-2" />
+                    <ShoppingCart className="w-4 h-4 mr-2" />
                     前往淘宝店铺购买
                   </Link>
                 </Button>
