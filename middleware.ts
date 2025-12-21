@@ -1,4 +1,4 @@
-// /middleware.ts - 保留所有非管理员功能，只修改管理员相关部分
+// /middleware.ts 
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
@@ -32,7 +32,7 @@ function getJwtCreationTime(jwt: string): Date | null {
   }
 }
 
-// 检查是否是管理员
+// 检查是否是管理员（仅用于日志记录，不再用于权限控制）
 function isAdminEmail(email: string | undefined | null): boolean {
   if (!email) return false;
   
@@ -67,6 +67,8 @@ function isPublicPath(path: string): boolean {
     '/renew',
     '/api/auth/signup-with-key',
     '/api/auth/renew-account',
+    '/admin',           // ⭐ 管理员页面也作为公开路径，由/admin自己处理验证
+    '/admin/unauthorized',
   ];
   return publicPaths.some(p => path.startsWith(p));
 }
@@ -100,96 +102,41 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // =================== ⭐ 只修改这部分：管理员路径处理 ===================
-  // 3. 处理管理员路径（最高优先级）
-  if (currentPath.startsWith('/admin')) {
-    console.log(`[中间件] 管理员路径处理: ${currentPath}`);
-    
-    // 3.1 管理员登录页面直接放行
-    if (currentPath === '/admin' || currentPath === '/admin/login') {
-      console.log(`[中间件] 放行管理员登录页面: ${currentPath}`);
-      return response;
-    }
-    
-    // 3.2 其他管理员页面需要验证
-    try {
-      const { data: { user }, error } = await supabase.auth.getUser();
-      
-      if (error || !user) {
-        console.log(`[中间件] 管理员页面未登录，重定向到/admin`);
-        return NextResponse.redirect(new URL('/admin', request.url));
-      }
-      
-      // 检查是否是管理员
-      if (!isAdminEmail(user.email)) {
-        console.log(`[中间件] 非管理员访问后台: ${user.email}`);
-        return NextResponse.redirect(new URL('/admin/unauthorized', request.url));
-      }
-      
-      // ⭐⭐ 新增：检查管理员密钥验证标记
-      const adminKeyVerified = request.cookies.get('admin_key_verified');
-      if (!adminKeyVerified || adminKeyVerified.value !== 'true') {
-        console.log(`[中间件] 管理员未通过密钥验证，重定向到管理员登录页`);
-        
-        // 重定向到管理员登录页，并带上redirect参数
-        const redirectUrl = new URL('/admin', request.url);
-        redirectUrl.searchParams.set('redirect', currentPath);
-        return NextResponse.redirect(redirectUrl);
-      }
-      
-      console.log(`[中间件] 管理员验证通过: ${user.email}`);
-      return response;
-      
-    } catch (error) {
-      console.error(`[中间件] 管理员验证错误:`, error);
-      return NextResponse.redirect(new URL('/admin', request.url));
-    }
-  }
-  // =================== 管理员部分修改结束 ===================
-  
-  // 4. 公开路径直接放行
+  // 3. 公开路径直接放行（包括/admin，由/admin页面自己处理验证）
   if (isPublicPath(currentPath)) {
     console.log(`[中间件] 放行公开路径: ${currentPath}`);
     return response;
   }
   
-  // 5. API路径处理
+  // 4. API路径处理
   if (currentPath.startsWith('/api/')) {
-    // API认证逻辑（如果有的话）
     console.log(`[中间件] API路径: ${currentPath}`);
     return response;
   }
   
-  // 6. 受保护的游戏路径（需要完整验证）
+  // 5. 受保护的游戏路径（需要完整验证）
   if (isProtectedGamePath(currentPath)) {
     console.log(`[中间件] 游戏路径验证: ${currentPath}`);
     
     try {
-      // 6.1 检查用户是否登录
+      // 5.1 检查用户是否登录
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       
       if (authError || !user) {
         console.log(`[中间件] 游戏路径未登录，重定向到/login`);
         
-        // 创建重定向URL - 修复：总是添加redirect参数
+        // 创建重定向URL
         const redirectUrl = new URL('/login', request.url);
         redirectUrl.searchParams.set('redirect', currentPath);
         
         return NextResponse.redirect(redirectUrl);
       }
       
-      console.log(`[中间件] 用户已登录: ${user.email}`);
+      console.log(`[中间件] 用户已登录: ${user.email} (管理员: ${isAdminEmail(user.email)})`);
       
-      // 6.2 检查是否是管理员
-      const isAdmin = isAdminEmail(user.email);
+      // ⭐ 关键修改：不再对管理员进行特殊处理，一视同仁
       
-      // ⭐ 如果是管理员玩游戏，清除管理员验证标记，防止被强制重定向到后台
-      if (isAdmin) {
-        console.log(`[中间件] 管理员玩游戏: ${user.email}`);
-        response.cookies.delete('admin_key_verified');
-      }
-      
-      // 6.3 获取用户资料（管理员和普通用户都需要）
+      // 5.2 获取用户资料
       const { data: profile } = await supabase
         .from('profiles')
         .select('account_expires_at, last_login_at, last_login_session')
@@ -201,7 +148,7 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/login?error=profile_not_found', request.url));
       }
       
-      // 6.4 检查会员有效期（管理员和普通用户都需要检查）
+      // 5.3 检查会员有效期
       const isExpired = !profile?.account_expires_at || 
                        new Date(profile.account_expires_at) < new Date();
       
@@ -210,7 +157,7 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/account-expired', request.url));
       }
       
-      // 6.5 多设备登录验证（管理员和普通用户都需要检查）
+      // 5.4 多设备登录验证
       const { data: { session: currentSession } } = await supabase.auth.getSession();
       if (!currentSession) {
         console.log(`[中间件] 会话不存在: ${user.id}`);
@@ -221,20 +168,20 @@ export async function middleware(request: NextRequest) {
       const lastLoginTime = profile.last_login_at ? new Date(profile.last_login_at) : null;
       const tolerance = 3000; // 3秒容差
       
+      // ⭐ 关键修改：优化多设备检测逻辑
+      // 只有当确实有新的登录时（last_login_time > session_created_time）才触发
       if (lastLoginTime && sessionCreatedTime) {
         const timeDiff = lastLoginTime.getTime() - sessionCreatedTime.getTime();
         
         if (timeDiff > tolerance) {
           console.log(`[中间件] 检测到多设备登录: ${user.email}`);
+          console.log(`  - 会话创建时间: ${sessionCreatedTime.toISOString()}`);
+          console.log(`  - 最后登录时间: ${lastLoginTime.toISOString()}`);
+          console.log(`  - 时间差: ${timeDiff}ms`);
           
           // 清除会话cookie
           response.cookies.delete('sb-access-token');
           response.cookies.delete('sb-refresh-token');
-          
-          // 如果管理员也清除管理员标记
-          if (isAdmin) {
-            response.cookies.delete('admin_key_verified');
-          }
           
           // 重定向到过期页面
           const userEmail = user.email || '';
@@ -256,7 +203,7 @@ export async function middleware(request: NextRequest) {
     }
   }
   
-  // 7. 其他路径直接放行
+  // 6. 其他路径直接放行
   console.log(`[中间件] 放行其他路径: ${currentPath}`);
   return response;
 }
