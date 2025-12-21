@@ -1,147 +1,148 @@
-// /app/admin/page.tsx
-import { createClient } from '@/lib/supabase/server';
-import { validateAdminSession } from '@/lib/admin/auth';
-import { 
-  Users, 
-  Key, 
-  Brain, 
-  Gamepad2 
-} from 'lucide-react';
+// /app/admin/page.tsx - 简洁的管理员登录页
+'use client';
 
-export default async function AdminDashboard() {
-  const { user } = await validateAdminSession();
-  
-  // 正确使用 await 等待 Promise
-  const supabase = await createClient();
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { createBrowserClient } from '@supabase/ssr';
 
-  // 获取基础统计数据
-  let totalUsers = 0;
-  let totalKeys = 0;
-  
-  try {
-    // 用户统计
-    const { count: usersCount } = await supabase
-      .from('profiles')
-      .select('*', { count: 'exact', head: true });
-    totalUsers = usersCount || 0;
-    
-    // 密钥统计
-    const { count: keysCount } = await supabase
-      .from('access_keys')
-      .select('*', { count: 'exact', head: true });
-    totalKeys = keysCount || 0;
-    
-  } catch (error) {
-    console.error('获取统计数据时出错:', error);
-  }
+export default function AdminLoginPage() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
-  const stats = [
-    { 
-      icon: Users, 
-      label: '总用户数', 
-      value: totalUsers, 
-      color: 'bg-blue-100 text-blue-600' 
-    },
-    { 
-      icon: Users, 
-      label: '活跃会员', 
-      value: '待统计', 
-      color: 'bg-green-100 text-green-600' 
-    },
-    { 
-      icon: Key, 
-      label: '总密钥数', 
-      value: totalKeys, 
-      color: 'bg-purple-100 text-purple-600' 
-    },
-    { 
-      icon: Key, 
-      label: '可用密钥', 
-      value: '待统计', 
-      color: 'bg-orange-100 text-orange-600' 
-    },
-    { 
-      icon: Gamepad2, 
-      label: '游戏总数', 
-      value: '待统计', 
-      color: 'bg-pink-100 text-pink-600' 
-    },
-    { 
-      icon: Brain, 
-      label: 'AI使用量', 
-      value: '待统计', 
-      color: 'bg-indigo-100 text-indigo-600' 
-    },
-  ];
+  // 检查是否已经登录且是管理员
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const supabase = createBrowserClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
+        );
+
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (user) {
+          // 简单检查是否是管理员（中间件会最终验证）
+          const adminEmails = ['2200691917@qq.com'];
+          if (adminEmails.includes(user.email?.toLowerCase() || '')) {
+            // 已经是管理员，跳转到仪表板
+            router.push('/admin/dashboard');
+          }
+        }
+      } catch (error) {
+        console.error('检查认证状态失败:', error);
+      }
+    };
+
+    checkAuth();
+  }, [router]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
+      );
+
+      // 登录
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (signInError) {
+        throw signInError;
+      }
+
+      // 登录成功，中间件会处理重定向
+      // 这里只需要刷新页面
+      router.refresh();
+
+    } catch (err: any) {
+      console.error('登录失败:', err);
+      setError(err.message || '登录失败，请检查邮箱和密码');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">系统仪表板</h1>
-        <p className="text-gray-600 mt-2">
-          欢迎回来，{user?.email}！今天是 {new Date().toLocaleDateString('zh-CN')}
-        </p>
-      </div>
-
-      {/* 统计卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        {stats.map((stat, index) => {
-          const Icon = stat.icon;
-          return (
-            <div key={index} className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">{stat.label}</p>
-                  <p className="text-2xl font-bold mt-2">{stat.value}</p>
-                </div>
-                <div className={`p-3 rounded-full ${stat.color}`}>
-                  <Icon className="w-6 h-6" />
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* 快速操作 */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold mb-4">快速操作</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <a
-            href="/admin/keys"
-            className="flex flex-col items-center justify-center p-4 border rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <Key className="w-8 h-8 text-blue-600 mb-2" />
-            <span className="text-sm font-medium">密钥管理</span>
-          </a>
-          <a
-            href="/admin/users"
-            className="flex flex-col items-center justify-center p-4 border rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <Users className="w-8 h-8 text-green-600 mb-2" />
-            <span className="text-sm font-medium">用户管理</span>
-          </a>
-          <a
-            href="/admin/ai-usage"
-            className="flex flex-col items-center justify-center p-4 border rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <Brain className="w-8 h-8 text-purple-600 mb-2" />
-            <span className="text-sm font-medium">AI统计</span>
-          </a>
-          <a
-            href="#"
-            className="flex flex-col items-center justify-center p-4 border rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <Gamepad2 className="w-8 h-8 text-amber-600 mb-2" />
-            <span className="text-sm font-medium">游戏管理</span>
-          </a>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 p-4">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">管理员登录</h1>
+          <p className="text-gray-600 mt-2">请使用管理员账户登录</p>
         </div>
-      </div>
 
-      {/* 系统信息 */}
-      <div className="mt-8 text-sm text-gray-500">
-        <p>系统状态：运行正常</p>
-        <p className="mt-1">最后更新：{new Date().toLocaleString('zh-CN')}</p>
+        <div className="bg-white rounded-xl shadow-sm p-8">
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                管理员邮箱
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="请输入管理员邮箱"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+                disabled={loading}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                密码
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="请输入密码"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+                disabled={loading}
+              />
+            </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 text-white font-medium py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            >
+              {loading ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  登录中...
+                </>
+              ) : (
+                '登录后台系统'
+              )}
+            </button>
+          </form>
+
+          <div className="mt-6 pt-6 border-t border-gray-200 text-center">
+            <p className="text-sm text-gray-600">
+              普通用户请访问{' '}
+              <a href="/login" className="text-blue-600 hover:text-blue-800">
+                游戏登录页面
+              </a>
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
