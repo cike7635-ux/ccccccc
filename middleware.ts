@@ -1,40 +1,8 @@
-// /middleware.ts - 完整修正版
+// /middleware.ts - 改进的多设备检测版本
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 // ==================== 工具函数 ====================
-
-/**
- * 从JWT令牌中解析创建时间（iat字段）
- */
-function getJwtCreationTime(jwt: string): Date | null {
-  try {
-    const payloadBase64 = jwt.split('.')[1];
-    if (!payloadBase64) return null;
-    
-    const base64 = payloadBase64.replace(/-/g, '+').replace(/_/g, '/');
-    const pad = base64.length % 4;
-    const paddedBase64 = pad ? base64 + '='.repeat(4 - pad) : base64;
-    
-    const payloadJson = decodeURIComponent(
-      atob(paddedBase64)
-        .split('')
-        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    );
-    
-    const payload = JSON.parse(payloadJson);
-    
-    if (payload.iat) {
-      return new Date(payload.iat * 1000);
-    }
-    
-    return null;
-  } catch (error) {
-    console.error('[中间件] 解析JWT失败:', error);
-    return null;
-  }
-}
 
 /**
  * 检查是否是管理员邮箱（仅用于日志记录）
@@ -50,7 +18,6 @@ function isAdminEmail(email: string | undefined | null): boolean {
 
 /**
  * 检查是否受保护的游戏路径
- * 这些路径需要完整的用户验证（登录、会员状态、多设备检查）
  */
 function isProtectedGamePath(path: string): boolean {
   const protectedPaths = [
@@ -121,7 +88,7 @@ export async function middleware(request: NextRequest) {
   const response = NextResponse.next();
   
   try {
-    // 2. 创建Supabase客户端（用于服务器端认证）
+    // 2. 创建Supabase客户端
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY! || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -159,7 +126,7 @@ export async function middleware(request: NextRequest) {
       return response;
     }
     
-    // 3.3 管理员路径处理（独立验证，不进入游戏路径逻辑）
+    // 3.3 管理员路径处理（独立验证）
     if (currentPath.startsWith('/admin')) {
       // 管理员登录页面直接放行
       if (currentPath === '/admin' || currentPath === '/admin/login') {
@@ -222,12 +189,11 @@ export async function middleware(request: NextRequest) {
         console.log(`[中间件] 用户已登录: ${user.email} (管理员: ${isAdminEmail(user.email)})`);
         
         // ============ 获取用户资料 ============
-        // 根据表结构查询正确的字段：id, email, account_expires_at, last_login_at, last_login_session
         let profile = null;
         try {
           const { data, error: profileError } = await supabase
             .from('profiles')
-            .select('id, email, account_expires_at, last_login_at, last_login_session, access_key_id')
+            .select('id, email, account_expires_at, last_login_at, last_login_session')
             .eq('id', user.id)
             .single();
           
@@ -235,7 +201,6 @@ export async function middleware(request: NextRequest) {
             console.warn(`[中间件] 查询用户资料失败: ${profileError.message}`);
             
             // 关键修复：如果profiles记录不存在，允许继续访问
-            // 避免无限重定向循环，让页面逻辑处理创建profiles记录
             const elapsedTime = Date.now() - startTime;
             console.log(`[中间件] Profiles记录缺失，允许继续访问 (${elapsedTime}ms)`);
             return response;
@@ -267,8 +232,9 @@ export async function middleware(request: NextRequest) {
           return NextResponse.redirect(new URL('/account-expired', request.url));
         }
         
-        // ============ 多设备登录验证 ============
+        // ============ 简化的多设备登录验证（基于会话标识） ============
         try {
+          // 获取当前会话
           const { data: { session: currentSession } } = await supabase.auth.getSession();
           
           if (!currentSession) {
@@ -279,81 +245,60 @@ export async function middleware(request: NextRequest) {
             return NextResponse.redirect(redirectUrl);
           }
           
-          // 解析当前会话的创建时间
-          const sessionCreatedTime = getJwtCreationTime(currentSession.access_token);
-          const lastLoginTime = profile.last_login_at ? new Date(profile.last_login_at) : null;
-          const tolerance = 3000; // 3秒容差，避免时间同步问题
+          // 生成当前会话的标识符
+          const currentSessionId = `session_${currentSession.user.id}_${currentSession.access_token.substring(0, 20)}`;
           
-          // 只有在有足够数据时才进行多设备检测
-          if (lastLoginTime && sessionCreatedTime) {
-            const timeDiff = lastLoginTime.getTime() - sessionCreatedTime.getTime();
+          // 如果用户没有last_login_session，说明是首次登录或旧的会话
+          if (!profile.last_login_session) {
+            console.log(`[中间件] 首次登录或旧的会话，更新会话标识`);
             
-            console.log(`[中间件] 多设备检查:`);
-            console.log(`  - 会话创建时间: ${sessionCreatedTime.toISOString()}`);
-            console.log(`  - 最后登录时间: ${lastLoginTime.toISOString()}`);
-            console.log(`  - 时间差: ${timeDiff}ms`);
-            console.log(`  - 容差: ${tolerance}ms`);
+            // 更新会话标识
+            await supabase
+              .from('profiles')
+              .update({ 
+                last_login_session: currentSessionId,
+                last_login_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', user.id);
             
-            // 如果最后登录时间比会话创建时间晚（超过容差），说明有新设备登录
-            if (timeDiff > tolerance) {
-              console.log(`[中间件] 检测到多设备登录，强制退出: ${user.email}`);
-              
-              // 清除会话cookie
-              response.cookies.delete('sb-access-token');
-              response.cookies.delete('sb-refresh-token');
-              
-              // 重定向到过期页面
-              const userEmail = user.email || '';
-              const lastLoginTimeStr = lastLoginTime.toISOString();
-              
-              const redirectUrl = new URL('/login/expired', request.url);
-              redirectUrl.searchParams.set('email', userEmail);
-              redirectUrl.searchParams.set('last_login_time', lastLoginTimeStr);
-              redirectUrl.searchParams.set('session_created', sessionCreatedTime.toISOString());
-              
-              const elapsedTime = Date.now() - startTime;
-              console.log(`[中间件] 多设备登录验证完成，重定向 (${elapsedTime}ms)`);
-              
-              return NextResponse.redirect(redirectUrl);
-            }
+          } else if (profile.last_login_session !== currentSessionId) {
+            // 如果会话标识不匹配，说明是新设备登录
+            console.log(`[中间件] 检测到新设备登录: ${user.email}`);
+            console.log(`  - 存储的会话标识: ${profile.last_login_session}`);
+            console.log(`  - 当前会话标识: ${currentSessionId}`);
+            
+            // 清除会话cookie
+            response.cookies.delete('sb-access-token');
+            response.cookies.delete('sb-refresh-token');
+            
+            // 重定向到过期页面
+            const redirectUrl = new URL('/login/expired', request.url);
+            redirectUrl.searchParams.set('email', user.email || '');
+            redirectUrl.searchParams.set('reason', 'new_device_login');
+            
+            const elapsedTime = Date.now() - startTime;
+            console.log(`[中间件] 重定向到过期页面 (${elapsedTime}ms)`);
+            
+            return NextResponse.redirect(redirectUrl);
           } else {
-            console.log(`[中间件] 多设备检查数据不足:`);
-            console.log(`  - lastLoginTime: ${lastLoginTime ? lastLoginTime.toISOString() : 'null'}`);
-            console.log(`  - sessionCreatedTime: ${sessionCreatedTime ? sessionCreatedTime.toISOString() : 'null'}`);
+            // 会话匹配，正常访问
+            console.log(`[中间件] 会话验证通过: ${currentSessionId.substring(0, 20)}...`);
           }
           
         } catch (multiDeviceError) {
-          console.error(`[中间件] 多设备验证错误:`, multiDeviceError);
-          // 多设备验证出错时，不阻止用户访问，仅记录日志
-        }
-        
-        // ============ 验证通过，更新最后登录时间 ============
-        // 所有用户（包括管理员）都更新最后登录时间
-        try {
-          // 更新最后登录时间和会话标识
-          await supabase
-            .from('profiles')
-            .update({ 
-              last_login_at: new Date().toISOString(),
-              last_login_session: `web_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-              updated_at: new Date().toISOString() // 同时更新updated_at字段
-            })
-            .eq('id', user.id);
-        } catch (updateError) {
-          console.warn(`[中间件] 更新最后登录时间失败:`, updateError);
+          console.error(`[中间件] 会话验证错误:`, multiDeviceError);
+          // 验证出错时，不阻止用户访问，仅记录日志
         }
         
         const elapsedTime = Date.now() - startTime;
         console.log(`[中间件] 验证全部通过: ${user.email} (${elapsedTime}ms)`);
         console.log(`  - 会员过期时间: ${profile.account_expires_at}`);
-        console.log(`  - 是否管理员: ${isAdminEmail(user.email)}`);
         
         return response;
         
       } catch (gamePathError) {
         console.error(`[中间件] 游戏路径验证异常:`, gamePathError);
-        
-        // 发生异常时，重定向到登录页，但不带redirect参数避免循环
         return NextResponse.redirect(new URL('/login', request.url));
       }
     }
@@ -365,23 +310,12 @@ export async function middleware(request: NextRequest) {
     
   } catch (globalError) {
     console.error(`[中间件] 全局异常:`, globalError);
-    
-    // 发生全局异常时，返回500错误或重定向到错误页
     return NextResponse.redirect(new URL('/login', request.url));
   }
 }
 
-// ==================== 中间件配置 ====================
-
 export const config = {
   matcher: [
-    /*
-     * 匹配所有路径除了:
-     * - _next/static (静态文件)
-     * - _next/image (图片优化)
-     * - favicon.ico (网站图标)
-     * - public文件夹下的文件
-     */
     '/((?!_next/static|_next/image|favicon.ico|public/).*)',
   ],
 };
