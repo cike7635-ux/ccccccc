@@ -1,4 +1,4 @@
-// /middleware.ts - 完整版本
+// /middleware.ts - 修正版本 (解决Cookie设置失败和多设备误判)
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
@@ -9,36 +9,17 @@ import { NextResponse, type NextRequest } from 'next/server';
  */
 function isAdminEmail(email: string | undefined | null): boolean {
   if (!email) return false;
-  
   const adminEmails = process.env.ADMIN_EMAILS?.split(',') || ['2200691917@qq.com'];
-  return adminEmails.some(adminEmail => 
-    adminEmail.trim().toLowerCase() === email.toLowerCase()
-  );
+  return adminEmails.some(adminEmail => adminEmail.trim().toLowerCase() === email.toLowerCase());
 }
 
 /**
  * 检查是否受保护的游戏路径
  */
 function isProtectedGamePath(path: string): boolean {
-  // 精确匹配的路径
-  const exactPaths = [
-    '/lobby',
-    '/game',
-    '/profile', 
-    '/themes',
-    '/game-history',
-  ];
-  
-  if (exactPaths.includes(path)) {
-    return true;
-  }
-  
-  // 前缀匹配的路径（如 /themes/123）
-  const prefixPaths = [
-    '/game/',
-    '/themes/',
-  ];
-  
+  const exactPaths = ['/lobby', '/game', '/profile', '/themes', '/game-history'];
+  if (exactPaths.includes(path)) return true;
+  const prefixPaths = ['/game/', '/themes/'];
   return prefixPaths.some(prefix => path.startsWith(prefix));
 }
 
@@ -46,34 +27,49 @@ function isProtectedGamePath(path: string): boolean {
  * 检查是否公开路径（不需要认证）
  */
 function isPublicPath(path: string): boolean {
-  // 精确匹配的公开路径
-  const exactPublicPaths = [
-    '/',
-    '/login',
-    '/account-expired', 
-    '/renew',
-    '/admin',
-    '/admin/unauthorized',
-    '/login/expired',
-  ];
-  
-  if (exactPublicPaths.includes(path)) {
-    return true;
-  }
-  
-  // 前缀匹配的公开路径
-  const prefixPublicPaths = [
-    '/auth/',
-    '/api/auth/',
-  ];
-  
-  for (const prefix of prefixPublicPaths) {
-    if (path.startsWith(prefix)) {
-      return true;
+  const exactPublicPaths = ['/', '/login', '/account-expired', '/renew', '/admin', '/admin/unauthorized', '/login/expired'];
+  if (exactPublicPaths.includes(path)) return true;
+  const prefixPublicPaths = ['/auth/', '/api/auth/'];
+  return prefixPublicPaths.some(prefix => path.startsWith(prefix));
+}
+
+/**
+ * 在中间件中安全创建Supabase客户端 (关键修复)
+ */
+function createMiddlewareClient(request: NextRequest) {
+  // 创建一个不自动管理cookie的响应对象
+  const response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  });
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY! || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          // 【关键修改】直接在response对象上操作，避免冲突
+          cookiesToSet.forEach(({ name, value, options }) => {
+            // 在中间件中，我们直接设置response的cookie
+            response.cookies.set({
+              name,
+              value,
+              ...options,
+              // 确保路径正确
+              path: options?.path || '/',
+            });
+          });
+        },
+      },
     }
-  }
-  
-  return false;
+  );
+
+  return { supabase, response };
 }
 
 // ==================== 中间件主函数 ====================
@@ -81,34 +77,13 @@ function isPublicPath(path: string): boolean {
 export async function middleware(request: NextRequest) {
   const currentPath = request.nextUrl.pathname;
   const requestId = Math.random().toString(36).substring(7);
+  
   console.log(`[${requestId}] 中间件开始: ${currentPath}`);
   
   try {
-    // 创建响应对象
-    const response = NextResponse.next();
+    // 使用新的安全客户端创建方式
+    const { supabase, response } = createMiddlewareClient(request);
     
-    // 创建Supabase客户端
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY! || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll: () => {
-            const cookies: { name: string; value: string }[] = [];
-            request.cookies.getAll().forEach(cookie => {
-              cookies.push({ name: cookie.name, value: cookie.value });
-            });
-            return cookies;
-          },
-          setAll: (cookiesToSet) => {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              response.cookies.set(name, value, options);
-            });
-          },
-        },
-      }
-    );
-
     // ============ 路径分类处理 ============
     
     // 1. 公开路径直接放行
@@ -137,13 +112,12 @@ export async function middleware(request: NextRequest) {
       const adminKeyVerified = request.cookies.get('admin_key_verified');
       if (!adminKeyVerified || adminKeyVerified.value !== 'true') {
         console.log(`[${requestId}] 管理员未通过密钥验证`);
-        
         const redirectUrl = new URL('/admin', request.url);
         redirectUrl.searchParams.set('redirect', currentPath);
         return NextResponse.redirect(redirectUrl);
       }
       
-      // 验证管理员登录状态
+      // 【安全修复】使用getUser()而不是getSession()
       const { data: { user }, error } = await supabase.auth.getUser();
       
       if (error || !user) {
@@ -167,17 +141,17 @@ export async function middleware(request: NextRequest) {
       
       try {
         // ============ 基础登录验证 ============
+        // 【安全修复】始终使用getUser()进行身份验证
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         
         if (authError || !user) {
           console.log(`[${requestId}] 用户未登录`);
-          
           const redirectUrl = new URL('/login', request.url);
           redirectUrl.searchParams.set('redirect', currentPath);
           return NextResponse.redirect(redirectUrl);
         }
         
-        console.log(`[${requestId}] 用户已登录: ${user.email}`);
+        console.log(`[${requestId}] 用户已登录: ${user.email} (管理员: ${isAdminEmail(user.email)})`);
         
         // ============ 获取用户资料 ============
         let profile = null;
@@ -207,8 +181,7 @@ export async function middleware(request: NextRequest) {
         
         // ============ 会员过期验证 ============
         const now = new Date();
-        const isExpired = !profile.account_expires_at || 
-                         new Date(profile.account_expires_at) < now;
+        const isExpired = !profile.account_expires_at || new Date(profile.account_expires_at) < now;
         
         if (isExpired && currentPath !== '/account-expired') {
           console.log(`[${requestId}] 会员已过期: ${profile.account_expires_at}`);
@@ -217,7 +190,7 @@ export async function middleware(request: NextRequest) {
         
         // ============ 优化的多设备登录验证 ============
         try {
-          // 获取当前会话信息
+          // 获取当前会话信息 - 只用于生成标识，不用于身份验证
           const { data: { session: currentSession } } = await supabase.auth.getSession();
           
           if (!currentSession) {
@@ -227,7 +200,7 @@ export async function middleware(request: NextRequest) {
             return NextResponse.redirect(redirectUrl);
           }
           
-          // 生成当前会话标识
+          // 生成当前会话标识（仅用于比对，不用于身份验证）
           const currentSessionId = `sess_${currentSession.user.id}_${currentSession.access_token.substring(0, 12)}`;
           
           // 只有数据库中存在会话标识时才进行比对
@@ -238,18 +211,29 @@ export async function middleware(request: NextRequest) {
               match: profile.last_login_session === currentSessionId
             });
             
-            // 只在标识符明确不匹配时才视为多设备登录
-            if (profile.last_login_session !== currentSessionId) {
+            // 添加更宽松的匹配逻辑：允许部分匹配（避免因为token刷新导致的误判）
+            const isSessionMatch = 
+              profile.last_login_session === currentSessionId ||
+              profile.last_login_session.startsWith(`sess_${currentSession.user.id}_`);
+            
+            if (!isSessionMatch) {
               console.log(`[${requestId}] 检测到会话标识不匹配`);
               
-              // 额外检查：是否是刚登录的情况（最后登录时间很近）
+              // 额外检查：最后登录时间
               const lastLoginTime = profile.last_login_at ? new Date(profile.last_login_at) : null;
-              const now = new Date();
               const timeSinceLastLogin = lastLoginTime ? now.getTime() - lastLoginTime.getTime() : 0;
               
-              // 如果最后登录发生在最近30秒内，可能是正常登录过程，不强制退出
-              if (timeSinceLastLogin < 30000) {
-                console.log(`[${requestId}] 最后登录发生在 ${timeSinceLastLogin}ms 前，认为是正常登录，跳过多设备检查`);
+              // 更宽松的时间判断：2分钟内认为是正常操作
+              if (timeSinceLastLogin < 120000) { // 2分钟
+                console.log(`[${requestId}] 最后登录发生在 ${timeSinceLastLogin}ms 前，认为是正常操作`);
+                // 更新为当前会话标识
+                await supabase
+                  .from('profiles')
+                  .update({ 
+                    last_login_session: currentSessionId,
+                    updated_at: now.toISOString()
+                  })
+                  .eq('id', user.id);
               } else {
                 console.log(`[${requestId}] 判定为多设备登录，强制退出`);
                 
@@ -267,32 +251,25 @@ export async function middleware(request: NextRequest) {
                 
                 return NextResponse.redirect(redirectUrl);
               }
+            } else {
+              console.log(`[${requestId}] 会话标识匹配`);
             }
           } else {
-            // 数据库中无会话标识，说明是首次或重置后登录
+            // 数据库中无会话标识，初始化新的会话
             console.log(`[${requestId}] 无历史会话标识，初始化新的会话`);
-          }
-          
-          // ============ 更新会话信息 ============
-          // 只有在会话验证通过后才更新
-          try {
-            const newSessionId = `sess_${currentSession.user.id}_${currentSession.access_token.substring(0, 12)}`;
             await supabase
               .from('profiles')
               .update({ 
                 last_login_at: now.toISOString(),
-                last_login_session: newSessionId,
+                last_login_session: currentSessionId,
                 updated_at: now.toISOString()
               })
               .eq('id', user.id);
-              
-            console.log(`[${requestId}] 已更新会话信息`);
-          } catch (updateError) {
-            console.warn(`[${requestId}] 更新会话信息失败:`, updateError);
           }
           
         } catch (sessionError) {
           console.error(`[${requestId}] 会话验证错误:`, sessionError);
+          // 出错时不中断用户访问
         }
         
         console.log(`[${requestId}] 游戏路径验证通过`);
