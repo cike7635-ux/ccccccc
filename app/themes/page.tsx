@@ -135,32 +135,6 @@ export default async function ThemesPage() {
 
   return (
     <>
-      {/* 内联样式用于移动端优化 */}
-      <style jsx global>{`
-        /* 移动端优化 */
-        @media (max-width: 768px) {
-          .theme-card {
-            transition: all 0.2s ease;
-          }
-          
-          .theme-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-          }
-          
-          .theme-card-actions {
-            opacity: 0;
-            transform: translateY(5px);
-            transition: all 0.2s ease;
-          }
-          
-          .theme-card:hover .theme-card-actions {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-      `}</style>
-      
       <div className="max-w-md mx-auto min-h-svh flex flex-col pb-24">
         {/* 顶部标题区域 - 简约风格 */}
         <div className="px-6 pt-8 pb-6">
@@ -199,10 +173,10 @@ export default async function ThemesPage() {
             {themes.map((t) => (
               <div 
                 key={t.id} 
-                className="theme-card relative bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5 hover:bg-white/10 transition-all duration-200 group"
+                className="relative bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5 hover:bg-white/10 transition-all duration-200 group"
               >
-                {/* 操作按钮 - 桌面端悬停显示，移动端一直显示 */}
-                <div className="absolute top-4 right-4 flex items-center gap-1 theme-card-actions">
+                {/* 操作按钮 - 移动端显示，桌面端悬停显示 */}
+                <div className="absolute top-4 right-4 flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-200">
                   <Link
                     href={`/themes/${t.id}`}
                     className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
@@ -251,14 +225,6 @@ export default async function ThemesPage() {
                     </p>
                   )}
                   
-                  {/* 移动端提示 */}
-                  <div className="md:hidden mt-3 pt-3 border-t border-white/10">
-                    <div className="flex items-center justify-center text-xs text-gray-500">
-                      <Calendar className="w-3 h-3 mr-1" />
-                      点击卡片查看详情
-                    </div>
-                  </div>
-                  
                   {/* 桌面端箭头提示 */}
                   <div className="hidden md:flex items-center justify-center mt-3">
                     <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -275,8 +241,8 @@ export default async function ThemesPage() {
             <div className="mt-8 p-4 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl">
               <div className="text-center text-xs text-gray-400 space-y-1">
                 <p>💡 提示：点击主题卡片可以查看和编辑主题详情</p>
-                <p>🖱️ 桌面端：鼠标悬停显示操作按钮</p>
-                <p>📱 移动端：可直接看到编辑和删除按钮</p>
+                <p className="hidden md:block">🖱️ 桌面端：鼠标悬停显示操作按钮</p>
+                <p className="md:hidden">📱 移动端：可直接看到编辑和删除按钮</p>
               </div>
             </div>
           )}
