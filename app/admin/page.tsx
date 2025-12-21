@@ -1,4 +1,4 @@
-// /app/admin/page.tsx - 修复图标和手机显示问题
+// /app/admin/page.tsx - 修复图标大小和眼睛逻辑
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
@@ -165,7 +165,7 @@ function AdminLoginForm() {
 
   return (
     <div 
-      className="flex items-center justify-center w-full h-full min-h-screen"
+      className="flex items-center justify-center w-full h-full min-h-screen p-4"
       style={{
         background: 'linear-gradient(180deg, #0a0a12 0%, #12101a 50%, #1a0f1f 100%)',
         position: 'fixed',
@@ -174,49 +174,50 @@ function AdminLoginForm() {
         right: 0,
         bottom: 0,
         margin: 0,
-        padding: '1rem',
         overflow: 'auto'
       }}
     >
       <div className="w-full max-w-md">
+        {/* 标题区域 */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-br from-brand-pink to-brand-rose rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Shield className="w-8 h-8 text-white" />
+          <div className="w-20 h-20 bg-gradient-to-br from-brand-pink to-brand-rose rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <Shield className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">系统管理员登录</h1>
-          <p className="text-gray-400">仅限授权管理员访问后台系统</p>
+          <h1 className="text-3xl font-bold text-white mb-2">系统管理员登录</h1>
+          <p className="text-gray-400 text-base">仅限授权管理员访问后台系统</p>
         </div>
 
+        {/* 表单区域 */}
         <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700/50">
           <form onSubmit={handleLogin} className="space-y-6">
-            {/* 邮箱输入 - 手机端增大图标 */}
+            {/* 邮箱输入 */}
             <div>
-              <label className="block text-sm text-gray-300 mb-2">管理员邮箱</label>
-              <div className="flex items-center bg-gray-900/50 rounded-lg p-3 border border-gray-700">
-                <Mail className="w-6 h-6 text-gray-400 mr-3" />
+              <label className="block text-base text-gray-300 mb-3">管理员邮箱</label>
+              <div className="relative flex items-center">
+                <Mail className="absolute left-4 w-7 h-7 text-gray-400" />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="输入管理员邮箱"
-                  className="flex-1 bg-transparent text-white outline-none placeholder-gray-500 text-base"
+                  className="w-full pl-14 pr-4 py-4 bg-gray-900/50 rounded-xl border border-gray-700 text-white placeholder-gray-500 text-lg outline-none focus:border-brand-pink transition-colors"
                   required
                   disabled={loading}
                 />
               </div>
             </div>
 
-            {/* 密码输入 - 修复小眼睛图标 */}
+            {/* 密码输入 - 修正眼睛图标和布局 */}
             <div>
-              <label className="block text-sm text-gray-300 mb-2">密码</label>
-              <div className="flex items-center bg-gray-900/50 rounded-lg p-3 border border-gray-700">
-                <Lock className="w-6 h-6 text-gray-400 mr-3" />
+              <label className="block text-base text-gray-300 mb-3">密码</label>
+              <div className="relative flex items-center">
+                <Lock className="absolute left-4 w-7 h-7 text-gray-400" />
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="输入密码"
-                  className="flex-1 bg-transparent text-white outline-none placeholder-gray-500 text-base"
+                  className="w-full pl-14 pr-14 py-4 bg-gray-900/50 rounded-xl border border-gray-700 text-white placeholder-gray-500 text-lg outline-none focus:border-brand-pink transition-colors"
                   required
                   disabled={loading}
                 />
@@ -224,29 +225,30 @@ function AdminLoginForm() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   disabled={loading}
-                  className="ml-2 p-2 text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+                  className="absolute right-4 p-2 text-gray-400 hover:text-white transition-colors disabled:opacity-50"
                   aria-label={showPassword ? "隐藏密码" : "显示密码"}
                 >
+                  {/* 修正：默认不显示密码（闭眼），点击后显示密码（睁眼） */}
                   {showPassword ? (
-                    <EyeOff className="w-5 h-5" />
+                    <Eye className="w-7 h-7" />
                   ) : (
-                    <Eye className="w-5 h-5" />
+                    <EyeOff className="w-7 h-7" />
                   )}
                 </button>
               </div>
             </div>
 
-            {/* 管理员密钥输入 - 修复小眼睛图标 */}
+            {/* 管理员密钥输入 */}
             <div>
-              <label className="block text-sm text-gray-300 mb-2">管理员密钥</label>
-              <div className="flex items-center bg-gray-900/50 rounded-lg p-3 border border-gray-700">
-                <Key className="w-6 h-6 text-gray-400 mr-3" />
+              <label className="block text-base text-gray-300 mb-3">管理员密钥</label>
+              <div className="relative flex items-center">
+                <Key className="absolute left-4 w-7 h-7 text-gray-400" />
                 <input
                   type={showAdminKey ? "text" : "password"}
                   value={adminKey}
                   onChange={(e) => setAdminKey(e.target.value)}
                   placeholder="输入管理员密钥"
-                  className="flex-1 bg-transparent text-white outline-none placeholder-gray-500 text-base"
+                  className="w-full pl-14 pr-14 py-4 bg-gray-900/50 rounded-xl border border-gray-700 text-white placeholder-gray-500 text-lg outline-none focus:border-brand-pink transition-colors"
                   required
                   disabled={loading}
                 />
@@ -254,27 +256,28 @@ function AdminLoginForm() {
                   type="button"
                   onClick={() => setShowAdminKey(!showAdminKey)}
                   disabled={loading}
-                  className="ml-2 p-2 text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+                  className="absolute right-4 p-2 text-gray-400 hover:text-white transition-colors disabled:opacity-50"
                   aria-label={showAdminKey ? "隐藏密钥" : "显示密钥"}
                 >
+                  {/* 修正：默认不显示密钥（闭眼），点击后显示密钥（睁眼） */}
                   {showAdminKey ? (
-                    <EyeOff className="w-5 h-5" />
+                    <Eye className="w-7 h-7" />
                   ) : (
-                    <Eye className="w-5 h-5" />
+                    <EyeOff className="w-7 h-7" />
                   )}
                 </button>
               </div>
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="text-sm text-gray-500 mt-3 text-center">
                 请联系系统管理员获取密钥
               </p>
             </div>
 
             {/* 错误提示 */}
             {error && (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
                 <div className="flex items-center text-red-400">
-                  <AlertCircle className="w-5 h-5 mr-3 flex-shrink-0" />
-                  <span className="text-sm">{error}</span>
+                  <AlertCircle className="w-6 h-6 mr-3 flex-shrink-0" />
+                  <span className="text-base">{error}</span>
                 </div>
               </div>
             )}
@@ -283,11 +286,11 @@ function AdminLoginForm() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-brand-pink to-brand-rose text-white py-3 rounded-lg font-medium disabled:opacity-50 flex items-center justify-center hover:opacity-90 transition-opacity text-base"
+              className="w-full bg-gradient-to-r from-brand-pink to-brand-rose text-white py-5 rounded-xl font-medium disabled:opacity-50 flex items-center justify-center hover:opacity-90 transition-opacity text-lg"
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  <Loader2 className="w-6 h-6 mr-3 animate-spin" />
                   验证中...
                 </>
               ) : (
@@ -296,10 +299,10 @@ function AdminLoginForm() {
             </button>
           </form>
 
-          <div className="mt-6 pt-4 border-t border-gray-700 text-center">
+          <div className="mt-8 pt-6 border-t border-gray-700 text-center">
             <Link 
               href="/login" 
-              className="text-sm text-brand-pink hover:text-brand-rose transition-colors hover:underline"
+              className="text-base text-brand-pink hover:text-brand-rose transition-colors hover:underline"
             >
               返回普通用户登录
             </Link>
@@ -307,7 +310,7 @@ function AdminLoginForm() {
         </div>
 
         <div className="mt-6 text-center">
-          <p className="text-xs text-gray-500">
+          <p className="text-sm text-gray-500">
             Love Ludo 后台管理系统 v1.0 · 希夷游戏
           </p>
         </div>
@@ -320,7 +323,7 @@ function AdminLoginForm() {
 function LoadingSpinner() {
   return (
     <div 
-      className="flex items-center justify-center w-full h-full min-h-screen"
+      className="flex items-center justify-center w-full h-full min-h-screen p-4"
       style={{
         background: 'linear-gradient(180deg, #0a0a12 0%, #12101a 50%, #1a0f1f 100%)',
         position: 'fixed',
@@ -329,16 +332,15 @@ function LoadingSpinner() {
         right: 0,
         bottom: 0,
         margin: 0,
-        padding: '1rem',
         overflow: 'auto'
       }}
     >
       <div className="w-full max-w-md text-center">
-        <div className="w-16 h-16 bg-gradient-to-br from-brand-pink to-brand-rose rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <Loader2 className="w-8 h-8 text-white animate-spin" />
+        <div className="w-20 h-20 bg-gradient-to-br from-brand-pink to-brand-rose rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <Loader2 className="w-10 h-10 text-white animate-spin" />
         </div>
-        <h1 className="text-2xl font-bold text-white mb-2">加载中...</h1>
-        <p className="text-gray-400">正在准备管理员登录</p>
+        <h1 className="text-3xl font-bold text-white mb-2">加载中...</h1>
+        <p className="text-gray-400 text-base">正在准备管理员登录</p>
       </div>
     </div>
   );
