@@ -1,6 +1,5 @@
-// /lib/admin/auth.ts - 简化的验证函数
+// /lib/admin/auth.ts
 import { createClient } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
 
 export async function validateAdminSession() {
   try {
@@ -12,8 +11,10 @@ export async function validateAdminSession() {
     }
 
     // 检查是否是管理员邮箱
-    const adminEmails = ['2200691917@qq.com']; // 硬编码管理员邮箱
-    const isAdmin = adminEmails.includes(user.email?.toLowerCase() || '');
+    const adminEmails = process.env.ADMIN_EMAILS?.split(',') || ['2200691917@qq.com'];
+    const isAdmin = adminEmails.some(email => 
+      email.trim().toLowerCase() === user.email?.toLowerCase()
+    );
     
     if (!isAdmin) {
       return { isAdmin: false, user };
@@ -23,12 +24,5 @@ export async function validateAdminSession() {
     
   } catch (error) {
     return { isAdmin: false, user: null };
-  }
-}
-
-export async function requireAdmin() {
-  const { isAdmin } = await validateAdminSession();
-  if (!isAdmin) {
-    redirect('/admin');
   }
 }
