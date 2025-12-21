@@ -1,4 +1,4 @@
-// /middleware.ts - 修复版本
+// /middleware.ts - 保留所有非管理员功能，只修改管理员相关部分
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
@@ -78,10 +78,9 @@ export async function middleware(request: NextRequest) {
   // 1. 创建响应对象
   const response = NextResponse.next();
   
-  // 2. 创建Supabase客户端 - 修复：根据你的环境变量选择正确的key
+  // 2. 创建Supabase客户端
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    // 优先使用 PUBLISHABLE_KEY，如果没有则使用 ANON_KEY
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY! || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
@@ -101,17 +100,18 @@ export async function middleware(request: NextRequest) {
     }
   );
 
+  // =================== ⭐ 只修改这部分：管理员路径处理 ===================
   // 3. 处理管理员路径（最高优先级）
   if (currentPath.startsWith('/admin')) {
     console.log(`[中间件] 管理员路径处理: ${currentPath}`);
     
-    // 管理员登录页面直接放行
+    // 3.1 管理员登录页面直接放行
     if (currentPath === '/admin' || currentPath === '/admin/login') {
       console.log(`[中间件] 放行管理员登录页面: ${currentPath}`);
       return response;
     }
     
-    // 其他管理员页面需要验证
+    // 3.2 其他管理员页面需要验证
     try {
       const { data: { user }, error } = await supabase.auth.getUser();
       
@@ -126,6 +126,17 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/admin/unauthorized', request.url));
       }
       
+      // ⭐⭐ 新增：检查管理员密钥验证标记
+      const adminKeyVerified = request.cookies.get('admin_key_verified');
+      if (!adminKeyVerified || adminKeyVerified.value !== 'true') {
+        console.log(`[中间件] 管理员未通过密钥验证，重定向到管理员登录页`);
+        
+        // 重定向到管理员登录页，并带上redirect参数
+        const redirectUrl = new URL('/admin', request.url);
+        redirectUrl.searchParams.set('redirect', currentPath);
+        return NextResponse.redirect(redirectUrl);
+      }
+      
       console.log(`[中间件] 管理员验证通过: ${user.email}`);
       return response;
       
@@ -134,6 +145,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/admin', request.url));
     }
   }
+  // =================== 管理员部分修改结束 ===================
   
   // 4. 公开路径直接放行
   if (isPublicPath(currentPath)) {
@@ -168,24 +180,16 @@ export async function middleware(request: NextRequest) {
       
       console.log(`[中间件] 用户已登录: ${user.email}`);
       
-      // 6.2 检查是否是管理员（管理员玩游戏的场景）
+      // 6.2 检查是否是管理员
       const isAdmin = isAdminEmail(user.email);
       
-   if (isAdmin) {
-  console.log(`[中间件] 管理员玩游戏: ${user.email}`);
-  
-  // 管理员玩游戏，跳过会员过期和多设备验证
-  // 但如果是管理员访问管理员页面，应该继续验证
-  if (currentPath.startsWith('/admin')) {
-    // 已经在上面的管理员路径处理过了，这里不会执行
-    return response;
-  }
-  
-  // 管理员玩游戏，直接放行
-  return response;
-}
+      // ⭐ 如果是管理员玩游戏，清除管理员验证标记，防止被强制重定向到后台
+      if (isAdmin) {
+        console.log(`[中间件] 管理员玩游戏: ${user.email}`);
+        response.cookies.delete('admin_key_verified');
+      }
       
-      // 6.3 普通用户：获取用户资料
+      // 6.3 获取用户资料（管理员和普通用户都需要）
       const { data: profile } = await supabase
         .from('profiles')
         .select('account_expires_at, last_login_at, last_login_session')
@@ -197,7 +201,7 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/login?error=profile_not_found', request.url));
       }
       
-      // 6.4 检查会员有效期
+      // 6.4 检查会员有效期（管理员和普通用户都需要检查）
       const isExpired = !profile?.account_expires_at || 
                        new Date(profile.account_expires_at) < new Date();
       
@@ -206,7 +210,7 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/account-expired', request.url));
       }
       
-      // 6.5 多设备登录验证
+      // 6.5 多设备登录验证（管理员和普通用户都需要检查）
       const { data: { session: currentSession } } = await supabase.auth.getSession();
       if (!currentSession) {
         console.log(`[中间件] 会话不存在: ${user.id}`);
@@ -226,6 +230,11 @@ export async function middleware(request: NextRequest) {
           // 清除会话cookie
           response.cookies.delete('sb-access-token');
           response.cookies.delete('sb-refresh-token');
+          
+          // 如果管理员也清除管理员标记
+          if (isAdmin) {
+            response.cookies.delete('admin_key_verified');
+          }
           
           // 重定向到过期页面
           const userEmail = user.email || '';
