@@ -1,47 +1,45 @@
-// /app/login/page.tsx - 删除管理员提示后的版本
+// /app/login/page.tsx - 修复版本
 import Link from "next/link";
 import { LoginForm } from "@/components/login-form";
 import { SignUpForm } from "@/components/sign-up-form";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { isAdminEmail } from "@/lib/admin/auth-utils";
+
+// 检查是否是管理员
+function isAdminEmail(email: string | undefined | null): boolean {
+  if (!email) return false;
+  const adminEmails = process.env.ADMIN_EMAILS?.split(',') || ['2200691917@qq.com'];
+  return adminEmails.some(adminEmail => 
+    adminEmail.trim().toLowerCase() === email.toLowerCase()
+  );
+}
 
 export default async function Page({
   searchParams,
 }: {
   searchParams: Promise<{ tab?: string; redirect?: string }>;
 }) {
-  // 获取用户信息
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   
-  // 解析搜索参数
   const params = await searchParams;
   const active = params?.tab === "signup" ? "signup" : "login";
   const redirectParam = params?.redirect || "";
 
-  // 如果用户已登录
   if (user) {
-    console.log(`[登录页] 用户已登录: ${user.email}`);
+    console.log(`[登录页] 用户已登录: ${user.email}, redirect参数: "${redirectParam}"`);
     
     // 检查是否是管理员
-    const isAdmin = isAdminEmail(user.email);
+    const admin = isAdminEmail(user.email);
     
-    // 根据情况重定向
-    if (redirectParam) {
-      // 有明确的redirect参数，优先使用
-      console.log(`[登录页] 使用参数重定向: ${redirectParam}`);
-      redirect(redirectParam);
-    } else if (isAdmin) {
-      // 管理员没有redirect参数，重定向到后台仪表板
-      console.log(`[登录页] 管理员重定向到后台仪表板`);
-      redirect("/admin/dashboard");
-    } else {
-      // 普通用户没有redirect参数，默认到游戏大厅
-      console.log(`[登录页] 普通用户重定向到游戏大厅`);
-      redirect("/lobby");
-    }
+    // ⭐ 关键修复：优先使用redirect参数
+    // 如果有redirect参数（从中间件来），就去那里
+    // 如果没有，管理员去后台，普通用户去游戏大厅
+    const targetPath = redirectParam || (admin ? "/admin/dashboard" : "/lobby");
+    
+    console.log(`[登录页] 重定向到: ${targetPath}`);
+    redirect(targetPath);
   }
 
   return (
