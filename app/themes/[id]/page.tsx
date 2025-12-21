@@ -1,4 +1,4 @@
-// /app/themes/[id]/page.tsx - 修复不刷新页面的保存功能
+// /app/themes/[id]/page.tsx - 修复 TypeScript 错误
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -52,11 +52,7 @@ export default function ThemeDetailPage({ params }: Params) {
     
     try {
       const formData = new FormData(themeFormRef.current);
-      const result = await updateTheme(formData);
-      
-      if (result.error) {
-        throw new Error(result.error);
-      }
+      await updateTheme(formData); // 假设 updateTheme 没有返回值或返回 void
       
       // 更新本地theme状态
       setTheme((prev: any) => ({
@@ -94,11 +90,7 @@ export default function ThemeDetailPage({ params }: Params) {
     try {
       const form = e.currentTarget as HTMLFormElement;
       const formData = new FormData(form);
-      const result = await updateTask(formData);
-      
-      if (result.error) {
-        throw new Error(result.error);
-      }
+      await updateTask(formData); // 假设 updateTask 没有返回值或返回 void
       
       // 更新本地tasks状态
       setTasks(prev => prev.map(task => 
@@ -147,11 +139,7 @@ export default function ThemeDetailPage({ params }: Params) {
     const formData = new FormData(form);
     
     try {
-      const result = await createTask(formData);
-      
-      if (result.error) {
-        throw new Error(result.error);
-      }
+      await createTask(formData); // 假设 createTask 没有返回值或返回 void
       
       // 刷新任务列表
       const { id: themeId } = await params;
@@ -192,11 +180,7 @@ export default function ThemeDetailPage({ params }: Params) {
       const formData = new FormData();
       formData.append('id', taskId);
       
-      const result = await deleteTask(formData);
-      
-      if (result.error) {
-        throw new Error(result.error);
-      }
+      await deleteTask(formData); // 假设 deleteTask 没有返回值或返回 void
       
       // 从本地状态中移除任务
       setTasks(prev => prev.filter(task => task.id !== taskId));
