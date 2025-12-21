@@ -1,4 +1,4 @@
-// /middleware.ts - 修正版本 (解决Cookie设置失败和多设备误判)
+// /middleware.ts - 增强版本 (包含用户验证传递功能)
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
@@ -34,7 +34,7 @@ function isPublicPath(path: string): boolean {
 }
 
 /**
- * 在中间件中安全创建Supabase客户端 (关键修复)
+ * 在中间件中安全创建Supabase客户端
  */
 function createMiddlewareClient(request: NextRequest) {
   // 创建一个不自动管理cookie的响应对象
@@ -53,14 +53,11 @@ function createMiddlewareClient(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          // 【关键修改】直接在response对象上操作，避免冲突
           cookiesToSet.forEach(({ name, value, options }) => {
-            // 在中间件中，我们直接设置response的cookie
             response.cookies.set({
               name,
               value,
               ...options,
-              // 确保路径正确
               path: options?.path || '/',
             });
           });
@@ -72,13 +69,69 @@ function createMiddlewareClient(request: NextRequest) {
   return { supabase, response };
 }
 
+// ==================== 核心功能：获取已验证的用户 ====================
+
+/**
+ * 获取已验证的用户信息（使用安全的getUser()方法）
+ */
+async function getVerifiedUser(supabase: any) {
+  try {
+    // 🔥 关键修复：使用 getUser() 而不是 getSession()
+    const { data: { user }, error } = await supabase.auth.getUser();
+    
+    if (error) {
+      console.warn('[已验证用户] 获取用户失败:', error.message);
+      return { user: null, error };
+    }
+    
+    return { user, error: null };
+  } catch (error: any) {
+    console.error('[已验证用户] 异常:', error.message);
+    return { user: null, error };
+  }
+}
+
+/**
+ * 将已验证的用户信息添加到响应头中
+ */
+function addVerifiedUserHeaders(response: NextResponse, user: any) {
+  if (!user) return response;
+  
+  // 创建新的请求头
+  const requestHeaders = new Headers(response.request.headers);
+  
+  // 添加已验证的用户信息到请求头
+  requestHeaders.set('x-verified-user-id', user.id);
+  
+  if (user.email) {
+    requestHeaders.set('x-verified-user-email', user.email);
+  }
+  
+  if (user.user_metadata?.name) {
+    requestHeaders.set('x-verified-user-name', user.user_metadata.name);
+  }
+  
+  // 添加一个标志，表明这个用户已经经过中间件验证
+  requestHeaders.set('x-user-verified-by-middleware', 'true');
+  
+  // 创建一个新的响应，带有更新后的请求头
+  return NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
+}
+
 // ==================== 中间件主函数 ====================
 
 export async function middleware(request: NextRequest) {
   const currentPath = request.nextUrl.pathname;
   const requestId = Math.random().toString(36).substring(7);
   
-  console.log(`[${requestId}] 中间件开始: ${currentPath}`);
+  // 简化日志，避免过多输出
+  if (!currentPath.startsWith('/_next') && !currentPath.startsWith('/favicon')) {
+    console.log(`[${requestId}] 中间件: ${currentPath}`);
+  }
   
   try {
     // 使用新的安全客户端创建方式
@@ -88,23 +141,22 @@ export async function middleware(request: NextRequest) {
     
     // 1. 公开路径直接放行
     if (isPublicPath(currentPath)) {
-      console.log(`[${requestId}] 公开路径，直接放行`);
+      if (currentPath === '/admin') {
+        // 管理员登录页特殊处理
+        console.log(`[${requestId}] 管理员登录页，放行`);
+      }
       return response;
     }
     
     // 2. API路径处理
     if (currentPath.startsWith('/api/')) {
-      console.log(`[${requestId}] API路径，放行`);
       return response;
     }
     
     // 3. 管理员路径处理（独立验证）
     if (currentPath.startsWith('/admin')) {
-      console.log(`[${requestId}] 管理员路径处理`);
-      
       // 管理员登录页面直接放行
       if (currentPath === '/admin' || currentPath === '/admin/login') {
-        console.log(`[${requestId}] 管理员登录页，放行`);
         return response;
       }
       
@@ -117,8 +169,8 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(redirectUrl);
       }
       
-      // 【安全修复】使用getUser()而不是getSession()
-      const { data: { user }, error } = await supabase.auth.getUser();
+      // 获取已验证的用户
+      const { user, error } = await getVerifiedUser(supabase);
       
       if (error || !user) {
         console.log(`[${requestId}] 管理员未登录`);
@@ -132,17 +184,16 @@ export async function middleware(request: NextRequest) {
       }
       
       console.log(`[${requestId}] 管理员验证通过: ${user.email}`);
-      return response;
+      
+      // 将已验证的管理员信息添加到响应头
+      return addVerifiedUserHeaders(response, user);
     }
     
     // 4. 受保护的游戏路径（完整验证）
     if (isProtectedGamePath(currentPath)) {
-      console.log(`[${requestId}] 游戏路径验证开始`);
-      
       try {
         // ============ 基础登录验证 ============
-        // 【安全修复】始终使用getUser()进行身份验证
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        const { user, error: authError } = await getVerifiedUser(supabase);
         
         if (authError || !user) {
           console.log(`[${requestId}] 用户未登录`);
@@ -165,18 +216,19 @@ export async function middleware(request: NextRequest) {
           if (profileError) {
             console.warn(`[${requestId}] 查询用户资料失败: ${profileError.message}`);
             // 资料不存在时允许继续，避免循环重定向
-            return response;
+            // 但仍然将用户信息传递给页面
+            return addVerifiedUserHeaders(response, user);
           }
           
           profile = data;
         } catch (profileError) {
           console.error(`[${requestId}] 获取用户资料异常:`, profileError);
-          return response;
+          return addVerifiedUserHeaders(response, user);
         }
         
         if (!profile) {
           console.log(`[${requestId}] 用户资料不存在`);
-          return response;
+          return addVerifiedUserHeaders(response, user);
         }
         
         // ============ 会员过期验证 ============
@@ -190,7 +242,7 @@ export async function middleware(request: NextRequest) {
         
         // ============ 优化的多设备登录验证 ============
         try {
-          // 获取当前会话信息 - 只用于生成标识，不用于身份验证
+          // 获取当前会话信息
           const { data: { session: currentSession } } = await supabase.auth.getSession();
           
           if (!currentSession) {
@@ -200,18 +252,12 @@ export async function middleware(request: NextRequest) {
             return NextResponse.redirect(redirectUrl);
           }
           
-          // 生成当前会话标识（仅用于比对，不用于身份验证）
+          // 生成当前会话标识
           const currentSessionId = `sess_${currentSession.user.id}_${currentSession.access_token.substring(0, 12)}`;
           
           // 只有数据库中存在会话标识时才进行比对
           if (profile.last_login_session) {
-            console.log(`[${requestId}] 会话标识检查:`, {
-              stored: profile.last_login_session.substring(0, 20),
-              current: currentSessionId.substring(0, 20),
-              match: profile.last_login_session === currentSessionId
-            });
-            
-            // 添加更宽松的匹配逻辑：允许部分匹配（避免因为token刷新导致的误判）
+            // 添加更宽松的匹配逻辑
             const isSessionMatch = 
               profile.last_login_session === currentSessionId ||
               profile.last_login_session.startsWith(`sess_${currentSession.user.id}_`);
@@ -251,12 +297,9 @@ export async function middleware(request: NextRequest) {
                 
                 return NextResponse.redirect(redirectUrl);
               }
-            } else {
-              console.log(`[${requestId}] 会话标识匹配`);
             }
           } else {
             // 数据库中无会话标识，初始化新的会话
-            console.log(`[${requestId}] 无历史会话标识，初始化新的会话`);
             await supabase
               .from('profiles')
               .update({ 
@@ -273,7 +316,9 @@ export async function middleware(request: NextRequest) {
         }
         
         console.log(`[${requestId}] 游戏路径验证通过`);
-        return response;
+        
+        // ============ 关键：将已验证的用户信息传递给页面 ============
+        return addVerifiedUserHeaders(response, user);
         
       } catch (gamePathError) {
         console.error(`[${requestId}] 游戏路径验证异常:`, gamePathError);
@@ -282,7 +327,17 @@ export async function middleware(request: NextRequest) {
     }
     
     // 5. 其他未分类路径
-    console.log(`[${requestId}] 其他路径，放行`);
+    // 对于其他路径，我们仍然尝试获取用户信息（如果存在）
+    try {
+      const { user } = await getVerifiedUser(supabase);
+      if (user) {
+        // 如果有用户，将信息传递给页面
+        return addVerifiedUserHeaders(response, user);
+      }
+    } catch (e) {
+      // 忽略错误，继续处理
+    }
+    
     return response;
     
   } catch (globalError) {
