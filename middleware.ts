@@ -1,4 +1,4 @@
-// /middleware.ts - 增强版本 (包含用户验证传递功能)
+// /middleware.ts - 增强版本 (包含用 户验证传递功能)
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
