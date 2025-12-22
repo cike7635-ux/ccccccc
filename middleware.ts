@@ -1,21 +1,14 @@
-// /middleware.ts - 完整修复版本
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 // ==================== 配置与工具函数 ====================
 
-/**
- * 检查是否是管理员邮箱
- */
 function isAdminEmail(email: string | undefined | null): boolean {
   if (!email) return false;
   const adminEmails = process.env.ADMIN_EMAILS?.split(',') || ['2200691917@qq.com'];
   return adminEmails.some(adminEmail => adminEmail.trim().toLowerCase() === email.toLowerCase());
 }
 
-/**
- * 检查是否受保护的游戏路径
- */
 function isProtectedGamePath(path: string): boolean {
   const exactPaths = ['/lobby', '/game', '/profile', '/themes', '/game-history'];
   if (exactPaths.includes(path)) return true;
@@ -23,9 +16,6 @@ function isProtectedGamePath(path: string): boolean {
   return prefixPaths.some(prefix => path.startsWith(prefix));
 }
 
-/**
- * 检查是否公开路径（不需要认证）
- */
 function isPublicPath(path: string): boolean {
   const exactPublicPaths = ['/', '/login', '/account-expired', '/renew', '/admin', '/admin/unauthorized', '/login/expired'];
   if (exactPublicPaths.includes(path)) return true;
@@ -33,9 +23,6 @@ function isPublicPath(path: string): boolean {
   return prefixPublicPaths.some(prefix => path.startsWith(prefix));
 }
 
-/**
- * 在中间件中安全创建Supabase客户端
- */
 function createMiddlewareClient(request: NextRequest) {
   const response = NextResponse.next();
 
@@ -64,9 +51,6 @@ function createMiddlewareClient(request: NextRequest) {
   return { supabase, response };
 }
 
-/**
- * 获取已验证的用户信息（使用安全的getUser()方法）
- */
 async function getVerifiedUser(supabase: any) {
   try {
     const { data: { user }, error } = await supabase.auth.getUser();
@@ -83,9 +67,6 @@ async function getVerifiedUser(supabase: any) {
   }
 }
 
-/**
- * 创建带有已验证用户头信息的响应
- */
 function createResponseWithUserHeaders(request: NextRequest, user: any) {
   const headers = new Headers(request.headers);
   headers.set('x-verified-user-id', user.id);
@@ -108,7 +89,11 @@ function createResponseWithUserHeaders(request: NextRequest, user: any) {
 }
 
 /**
- * 🔥 修复后的多设备检查函数 - 统一处理
+ * 🔥 修复后的多设备检查函数
+ * 主要修改：
+ * 1. 从profiles表的created_at判断是否是新用户
+ * 2. 宽限期改为5秒（您要求的）
+ * 3. 新用户（注册10分钟内）完全跳过多设备检查
  */
 async function handleMultiDeviceCheck(
   request: NextRequest,
@@ -119,6 +104,30 @@ async function handleMultiDeviceCheck(
   response: NextResponse
 ): Promise<NextResponse | null> {
   try {
+    // 🔥 检查是否有新用户标记Cookie（注册API设置的）
+    const newUserCookie = request.cookies.get('new_user_grace_period');
+    if (newUserCookie && newUserCookie.value === 'true') {
+      console.log(`[${requestId}] 检测到新用户标记Cookie，跳过多设备检查`);
+      
+      // 清除这个Cookie，只允许第一次访问使用
+      response.cookies.delete('new_user_grace_period');
+      
+      // 确保数据库中的session标识正确
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const currentSessionId = `sess_${session.user.id}_${session.access_token.substring(0, 12)}`;
+        await supabase
+          .from('profiles')
+          .update({ 
+            last_login_session: currentSessionId,
+            last_login_at: new Date().toISOString()
+          })
+          .eq('id', user.id);
+      }
+      
+      return null; // 通过检查
+    }
+    
     // 获取当前会话
     const { data: { session: currentSession } } = await supabase.auth.getSession();
     
@@ -131,20 +140,23 @@ async function handleMultiDeviceCheck(
     const currentSessionId = `sess_${currentSession.user.id}_${currentSession.access_token.substring(0, 12)}`;
     const now = new Date();
     
-    // 🔥 新用户特殊处理：注册10分钟内的用户
-    const userCreatedAt = user?.created_at ? new Date(user.created_at) : null;
-    const isNewUser = userCreatedAt && (now.getTime() - userCreatedAt.getTime() < 10 * 60 * 1000); // 10分钟内
+    // 🔥 新用户判断：检查profiles表中的created_at
+    let isNewUser = false;
+    if (profile.created_at) {
+      const userCreatedAt = new Date(profile.created_at);
+      isNewUser = (now.getTime() - userCreatedAt.getTime()) < 10 * 60 * 1000; // 10分钟内
+    }
     
-    // 🔥 首次登录特殊处理：数据库中无last_login_session
+    // 🔥 首次登录：数据库中无last_login_session
     const isFirstLogin = !profile.last_login_session;
     
-    // 🔥 如果用户注册后首次访问，完全跳过多设备检查
+    // 🔥 如果是新用户或首次登录，完全跳过多设备检查
     if (isNewUser || isFirstLogin) {
       console.log(`[${requestId}] 新用户/首次登录，跳过多设备检查`, {
         email: user.email,
         isNewUser,
         isFirstLogin,
-        userCreatedAt: user.created_at
+        userCreatedAt: profile.created_at
       });
       
       // 确保数据库中的session标识正确
@@ -158,10 +170,10 @@ async function handleMultiDeviceCheck(
         .eq('id', user.id);
       
       console.log(`[${requestId}] 已更新用户会话标识: ${currentSessionId}`);
-      return null; // 返回null表示通过检查
+      return null;
     }
     
-    // 🔥 老用户的多设备检查（宽松版）
+    // 🔥 老用户的多设备检查（5秒宽限期）
     if (profile.last_login_session) {
       // 宽松匹配：只要前缀相同就认为是同一设备
       const isSessionMatch = 
@@ -175,8 +187,8 @@ async function handleMultiDeviceCheck(
         const lastLoginTime = profile.last_login_at ? new Date(profile.last_login_at) : null;
         const timeSinceLastLogin = lastLoginTime ? now.getTime() - lastLoginTime.getTime() : 0;
         
-        // 🔥 延长宽限期到60秒（原来是3秒）
-        if (timeSinceLastLogin < 60000) { // 60秒
+        // 🔥 宽限期改为5秒（您的要求）
+        if (timeSinceLastLogin < 5000) { // 5秒
           console.log(`[${requestId}] 最后登录发生在 ${timeSinceLastLogin}ms 前，认为是正常操作`);
           // 更新为当前会话标识
           await supabase
@@ -207,10 +219,10 @@ async function handleMultiDeviceCheck(
       }
     }
     
-    return null; // 通过检查
+    return null;
   } catch (error) {
     console.error(`[${requestId}] 多设备检查异常:`, error);
-    return null; // 出错时放行，避免影响用户体验
+    return null;
   }
 }
 
@@ -220,15 +232,12 @@ export async function middleware(request: NextRequest) {
   const currentPath = request.nextUrl.pathname;
   const requestId = Math.random().toString(36).substring(7);
   
-  // 简化日志
   if (!currentPath.startsWith('/_next') && !currentPath.startsWith('/favicon')) {
     console.log(`[${requestId}] 中间件: ${currentPath}`);
   }
   
   try {
     const { supabase, response } = createMiddlewareClient(request);
-    
-    // ============ 路径分类处理 ============
     
     // 1. 公开路径直接放行
     if (isPublicPath(currentPath)) {
@@ -271,28 +280,6 @@ export async function middleware(request: NextRequest) {
       
       console.log(`[${requestId}] 管理员验证通过: ${user.email}`);
       
-      // 🔥 管理员也需要检查多设备（但更宽松）
-      try {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('last_login_session, last_login_at')
-          .eq('id', user.id)
-          .single();
-        
-        if (profile) {
-          const multiDeviceResult = await handleMultiDeviceCheck(
-            request, requestId, supabase, user, profile, response
-          );
-          
-          if (multiDeviceResult) {
-            return multiDeviceResult;
-          }
-        }
-      } catch (profileError) {
-        // 忽略profile错误，继续执行
-        console.warn(`[${requestId}] 管理员profile查询失败:`, profileError);
-      }
-      
       return createResponseWithUserHeaders(request, user);
     }
     
@@ -302,26 +289,42 @@ export async function middleware(request: NextRequest) {
         const { user, error: authError } = await getVerifiedUser(supabase);
         
         if (authError || !user) {
-          console.log(`[${requestId}] 用户未登录，重定向到登录页`);
-          const redirectUrl = new URL('/login', request.url);
-          redirectUrl.searchParams.set('redirect', currentPath);
+          console.log(`[${requestId}] 用户未登录，检查是否新用户`);
+          
+          // 🔥 检查是否是新注册用户（通过Cookie）
+          const newUserCookie = request.cookies.get('new_user_grace_period');
+          if (newUserCookie && newUserCookie.value === 'true') {
+            console.log(`[${requestId}] 新注册用户，重定向到登录页（预填邮箱）`);
+            const redirectUrl = new URL('/login', request.url);
+            redirectUrl.searchParams.set('redirect', currentPath);
+            redirectUrl.searchParams.set('from', 'signup');
+            
+            // 清除Cookie
+            const redirectResponse = NextResponse.redirect(redirectUrl);
+            redirectResponse.cookies.delete('new_user_grace_period');
+            return redirectResponse;
+          }
+          
+          // 原有逻辑
+          console.log(`[${requestId}] 检查是否多设备被踢出`);
+          const redirectUrl = new URL('/login/expired', request.url);
+          redirectUrl.searchParams.set('reason', 'session_expired_maybe_multi_device');
           return NextResponse.redirect(redirectUrl);
         }
         
         console.log(`[${requestId}] 用户已登录: ${user.email} (管理员: ${isAdminEmail(user.email)})`);
         
-        // 获取用户资料
+        // 获取用户资料 - 🔥 现在包括created_at字段
         let profile = null;
         try {
           const { data, error: profileError } = await supabase
             .from('profiles')
-            .select('id, email, account_expires_at, last_login_at, last_login_session')
+            .select('id, email, account_expires_at, last_login_at, last_login_session, created_at')
             .eq('id', user.id)
             .single();
           
           if (profileError) {
             console.warn(`[${requestId}] 查询用户资料失败: ${profileError.message}`);
-            // 返回用户信息，跳过后续检查
             return createResponseWithUserHeaders(request, user);
           }
           
@@ -363,9 +366,7 @@ export async function middleware(request: NextRequest) {
       }
     }
     
-    // 5. 其他路径 - 也进行多设备检查（修复的关键）
-    // 🔥 修复：即使是其他路径，如果有登录用户，也检查多设备
-    
+    // 5. 其他路径
     try {
       const { user, error: authError } = await getVerifiedUser(supabase);
       
@@ -376,12 +377,11 @@ export async function middleware(request: NextRequest) {
         try {
           const { data: profile } = await supabase
             .from('profiles')
-            .select('last_login_session, last_login_at')
+            .select('last_login_session, last_login_at, created_at')
             .eq('id', user.id)
             .single();
           
           if (profile) {
-            // 🔥 其他路径也进行多设备检查
             const multiDeviceResult = await handleMultiDeviceCheck(
               request, requestId, supabase, user, profile, response
             );
@@ -391,14 +391,13 @@ export async function middleware(request: NextRequest) {
             }
           }
         } catch (profileError) {
-          // 忽略profile错误
+          // 忽略
         }
         
-        // 将用户信息传递给页面
         return createResponseWithUserHeaders(request, user);
       }
     } catch (e) {
-      // 忽略错误
+      // 忽略
     }
     
     return response;
@@ -408,8 +407,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 }
-
-// ==================== 中间件配置 ====================
 
 export const config = {
   matcher: [
