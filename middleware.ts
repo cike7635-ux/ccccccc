@@ -188,12 +188,17 @@ export async function middleware(request: NextRequest) {
         // ============ 基础登录验证 ============
         const { user, error: authError } = await getVerifiedUser(supabase);
         
-        if (authError || !user) {
-          console.log(`[${requestId}] 用户未登录`);
-          const redirectUrl = new URL('/login', request.url);
-          redirectUrl.searchParams.set('redirect', currentPath);
-          return NextResponse.redirect(redirectUrl);
-        }
+      if (authError || !user) {
+  console.log(`[${requestId}] 用户未登录，检查是否多设备被踢出`);
+  
+  // 检查是否有其他设备刚登录的记录
+  // 这里可以添加逻辑检查用户最后活动时间
+  
+  // 暂时重定向到/login/expired，但带一个不同的参数
+  const redirectUrl = new URL('/login/expired', request.url);
+  redirectUrl.searchParams.set('reason', 'session_expired_maybe_multi_device');
+  return NextResponse.redirect(redirectUrl);
+}
         
         console.log(`[${requestId}] 用户已登录: ${user.email} (管理员: ${isAdminEmail(user.email)})`);
         
