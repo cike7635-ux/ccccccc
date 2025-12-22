@@ -33,6 +33,13 @@ interface DashboardStats {
   averageSessionDuration: number;
 }
 
+interface User {
+  id: string;
+  email: string;
+  last_login_at: string | null;
+  account_expires_at: string | null;
+}
+
 export default function AdminDashboard() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -51,12 +58,12 @@ export default function AdminDashboard() {
     todayRevenue: 0,
     averageSessionDuration: 0
   });
-  const [recentUsers, setRecentUsers] = useState<any[]>([]);
+  const [recentUsers, setRecentUsers] = useState<User[]>([]);
   const [systemStatus, setSystemStatus] = useState({
-    api: 'normal',
-    database: 'normal',
-    gameServer: 'normal',
-    security: 'normal'
+    api: 'normal' as 'normal' | 'warning' | 'error',
+    database: 'normal' as 'normal' | 'warning' | 'error',
+    gameServer: 'normal' as 'normal' | 'warning' | 'error',
+    security: 'normal' as 'normal' | 'warning' | 'error'
   });
 
   // 格式化数字
@@ -71,6 +78,26 @@ export default function AdminDashboard() {
       currency: 'CNY',
       minimumFractionDigits: 0
     }).format(amount);
+  };
+
+  // 格式化时间
+  const formatTimeAgo = (dateString: string | null) => {
+    if (!dateString) return '从未登录';
+    
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 60) {
+      return `${diffMins}分钟前`;
+    } else if (diffHours < 24) {
+      return `${diffHours}小时前`;
+    } else {
+      return `${diffDays}天前`;
+    }
   };
 
   // 获取数据
@@ -100,23 +127,23 @@ export default function AdminDashboard() {
 
         // 并行获取所有统计数据
         const [
-          { data: usersData, count: totalUsers },
-          { data: activeUsersData },
-          { data: expiredUsersData },
-          { data: keysData, count: totalKeys },
-          { data: usedKeysData },
-          { data: aiUsageData, count: aiUsageCount },
-          { data: gamesData, count: totalGames },
-          { data: activeGamesData },
-          { data: recentUsersData }
+          usersResponse,
+          activeUsersResponse,
+          expiredUsersResponse,
+          keysResponse,
+          usedKeysResponse,
+          aiUsageResponse,
+          gamesResponse,
+          activeGamesResponse,
+          recentUsersResponse
         ] = await Promise.all([
-          supabase.from('profiles').select('*', { count: 'exact', head: false }),
+          supabase.from('profiles').select('*', { count: 'exact' }),
           supabase.from('profiles').select('id').gte('last_login_at', new Date(Date.now() - 24*60*60*1000).toISOString()),
           supabase.from('profiles').select('id').lte('account_expires_at', new Date().toISOString()),
-          supabase.from('access_keys').select('*', { count: 'exact', head: false }),
+          supabase.from('access_keys').select('*', { count: 'exact' }),
           supabase.from('access_keys').select('id').eq('used', true),
-          supabase.from('ai_usage_logs').select('*', { count: 'exact', head: false }),
-          supabase.from('games').select('*', { count: 'exact', head: false }),
+          supabase.from('ai_usage_logs').select('*', { count: 'exact' }),
+          supabase.from('games').select('*', { count: 'exact' }),
           supabase.from('games').select('id').eq('status', 'active'),
           supabase.from('profiles')
             .select('id, email, last_login_at, account_expires_at')
@@ -124,47 +151,66 @@ export default function AdminDashboard() {
             .limit(5)
         ]);
 
-        // 计算可用密钥
-        const availableKeys = totalKeys - (usedKeysData?.length || 0);
+        // 计算统计数据
+        const totalUsers = usersResponse.count || 0;
+        const activeUsers = activeUsersResponse.data?.length || 0;
+        const expiredUsers = expiredUsersResponse.data?.length || 0;
+        const totalKeys = keysResponse.count || 0;
+        const usedKeys = usedKeysResponse.data?.length || 0;
+        const availableKeys = totalKeys - usedKeys;
+        const aiUsageCount = aiUsageResponse.count || 0;
+        const totalGames = gamesResponse.count || 0;
+        const activeGames = activeGamesResponse.data?.length || 0;
 
         // 计算收入（这里需要根据您的业务逻辑调整）
-        // 假设每个会员是100元，activeUsers是付费用户数
-        const totalRevenue = (activeUsersData?.length || 0) * 100;
+        // 假设每个会员是1元，activeUsers是付费用户数
+        const totalRevenue = (activeUsers || 0) * 1;
         const todayRevenue = 0; // 需要根据订单表计算
 
         // 计算平均会话时长（这里需要根据您的业务逻辑调整）
         const averageSessionDuration = 25; // 分钟
 
         setStats({
-          totalUsers: totalUsers || 0,
-          activeUsers: activeUsersData?.length || 0,
-          expiredUsers: expiredUsersData?.length || 0,
-          totalKeys: totalKeys || 0,
-          usedKeys: usedKeysData?.length || 0,
+          totalUsers,
+          activeUsers,
+          expiredUsers,
+          totalKeys,
+          usedKeys,
           availableKeys,
-          aiUsageCount: aiUsageCount || 0,
-          totalGames: totalGames || 0,
-          activeGames: activeGamesData?.length || 0,
+          aiUsageCount,
+          totalGames,
+          activeGames,
           totalRevenue,
           todayRevenue,
           averageSessionDuration
         });
 
-        setRecentUsers(recentUsersData || []);
+        setRecentUsers(recentUsersResponse.data || []);
 
         // 检查系统状态
         const checkSystemStatus = async () => {
           try {
             // 检查数据库连接
             const { error: dbError } = await supabase.from('profiles').select('count');
-            setSystemStatus(prev => ({
-              ...prev,
-              database: dbError ? 'error' : 'normal'
-            }));
+            
+            // 检查游戏服务（这里简化处理）
+            const gameServiceStatus = 'normal'; // 在实际项目中，这里可以ping游戏服务器
+            
+            setSystemStatus({
+              api: 'normal',
+              database: dbError ? 'error' : 'normal',
+              gameServer: gameServiceStatus,
+              security: 'normal'
+            });
 
-            // 这里可以添加其他系统检查
           } catch (err) {
             console.error('系统状态检查失败:', err);
+            setSystemStatus({
+              api: 'error',
+              database: 'error',
+              gameServer: 'error',
+              security: 'error'
+            });
           }
         };
 
@@ -185,7 +231,7 @@ export default function AdminDashboard() {
   const statCards = [
     {
       label: '总用户数',
-      value: stats.totalUsers,
+      value: formatNumber(stats.totalUsers),
       change: '+12%',
       icon: Users,
       color: 'bg-gradient-to-br from-blue-500 to-blue-600',
@@ -193,7 +239,7 @@ export default function AdminDashboard() {
     },
     {
       label: '活跃用户',
-      value: stats.activeUsers,
+      value: formatNumber(stats.activeUsers),
       change: '+8%',
       icon: Activity,
       color: 'bg-gradient-to-br from-green-500 to-emerald-600',
@@ -224,7 +270,7 @@ export default function AdminDashboard() {
     },
     {
       label: '游戏总数',
-      value: stats.totalGames,
+      value: formatNumber(stats.totalGames),
       change: '+5%',
       icon: Gamepad2,
       color: 'bg-gradient-to-br from-red-500 to-rose-600',
@@ -234,8 +280,8 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-[80vh] flex items-center justify-center bg-gray-900">
-        <div className="text-center space-y-4">
+      <div className="min-h-[80vh] flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
+        <div className="text-center space-y-6">
           <div className="relative">
             <div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto"></div>
             <div className="absolute inset-0 flex items-center justify-center">
@@ -243,8 +289,8 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div>
-            <p className="text-white font-medium">加载仪表板数据</p>
-            <p className="text-gray-400 text-sm mt-1">正在获取最新统计数据...</p>
+            <p className="text-white font-medium text-lg">加载仪表板数据</p>
+            <p className="text-gray-400 text-sm mt-2">正在获取最新统计数据...</p>
           </div>
         </div>
       </div>
@@ -253,7 +299,7 @@ export default function AdminDashboard() {
 
   if (error) {
     return (
-      <div className="min-h-[80vh] flex items-center justify-center bg-gray-900">
+      <div className="min-h-[80vh] flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-950">
         <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-8 max-w-md text-center border border-red-500/20">
           <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -264,7 +310,7 @@ export default function AdminDashboard() {
           <p className="text-gray-400 text-sm mb-4">{error}</p>
           <button
             onClick={() => window.location.reload()}
-            className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-2.5 rounded-lg font-medium hover:opacity-90 transition-opacity"
+            className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity"
           >
             重试
           </button>
@@ -283,8 +329,8 @@ export default function AdminDashboard() {
             <p className="text-gray-400 mt-2">实时监控系统状态与业务数据</p>
           </div>
           <div className="flex items-center space-x-3">
-            <div className="flex items-center text-sm text-gray-400">
-              <Clock className="w-4 h-4 mr-1" />
+            <div className="flex items-center text-sm text-gray-400 bg-gray-800/50 px-3 py-2 rounded-lg">
+              <Clock className="w-4 h-4 mr-2" />
               {new Date().toLocaleDateString('zh-CN', { 
                 year: 'numeric', 
                 month: 'long', 
@@ -294,7 +340,7 @@ export default function AdminDashboard() {
             </div>
             <button 
               onClick={() => window.location.reload()}
-              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors"
+              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg text-sm font-medium transition-all"
             >
               刷新数据
             </button>
@@ -325,7 +371,7 @@ export default function AdminDashboard() {
                       )}
                     </div>
                   </div>
-                  <div className={`${stat.color} rounded-xl p-3 shadow-lg`}>
+                  <div className={`${stat.color} rounded-xl p-3 shadow-lg shadow-black/20`}>
                     <Icon className="w-6 h-6 text-white" />
                   </div>
                 </div>
@@ -361,7 +407,11 @@ export default function AdminDashboard() {
               {Object.entries(systemStatus).map(([key, status]) => (
                 <div key={key} className="bg-gray-900/50 rounded-lg p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm text-gray-400 capitalize">{key}</span>
+                    <span className="text-sm text-gray-400 capitalize">
+                      {key === 'api' ? 'API服务' : 
+                       key === 'database' ? '数据库' :
+                       key === 'gameServer' ? '游戏服务器' : '安全'}
+                    </span>
                     <div className={`w-2 h-2 rounded-full ${
                       status === 'normal' ? 'bg-green-500' :
                       status === 'warning' ? 'bg-yellow-500' :
@@ -410,12 +460,10 @@ export default function AdminDashboard() {
                         </span>
                       </div>
                       <div>
-                        <p className="text-white font-medium">{user.email}</p>
+                        <p className="text-white font-medium text-sm">{user.email}</p>
                         <div className="flex items-center text-xs text-gray-400 mt-1">
                           <Calendar className="w-3 h-3 mr-1" />
-                          {user.last_login_at ? 
-                            `最后登录：${new Date(user.last_login_at).toLocaleDateString('zh-CN')}` : 
-                            '从未登录'}
+                          {formatTimeAgo(user.last_login_at)}
                         </div>
                       </div>
                     </div>
@@ -547,6 +595,12 @@ export default function AdminDashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* 底部信息 */}
+      <div className="mt-8 text-center text-sm text-gray-500">
+        <p>数据更新时间：{new Date().toLocaleTimeString('zh-CN')}</p>
+        <p className="mt-1">© {new Date().getFullYear()} Love Ludo · 希夷游戏</p>
       </div>
     </div>
   );
