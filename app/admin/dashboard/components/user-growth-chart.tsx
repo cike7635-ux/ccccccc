@@ -1,7 +1,7 @@
 // /app/admin/dashboard/components/user-growth-chart.tsx
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react' // 移除 useEffect
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 interface GrowthData {
@@ -12,7 +12,7 @@ interface GrowthData {
 }
 
 export default function UserGrowthChart() {
-  const [data, setData] = useState<GrowthData[]>([
+  const [data] = useState<GrowthData[]>([ // 移除了 setData 和 useEffect
     { date: '01-01', users: 120, games: 45, aiUsage: 89 },
     { date: '01-02', users: 135, games: 52, aiUsage: 78 },
     { date: '01-03', users: 156, games: 67, aiUsage: 92 },
@@ -21,15 +21,7 @@ export default function UserGrowthChart() {
     { date: '01-06', users: 205, games: 89, aiUsage: 124 },
     { date: '01-07', users: 220, games: 95, aiUsage: 135 }
   ])
-  const [loading, setLoading] = useState(false)
-
-  // 模拟数据加载
-  useEffect(() => {
-    setLoading(true)
-    setTimeout(() => {
-      setLoading(false)
-    }, 500)
-  }, [])
+  const [loading] = useState(false) // 简化加载状态
 
   if (loading) {
     return (

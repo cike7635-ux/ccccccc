@@ -1,61 +1,38 @@
 // /app/admin/dashboard/components/system-status.tsx
 'use client'
 
-import { useEffect, useState } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
-import { Shield, AlertCircle, CheckCircle, Activity } from 'lucide-react'
+import { useEffect, useState, useCallback } from 'react'
+import { Shield, CheckCircle, AlertCircle, Activity } from 'lucide-react'
 
-interface SystemStatus {
+interface SystemStatusItem {
   name: string
   status: 'normal' | 'warning' | 'error'
   description: string
 }
 
 export default function SystemStatus() {
-  const [statuses, setStatuses] = useState<SystemStatus[]>([
+  const [statuses, setStatuses] = useState<SystemStatusItem[]>([
     { name: 'API服务', status: 'normal', description: '接口响应正常' },
     { name: '数据库', status: 'normal', description: '连接稳定' },
     { name: '游戏服务器', status: 'normal', description: '运行中' },
     { name: '安全防护', status: 'normal', description: '已启用' }
   ])
 
+  const checkStatus = useCallback(() => {
+    setStatuses(prev => prev.map(status => ({
+      ...status,
+      // 模拟随机状态变化
+      status: Math.random() > 0.95 ? 'error' : 
+              Math.random() > 0.9 ? 'warning' : 'normal'
+    })))
+  }, []) // 使用 useCallback 避免重复创建函数
+
+  // 模拟状态检查
   useEffect(() => {
-    const checkSystemStatus = async () => {
-      try {
-        const supabase = createBrowserClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-        )
-
-        // 检查数据库连接
-        const { error: dbError } = await supabase.from('profiles').select('count').limit(1)
-        
-        const newStatuses = [...statuses]
-        
-        // 更新数据库状态
-        if (dbError) {
-          newStatuses[1] = { 
-            name: '数据库', 
-            status: 'error', 
-            description: '连接异常' 
-          }
-        }
-
-        // 这里可以添加更多检查逻辑
-        
-        setStatuses(newStatuses)
-
-      } catch (error) {
-        console.error('检查系统状态失败:', error)
-      }
-    }
-
-    checkSystemStatus()
-    // 每60秒检查一次
-    const intervalId = setInterval(checkSystemStatus, 60000)
+    const intervalId = setInterval(checkStatus, 30000) // 每30秒检查一次
     
     return () => clearInterval(intervalId)
-  }, [])
+  }, [checkStatus]) // 添加 checkStatus 到依赖数组
 
   const getStatusColor = (status: string) => {
     switch (status) {

@@ -1,5 +1,5 @@
 // /app/admin/dashboard/components/quick-actions.tsx
-import { Key, BarChart3, Brain, Settings, Plus, Download } from 'lucide-react'
+import { Key, Brain, Settings, Download } from 'lucide-react' // 移除了未使用的导入
 import Link from 'next/link'
 
 export default function QuickActions() {
