@@ -19,7 +19,6 @@ export function SignUpForm({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRandom, setIsRandom] = useState(false);
-  // 状态名称也稍作优化，更贴切
   const [licenseKey, setLicenseKey] = useState("");
   const router = useRouter();
 
@@ -32,8 +31,6 @@ export function SignUpForm({
     setEmail(randomEmail);
     setPassword(randomPass);
     setIsRandom(true);
-    // *** 重要修改：此处已删除自动填充测试密钥的代码 ***
-    // 仅生成随机账号，不提供密钥，用户必须自行购买。
   };
 
   const handleSignUp = async (e: React.FormEvent) => {
@@ -61,18 +58,13 @@ export function SignUpForm({
       });
 
       // ============ 核心修复：在解析JSON前先检查状态 ============
-      // 1. 检查HTTP响应状态码（404, 500等）
       if (!signUpResponse.ok) {
-        // 2. 检查服务器返回的是什么类型的内容
         const contentType = signUpResponse.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
-          // 如果是JSON，解析它并抛出错误消息
           const errorData = await signUpResponse.json();
           throw new Error(errorData.error || `注册失败 (${signUpResponse.status})`);
         } else {
-          // 如果不是JSON（比如404的HTML页面），读取文本内容
           const errorText = await signUpResponse.text();
-          // 简化和净化错误文本，避免显示整个HTML
           const cleanError = errorText.includes('404') 
             ? '注册接口未找到(404)，请联系管理员检查服务状态。' 
             : `服务器错误 (${signUpResponse.status}): ${errorText.substring(0, 100)}...`;
@@ -84,23 +76,58 @@ export function SignUpForm({
       // 3. 只有状态码是200-299时，才安全地解析JSON
       const result = await signUpResponse.json();
 
-    // ============ 稳定的成功处理逻辑 ============
-// 1. 显示成功消息，停止加载状态
-setError('✅ 注册成功！请使用刚才的邮箱和密码登录。');
-setIsLoading(false);
-
-// 2. 使用最可靠的客户端重定向，跳转到登录页
-setTimeout(() => {
-  // 注意：这里移除了对 isRandom 的判断，统一跳转到登录页
-  window.location.href = '/login';
-  // 如果希望登录后自动跳回大厅，可以传递一个参数：
-  // window.location.href = '/login?redirect=/lobby';
-}, 1200);
-// ============ 替换结束 ============
+      // ============ 新的自动登录处理逻辑 ============
+      if (result.auto_login) {
+        // API已自动登录成功
+        setError('✅ 注册成功！正在自动登录...');
+        setIsLoading(false);
+        
+        // 延迟后跳转到游戏大厅
+        setTimeout(() => {
+          window.location.href = '/lobby';
+        }, 1200);
+      } else {
+        // API自动登录失败，前端尝试登录
+        setError('✅ 注册成功！正在尝试登录...');
+        
+        try {
+          // 使用Supabase客户端尝试登录
+          const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+            email: email.trim(),
+            password: password.trim(),
+          });
+          
+          if (loginError) {
+            throw loginError;
+          }
+          
+          // 登录成功
+          setError('✅ 登录成功！正在跳转到游戏大厅...');
+          setIsLoading(false);
+          
+          // 延迟后跳转
+          setTimeout(() => {
+            window.location.href = '/lobby';
+          }, 800);
+          
+        } catch (loginError: any) {
+          // 前端登录也失败，跳转到登录页
+          console.error('前端自动登录失败:', loginError);
+          setError('✅ 注册成功！请点击这里手动登录');
+          setIsLoading(false);
+          
+          // 创建可点击的登录链接
+          const loginUrl = `/login?email=${encodeURIComponent(email.trim())}&redirect=/lobby`;
+          
+          // 延迟后跳转到登录页（预填邮箱）
+          setTimeout(() => {
+            window.location.href = loginUrl;
+          }, 1500);
+        }
+      }
+      // ============ 替换结束 ============
     } catch (error: unknown) {
-      // 这里捕获到的错误信息现在会是清晰的中文提示，而不是"Unexpected end of JSON input"
       setError(error instanceof Error ? error.message : "注册过程中发生未知错误");
-    } finally {
       setIsLoading(false);
     }
   };
@@ -108,7 +135,6 @@ setTimeout(() => {
   return (
     <div className={cn("", className)} {...props}>
       <form onSubmit={handleSignUp} className="space-y-4">
-        {/* === 修改：文字全部从"邀请码"改为"密钥" === */}
         <div>
           <Label htmlFor="licenseKey" className="block text-sm text-gray-300 mb-2">
             产品密钥 <span className="text-red-500">*</span>
@@ -125,13 +151,11 @@ setTimeout(() => {
               className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0"
             />
           </div>
-          {/* 提示文字也同步修改，强调购买 */}
           <p className="text-xs text-gray-500 mt-2 pl-1">
             本游戏为会员制，需购买密钥方可注册。请前往淘宝店铺《希夷书斋》购买，或联系微信客服: xiyi1397。
           </p>
         </div>
 
-        {/* 以下原有部分保持不变 */}
         <div>
           <Label htmlFor="email" className="block text-sm text-gray-300 mb-2">
             邮箱
