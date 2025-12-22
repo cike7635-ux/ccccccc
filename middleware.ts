@@ -268,7 +268,7 @@ export async function middleware(request: NextRequest) {
               const timeSinceLastLogin = lastLoginTime ? now.getTime() - lastLoginTime.getTime() : 0;
               
               // 更宽松的时间判断：2分钟内认为是正常操作
-              if (timeSinceLastLogin < 30000) { // 30秒
+              if (timeSinceLastLogin < 3000) { // 3秒
                 console.log(`[${requestId}] 最后登录发生在 ${timeSinceLastLogin}ms 前，认为是正常操作`);
                 // 更新为当前会话标识
                 await supabase
