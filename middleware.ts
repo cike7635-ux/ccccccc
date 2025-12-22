@@ -92,7 +92,7 @@ function createResponseWithUserHeaders(request: NextRequest, user: any) {
  * 🔥 修复后的多设备检查函数
  * 主要修改：
  * 1. 从profiles表的created_at判断是否是新用户
- * 2. 宽限期改为5秒（您要求的）
+ * 2. 宽限期改为5秒
  * 3. 新用户（注册10分钟内）完全跳过多设备检查
  */
 async function handleMultiDeviceCheck(
@@ -187,7 +187,7 @@ async function handleMultiDeviceCheck(
         const lastLoginTime = profile.last_login_at ? new Date(profile.last_login_at) : null;
         const timeSinceLastLogin = lastLoginTime ? now.getTime() - lastLoginTime.getTime() : 0;
         
-        // 🔥 宽限期改为5秒（您的要求）
+        // 🔥 宽限期改为5秒
         if (timeSinceLastLogin < 5000) { // 5秒
           console.log(`[${requestId}] 最后登录发生在 ${timeSinceLastLogin}ms 前，认为是正常操作`);
           // 更新为当前会话标识
