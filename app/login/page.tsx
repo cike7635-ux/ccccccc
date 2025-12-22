@@ -1,3 +1,5 @@
+// /app/login/page.tsx
+// 修复版本 - 移除自动重定向逻辑，避免冲突
 'use client';
 
 import { Suspense } from 'react';
@@ -10,7 +12,6 @@ import { Button } from "@/components/ui/button";
 function isAdminEmail(email: string | undefined | null): boolean {
   if (!email) return false;
   
-  // 尝试读取 NEXT_PUBLIC_ADMIN_EMAILS，如果不存在则使用 ADMIN_EMAILS
   const adminEmails = 
     (process.env.NEXT_PUBLIC_ADMIN_EMAILS || process.env.ADMIN_EMAILS)?.split(',') || 
     ['2200691917@qq.com'];
@@ -53,7 +54,8 @@ function LoginPageContent() {
   const [loading, setLoading] = useState(true);
   
   const tabParam = searchParams.get('tab');
-  const redirectParam = searchParams.get('redirect') || '/lobby';
+  const fromSignup = searchParams.get('from') === 'signup';
+  const emailParam = searchParams.get('email');
 
   // 根据URL参数设置active tab
   useEffect(() => {
@@ -62,33 +64,26 @@ function LoginPageContent() {
     }
   }, [tabParam]);
 
-  // 检查用户是否已登录
+  // 🔥 关键修复：简化登录状态检查
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        // 创建Supabase客户端 - 兼容两种环境变量命名
+        // 创建Supabase客户端
         const supabase = createBrowserClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL || 
-          process.env.SUPABASE_URL || 
-          '',
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
-          process.env.SUPABASE_ANON_KEY || 
-          ''
+          process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
         );
         
         const { data: { user }, error } = await supabase.auth.getUser();
         
         if (error) {
-          console.error('[登录页] 检查认证失败:', error.message);
+          console.log('[登录页] 未检测到登录用户');
           return;
         }
         
         if (user) {
-          console.log(`[登录页] 用户已登录: ${user.email}`);
+          console.log(`[登录页] 检测到已登录用户: ${user.email}`);
           setUser(user);
-          
-          // 处理重定向逻辑
-          handleRedirect(user);
         }
       } catch (error: any) {
         console.error('[登录页] 认证检查异常:', error.message);
@@ -98,42 +93,15 @@ function LoginPageContent() {
     };
     
     checkAuth();
-  }, [redirectParam, searchParams]);
+  }, []);
 
-  // 重定向处理函数
-  const handleRedirect = (user: any) => {
-    const admin = isAdminEmail(user.email);
-    let targetPath = redirectParam;
-    
-    console.log(`[登录页] 用户: ${user.email}, redirect参数: "${redirectParam}"`);
-    console.log(`[登录页] 是否是管理员: ${admin}`);
-    
-    if (admin) {
-      console.log(`[登录页] 管理员用户登录: ${user.email}`);
-      
-      // 管理员在游戏登录页登录，应该去游戏大厅
-      // 除非有明确的redirect参数指向其他地方
-      if (!searchParams.get('redirect')) {
-        targetPath = "/lobby";
-        console.log(`[登录页] 管理员玩游戏，重定向到: ${targetPath}`);
-      }
-    } else {
-      console.log(`[登录页] 普通用户登录，重定向到: ${targetPath}`);
+  // 如果是注册跳转过来的，显示欢迎消息
+  useEffect(() => {
+    if (fromSignup && emailParam) {
+      console.log(`[登录页] 注册用户跳转: ${emailParam}`);
+      // 可以在这里显示一个短暂的欢迎消息
     }
-    
-    // 如果有redirect参数，优先使用
-    if (searchParams.get('redirect')) {
-      console.log(`[登录页] 使用redirect参数: ${redirectParam}`);
-      targetPath = redirectParam;
-    }
-    
-    console.log(`[登录页] 最终重定向到: ${targetPath}`);
-    
-    // 使用硬重定向，确保页面刷新和状态同步
-    setTimeout(() => {
-      window.location.href = targetPath;
-    }, 100);
-  };
+  }, [fromSignup, emailParam]);
 
   // 加载状态
   if (loading) {
@@ -149,11 +117,23 @@ function LoginPageContent() {
 
   // 用户已登录，显示重定向中状态
   if (user) {
+    // 🔥 关键修复：简化重定向逻辑，避免循环
+    const redirectParam = searchParams.get('redirect') || '/lobby';
+    const admin = isAdminEmail(user.email);
+    let targetPath = redirectParam;
+    
+    console.log(`[登录页] 已登录用户: ${user.email}, 重定向到: ${targetPath}`);
+    
+    // 使用硬重定向，确保状态同步
+    setTimeout(() => {
+      window.location.href = targetPath;
+    }, 100);
+    
     return (
       <div className="flex min-h-svh w-full items-center justify-center p-6">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-pink mx-auto mb-4"></div>
-          <p className="text-gray-400">登录成功，正在跳转...</p>
+          <p className="text-gray-400">已登录，正在跳转...</p>
         </div>
       </div>
     );
@@ -196,7 +176,18 @@ function LoginPageContent() {
         </div>
 
         <div className="space-y-4">
-          {active === "login" ? <LoginForm /> : <SignUpForm />}
+          {active === "login" ? (
+            <Suspense fallback={
+              <div className="text-center py-4">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-pink mx-auto mb-2"></div>
+                <p className="text-gray-400 text-sm">加载登录表单...</p>
+              </div>
+            }>
+              <LoginForm />
+            </Suspense>
+          ) : (
+            <SignUpForm />
+          )}
         </div>
 
         <p className="text-center text-sm text-gray-400 mt-6">

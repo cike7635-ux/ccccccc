@@ -1,5 +1,5 @@
 // /components/login-form.tsx
-// 登录表单 - 添加邮箱预填和注册成功消息功能
+// 修复版本 - 优化登录后的重定向逻辑
 "use client";
 
 import { cn } from "@/lib/utils";
@@ -23,12 +23,13 @@ export function LoginForm({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loginSuccess, setLoginSuccess] = useState(false);
-  const [showRegistrationSuccess, setShowRegistrationSuccess] = useState(false); // 新增
+  const [showRegistrationSuccess, setShowRegistrationSuccess] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   
   const router = useRouter();
   const searchParams = useSearchParams();
   
-  // 🔥 修复：统一重定向参数，优先使用redirect，没有则用redirectedFrom
+  // 🔥 修复：统一重定向参数处理
   const redirectFromParam = searchParams.get('redirect');
   const redirectedFromParam = searchParams.get('redirectedFrom');
   const redirectTo = redirectFromParam || redirectedFromParam || "/lobby";
@@ -54,28 +55,35 @@ export function LoginForm({
       setShowRegistrationSuccess(true);
       console.log("[LoginForm] 显示注册成功消息");
       
-      // 3秒后自动清除成功消息
+      // 5秒后自动清除成功消息
       setTimeout(() => {
         setShowRegistrationSuccess(false);
-      }, 3000);
+      }, 5000);
     }
   }, [searchParams]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+    
+    if (redirecting) return;
+    
     const supabase = createClient();
     setIsLoading(true);
     setError(null);
     setLoginSuccess(false);
-    setShowRegistrationSuccess(false); // 登录时清除注册成功消息
+    setShowRegistrationSuccess(false);
 
     try {
+      console.log("[LoginForm] 尝试登录:", email.trim());
+      
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password: password.trim(),
       });
 
       if (authError) {
+        console.error("[LoginForm] 登录失败:", authError.message);
         if (authError.message.includes('Invalid login credentials')) {
           throw new Error('邮箱或密码错误，请重试');
         } else if (authError.message.includes('Email not confirmed')) {
@@ -85,18 +93,24 @@ export function LoginForm({
         }
       }
 
-      // 标记登录成功，显示成功反馈
+      console.log("[LoginForm] 登录成功:", authData.user?.email);
+      
+      // 标记登录成功
       setLoginSuccess(true);
+      setIsLoading(false);
       
       // ============ 记录登录会话 ============
       try {
         const sessionFingerprint = `sess_${authData.user.id}_${authData.session.access_token.substring(0, 12)}`;
         
+        console.log("[LoginForm] 设置会话标识:", sessionFingerprint);
+        
         const { error: updateError } = await supabase
           .from('profiles')
           .update({
             last_login_session: sessionFingerprint,
-            last_login_at: new Date().toISOString()
+            last_login_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
           })
           .eq('id', authData.user.id);
 
@@ -110,13 +124,15 @@ export function LoginForm({
       }
       // ============ 记录结束 ============
       
-      // 🔥 关键修复：使用硬重定向，确保页面刷新和状态同步
+      // 🔥 关键修复：等待状态同步，然后重定向
       setTimeout(() => {
+        setRedirecting(true);
         console.log('✅ 登录成功，硬重定向到:', redirectTo);
-        window.location.href = redirectTo;  // 改为硬重定向
-      }, 800); // 800ms延迟，让用户看到成功提示
-
+        window.location.href = redirectTo;
+      }, 1200); // 1.2秒延迟，确保状态同步
+      
     } catch (error: unknown) {
+      console.error("[LoginForm] 登录异常:", error);
       setError(error instanceof Error ? error.message : "登录过程中发生未知错误");
       setIsLoading(false);
     }
@@ -126,7 +142,7 @@ export function LoginForm({
     <div className={cn("", className)} {...props}>
       <form onSubmit={handleLogin} className="space-y-4">
         {/* 注册成功消息 - 新增 */}
-        {showRegistrationSuccess && !loginSuccess && (
+        {showRegistrationSuccess && !loginSuccess && !redirecting && (
           <div className="rounded-2xl border border-green-500/30 bg-green-500/10 backdrop-blur p-4">
             <div className="flex items-center space-x-2 text-green-400">
               <CheckCircle className="w-5 h-5" />
@@ -164,7 +180,7 @@ export function LoginForm({
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              disabled={isLoading || loginSuccess}
+              disabled={isLoading || loginSuccess || redirecting}
               className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:opacity-60"
             />
           </div>
@@ -183,13 +199,13 @@ export function LoginForm({
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              disabled={isLoading || loginSuccess}
+              disabled={isLoading || loginSuccess || redirecting}
               className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:opacity-60"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              disabled={isLoading || loginSuccess}
+              disabled={isLoading || loginSuccess || redirecting}
               className="text-gray-400 hover:text-white transition-colors disabled:opacity-50"
             >
               {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
@@ -203,7 +219,7 @@ export function LoginForm({
               type="checkbox"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
-              disabled={isLoading || loginSuccess}
+              disabled={isLoading || loginSuccess || redirecting}
               className="w-4 h-4 rounded border-gray-600 disabled:opacity-50"
             />
             <span className="text-gray-400">记住我</span>
@@ -216,7 +232,7 @@ export function LoginForm({
           </Link>
         </div>
 
-        {error && !loginSuccess && !showRegistrationSuccess && (
+        {error && !loginSuccess && !showRegistrationSuccess && !redirecting && (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 backdrop-blur p-4">
             <div className="flex items-center text-red-300">
               <AlertCircle className="w-5 h-5 mr-2" />
@@ -227,10 +243,15 @@ export function LoginForm({
 
         <Button
           type="submit"
-          disabled={isLoading || loginSuccess}
+          disabled={isLoading || loginSuccess || redirecting}
           className="w-full gradient-primary py-3.5 rounded-xl font-semibold glow-pink transition-all hover:scale-105 active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:scale-100 text-white"
         >
-          {isLoading ? (
+          {redirecting ? (
+            <span className="flex items-center justify-center">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+              跳转中...
+            </span>
+          ) : isLoading ? (
             <span className="flex items-center justify-center">
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
               登录中...
@@ -255,4 +276,3 @@ export function LoginForm({
     </div>
   );
 }
-// [skip ci]
