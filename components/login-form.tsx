@@ -36,14 +36,12 @@ export function LoginForm({
     setLoginSuccess(false);
 
     try {
-      // ✅ 关键修正：同时解构 data 和 error，重命名为 authData
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password: password.trim(),
       });
 
       if (authError) {
-        // 提供更友好的错误提示
         if (authError.message.includes('Invalid login credentials')) {
           throw new Error('邮箱或密码错误，请重试');
         } else if (authError.message.includes('Email not confirmed')) {
@@ -53,26 +51,23 @@ export function LoginForm({
         }
       }
 
-      // ✅ 标记登录成功，显示成功反馈
+      // 标记登录成功，显示成功反馈
       setLoginSuccess(true);
       
       // ============ 记录登录会话 ============
       try {
-        // 创建一个唯一的会话指纹
         const sessionFingerprint = `web_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
         
-        // ✅ 现在 authData 变量已正确定义，可以安全使用
         const { error: updateError } = await supabase
           .from('profiles')
           .update({
-            last_login_session: sessionFingerprint, // 存入唯一标识
-            last_login_at: new Date().toISOString() // 存入登录时间
+            last_login_session: sessionFingerprint,
+            last_login_at: new Date().toISOString()
           })
-          .eq('id', authData.user.id); // ✅ 现在这行不会报错了
+          .eq('id', authData.user.id);
 
         if (updateError) {
           console.error('[登录] 更新会话记录失败:', updateError);
-          // 这里不阻断整个登录流程，仅记录错误
         } else {
           console.log('[登录] 用户会话标识已更新');
         }
@@ -81,26 +76,16 @@ export function LoginForm({
       }
       // ============ 记录结束 ============
       
-      // 关键改进：等待并确认用户状态后再跳转
-      setTimeout(async () => {
-        // 可选：再次确认用户状态
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          console.log('✅ 登录验证完成，跳转到:', redirectTo);
-          router.push(redirectTo);
-        } else {
-          // 如果状态异常，显示错误
-          setError('登录状态异常，请刷新页面重试');
-          setLoginSuccess(false);
-          setIsLoading(false);
-        }
+      // 🔥 关键修复：使用硬重定向，确保页面刷新和状态同步
+      setTimeout(() => {
+        console.log('✅ 登录成功，硬重定向到:', redirectTo);
+        window.location.href = redirectTo;  // 改为硬重定向
       }, 800); // 800ms延迟，让用户看到成功提示
 
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "登录过程中发生未知错误");
       setIsLoading(false);
     }
-    // 注意：这里不设置 setIsLoading(false)，因为成功后会跳转页面
   };
 
   return (
