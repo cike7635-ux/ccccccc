@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
       console.log(`查询用户详情: ${detailId}`)
       
       try {
-        // 并行查询所有相关数据
+        // 🔥 关键修复：并行查询所有相关数据
         const [
           profileResult,
           allKeysResult,
@@ -61,28 +61,26 @@ export async function GET(request: NextRequest) {
             .eq('id', detailId)
             .single(),
           
-          // 2. 🔥 重要修复：查询用户的所有密钥记录
-          // 根据您的数据库结构，access_keys表有两种方式关联用户：
-          // 1) access_keys.user_id = 用户ID（表示该密钥被用户使用）
-          // 2) access_keys.id = profiles.access_key_id（表示当前使用的密钥）
-          // 我们需要同时查询这两种情况
+          // 2. 🔥 修复：查询用户的所有密钥记录
+          // 根据您的查询结果，我们需要：
+          // 1) 查询用户当前使用的密钥（通过access_key_id）
+          // 2) 查询用户使用过的密钥（通过user_id）
           (async () => {
             try {
-              // 首先获取用户的access_key_id
-              const { data: profile } = await supabaseAdmin
+              let allKeys: any[] = []
+              
+              // 先查询用户当前使用的密钥（通过access_key_id）
+              const { data: userProfile } = await supabaseAdmin
                 .from('profiles')
                 .select('access_key_id')
                 .eq('id', detailId)
                 .single()
               
-              let allKeys: any[] = []
-              
-              if (profile?.access_key_id) {
-                // 查询当前使用的密钥
+              if (userProfile?.access_key_id) {
                 const { data: currentKey } = await supabaseAdmin
                   .from('access_keys')
                   .select('*')
-                  .eq('id', profile.access_key_id)
+                  .eq('id', userProfile.access_key_id)
                   .single()
                 
                 if (currentKey) {
@@ -90,17 +88,17 @@ export async function GET(request: NextRequest) {
                 }
               }
               
-              // 查询用户使用过的所有密钥（通过user_id）
-              const { data: keysByUserId } = await supabaseAdmin
+              // 再查询用户使用过的所有密钥（通过user_id）
+              const { data: usedKeys } = await supabaseAdmin
                 .from('access_keys')
                 .select('*')
                 .eq('user_id', detailId)
                 .order('created_at', { ascending: false })
               
-              if (keysByUserId && keysByUserId.length > 0) {
+              if (usedKeys && usedKeys.length > 0) {
                 // 去重，避免重复添加相同的密钥
                 const existingIds = new Set(allKeys.map(k => k.id))
-                keysByUserId.forEach(key => {
+                usedKeys.forEach(key => {
                   if (!existingIds.has(key.id)) {
                     allKeys.push(key)
                   }
@@ -114,7 +112,7 @@ export async function GET(request: NextRequest) {
             }
           })(),
           
-          // 3. AI使用记录 - 🔥 保留完整数据，包括token_usage
+          // 3. 🔥 修复：AI使用记录 - 确保返回完整数据
           supabaseAdmin
             .from('ai_usage_records')
             .select('*')
@@ -122,7 +120,7 @@ export async function GET(request: NextRequest) {
             .order('created_at', { ascending: false })
             .limit(10),
           
-          // 4. 游戏历史记录
+          // 4. 🔥 修复：游戏历史记录 - 修正字段名
           supabaseAdmin
             .from('game_history')
             .select('*')
@@ -141,14 +139,17 @@ export async function GET(request: NextRequest) {
         }
 
         // 🔥 调试：检查查询结果
-        console.log('查询结果:', {
+        console.log('查询结果详情:', {
           用户信息: !!profileResult.data,
+          用户access_key_id: profileResult.data?.access_key_id,
           密钥记录数: allKeysResult.data?.length || 0,
+          密钥数据: allKeysResult.data?.map(k => ({ id: k.id, key_code: k.key_code })),
           AI记录数: aiUsageResult.data?.length || 0,
+          AI数据: aiUsageResult.data?.map(a => ({ id: a.id, feature: a.feature })),
           游戏记录数: gameHistoriesResult.data?.length || 0
         })
 
-        // 返回数据，确保字段名与前端类型定义匹配
+        // 🔥 关键：返回数据，确保字段名与前端类型定义匹配
         return NextResponse.json({
           success: true,
           data: {
@@ -167,9 +168,8 @@ export async function GET(request: NextRequest) {
             created_at: profileResult.data?.created_at,
             updated_at: profileResult.data?.updated_at,
             
-            // 🔥 关键：使用复数形式，返回所有密钥记录
+            // 🔥 关键：使用驼峰命名，与前端UserDetail接口一致
             accessKeys: allKeysResult.data || [],
-            // 🔥 关键：保留完整的AI使用记录数据，包括token_usage
             aiUsageRecords: aiUsageResult.data || [],
             gameHistory: gameHistoriesResult.data || []
           }

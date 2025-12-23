@@ -38,7 +38,7 @@ export interface UserDetail {
   created_at: string
   updated_at: string
   
-  // 关键：必须与API返回的字段名一致
+  // 🔥 关键：必须与API返回的字段名一致（accessKeys，驼峰命名）
   accessKeys: Array<{
     id: number
     key_code: string
@@ -53,7 +53,7 @@ export interface UserDetail {
     updated_at: string
   }>
   
-  // 🔥 恢复完整的AI记录字段，包括token_usage
+  // 🔥 关键：必须与API返回的字段名一致（aiUsageRecords，驼峰命名）
   aiUsageRecords: Array<{
     id: number
     user_id: string
@@ -62,13 +62,9 @@ export interface UserDetail {
     request_data: any
     response_data: any
     success: boolean
-    token_usage?: {
-      input_tokens: number
-      output_tokens: number
-      cache_hit: boolean
-    }
   }>
   
+  // 🔥 关键：必须与API返回的字段名一致（gameHistory，驼峰命名）
   gameHistory: Array<{
     id: string
     room_id: string | null
@@ -79,6 +75,5 @@ export interface UserDetail {
     started_at: string | null
     ended_at: string | null
     task_results: any[]
-    created_at: string
   }>
 }
