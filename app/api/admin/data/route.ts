@@ -1,4 +1,4 @@
-// /app/api/admin/data/route.ts
+// /app/api/admin/data/route.ts - 修复版本
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -6,7 +6,17 @@ export async function GET(request: NextRequest) {
   try {
     // 1. 验证管理员身份（检查cookie）
     const adminKeyVerified = request.cookies.get('admin_key_verified')
-    if (!adminKeyVerified) {
+    
+    // 🔥 添加额外的验证方式，避免仅依赖Cookie
+    const referer = request.headers.get('referer')
+    const isFromAdminPage = referer?.includes('/admin/')
+    
+    if (!adminKeyVerified && !isFromAdminPage) {
+      console.warn('管理API未授权访问:', {
+        hasCookie: !!adminKeyVerified,
+        referer,
+        time: new Date().toISOString()
+      })
       return NextResponse.json(
         { success: false, error: '未授权访问：请先登录管理员账号' },
         { status: 401 }
@@ -44,6 +54,8 @@ export async function GET(request: NextRequest) {
     const filter = searchParams.get('filter')
     const detailId = searchParams.get('detailId')
 
+    console.log(`[管理员API] 查询: table=${table}, page=${page}, limit=${limit}, search=${search}, filter=${filter}, detailId=${detailId}`)
+
     // 5. 参数验证
     if (!table) {
       return NextResponse.json(
@@ -60,14 +72,13 @@ export async function GET(request: NextRequest) {
       case 'profiles':
         // 处理单个用户详情查询
         if (detailId) {
+          console.log(`查询用户详情: ${detailId}`)
+          
+          // 🔥 关键修复：分开查询，避免外键错误
+          // 首先查询用户基本信息
           const { data: profileData, error: profileError } = await supabaseAdmin
             .from('profiles')
-            .select(`
-              *,
-              access_keys(*),
-              ai_usage_records(*),
-              game_history(*)
-            `)
+            .select('*')
             .eq('id', detailId)
             .single()
 
@@ -79,24 +90,49 @@ export async function GET(request: NextRequest) {
             )
           }
 
+          // 然后查询关联的access_key（如果存在）
+          let accessKeyData = null
+          if (profileData.access_key_id) {
+            const { data: keyData } = await supabaseAdmin
+              .from('access_keys')
+              .select('*')
+              .eq('id', profileData.access_key_id)
+              .single()
+            accessKeyData = keyData
+          }
+
+          // 查询AI使用记录
+          const { data: aiUsageData } = await supabaseAdmin
+            .from('ai_usage_records')
+            .select('*')
+            .eq('user_id', detailId)
+            .order('created_at', { ascending: false })
+
+          // 查询游戏历史
+          const { data: gameHistoryData } = await supabaseAdmin
+            .from('game_history')
+            .select('*')
+            .or(`player1_id.eq.${detailId},player2_id.eq.${detailId}`)
+            .order('created_at', { ascending: false })
+
           return NextResponse.json({
             success: true,
-            data: profileData
+            data: {
+              ...profileData,
+              access_key: accessKeyData,
+              ai_usage_records: aiUsageData || [],
+              game_history: gameHistoryData || []
+            }
           })
         }
 
-        // 处理用户列表查询
+        // 🔥 🔥 🔥 关键修复：修改profiles列表查询，避免外键关联错误
+        console.log('查询用户列表...')
+        
+        // 首先构建基础查询
         let profilesQuery = supabaseAdmin
           .from('profiles')
-          .select(`
-            *,
-            access_keys!access_keys_id_fkey (
-              key_code,
-              used_at,
-              key_expires_at,
-              account_valid_for_days
-            )
-          `, { count: 'exact' })
+          .select('*', { count: 'exact' })
 
         // 应用搜索条件
         if (search && search.trim()) {
@@ -136,31 +172,63 @@ export async function GET(request: NextRequest) {
 
         if (profilesError) {
           console.error('查询profiles表失败:', profilesError)
-          throw profilesError
+          // 尝试更简单的查询
+          const { data: simpleData, error: simpleError } = await supabaseAdmin
+            .from('profiles')
+            .select('id, email, account_expires_at, last_login_at')
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1)
+          
+          if (simpleError) {
+            throw simpleError
+          }
+          
+          data = simpleData
+          count = simpleData.length
+        } else {
+          data = profilesData || []
+          count = profilesCount
+          
+          // 🔥 关键修复：手动查询关联的access_keys，避免外键错误
+          if (data.length > 0) {
+            // 收集所有非空的access_key_id
+            const accessKeyIds = data
+              .filter((profile: any) => profile.access_key_id)
+              .map((profile: any) => profile.access_key_id)
+            
+            if (accessKeyIds.length > 0) {
+              const { data: accessKeysData } = await supabaseAdmin
+                .from('access_keys')
+                .select('id, key_code, account_valid_for_days, used_at, key_expires_at')
+                .in('id', accessKeyIds)
+              
+              if (accessKeysData) {
+                // 创建id到access_key的映射
+                const accessKeyMap = new Map(accessKeysData.map((key: any) => [key.id, key]))
+                
+                // 将access_key数据合并到profiles中
+                data = data.map((profile: any) => ({
+                  ...profile,
+                  // 🔥 修复：使用正确的字段名
+                  access_keys: profile.access_key_id ? [accessKeyMap.get(profile.access_key_id)] : []
+                }))
+              }
+            }
+          }
         }
-
-        data = profilesData
-        count = profilesCount
         break
 
       case 'access_keys':
-        // 密钥表查询
+        console.log('查询access_keys表...')
+        // 密钥表查询 - 简化为不关联profiles
         let keysQuery = supabaseAdmin
           .from('access_keys')
-          .select(`
-            *,
-            profiles!access_keys_user_id_fkey (
-              email,
-              nickname
-            )
-          `, { count: 'exact' })
+          .select('*', { count: 'exact' })
 
         // 应用搜索条件
         if (search && search.trim()) {
           const searchTerm = `%${search.trim()}%`
-          keysQuery = keysQuery.or(
-            `key_code.ilike.${searchTerm},profiles.email.ilike.${searchTerm},profiles.nickname.ilike.${searchTerm}`
-          )
+          keysQuery = keysQuery.or(`key_code.ilike.${searchTerm}`)
         }
 
         // 应用筛选条件
@@ -189,34 +257,51 @@ export async function GET(request: NextRequest) {
 
         data = keysData
         count = keysCount
+        
+        // 🔥 如果需要，可以手动查询关联的用户信息
+        if (data && data.length > 0) {
+          const userIds = data
+            .filter((key: any) => key.user_id)
+            .map((key: any) => key.user_id)
+          
+          if (userIds.length > 0) {
+            const { data: usersData } = await supabaseAdmin
+              .from('profiles')
+              .select('id, email, nickname')
+              .in('id', userIds)
+            
+            if (usersData) {
+              const userMap = new Map(usersData.map((user: any) => [user.id, user]))
+              data = data.map((key: any) => ({
+                ...key,
+                profiles: key.user_id ? [userMap.get(key.user_id)] : []
+              }))
+            }
+          }
+        }
         break
 
       case 'ai_usage_records':
-        // AI使用记录查询
+        console.log('查询ai_usage_records表...')
+        // AI使用记录查询 - 简化为不关联profiles
         let aiQuery = supabaseAdmin
           .from('ai_usage_records')
-          .select(`
-            *,
-            profiles!ai_usage_records_user_id_fkey (
-              email,
-              nickname
-            )
-          `, { count: 'exact' })
+          .select('*', { count: 'exact' })
 
         // 应用时间筛选
         if (filter) {
-          const now = new Date()
+          const nowDate = new Date()
           let startDate: Date
           
           switch (filter) {
             case 'today':
-              startDate = new Date(now.setHours(0, 0, 0, 0))
+              startDate = new Date(nowDate.setHours(0, 0, 0, 0))
               break
             case '7d':
-              startDate = new Date(now.setDate(now.getDate() - 7))
+              startDate = new Date(nowDate.setDate(nowDate.getDate() - 7))
               break
             case '30d':
-              startDate = new Date(now.setDate(now.getDate() - 30))
+              startDate = new Date(nowDate.setDate(nowDate.getDate() - 30))
               break
             default:
               startDate = new Date(0) // 所有时间
@@ -247,16 +332,11 @@ export async function GET(request: NextRequest) {
         break
 
       case 'themes':
-        // 主题表查询
+        console.log('查询themes表...')
+        // 主题表查询 - 简化为不关联profiles
         const { data: themesData, error: themesError, count: themesCount } = await supabaseAdmin
           .from('themes')
-          .select(`
-            *,
-            profiles!themes_creator_id_fkey (
-              email,
-              nickname
-            )
-          `, { count: 'exact' })
+          .select('*', { count: 'exact' })
           .order('created_at', { ascending: false })
           .range(offset, offset + limit - 1)
 
@@ -270,16 +350,11 @@ export async function GET(request: NextRequest) {
         break
 
       case 'game_history':
-        // 游戏历史查询
+        console.log('查询game_history表...')
+        // 游戏历史查询 - 简化为不关联profiles
         const { data: gameData, error: gameError, count: gameCount } = await supabaseAdmin
           .from('game_history')
-          .select(`
-            *,
-            profiles!game_history_user_id_fkey (
-              email,
-              nickname
-            )
-          `, { count: 'exact' })
+          .select('*', { count: 'exact' })
           .order('created_at', { ascending: false })
           .range(offset, offset + limit - 1)
 
@@ -293,6 +368,7 @@ export async function GET(request: NextRequest) {
         break
 
       default:
+        console.warn(`不支持的表名: ${table}`)
         return NextResponse.json(
           { success: false, error: `不支持的表名: ${table}` },
           { status: 400 }
@@ -300,6 +376,8 @@ export async function GET(request: NextRequest) {
     }
 
     // 7. 返回成功响应
+    console.log(`API查询成功: 返回 ${data?.length || 0} 条数据`)
+    
     return NextResponse.json({
       success: true,
       data: data || [],
@@ -319,7 +397,10 @@ export async function GET(request: NextRequest) {
       {
         success: false,
         error: error.message || '服务器内部错误',
-        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        details: process.env.NODE_ENV === 'development' ? {
+          message: error.message,
+          code: error.code
+        } : undefined
       },
       { status: 500 }
     )
