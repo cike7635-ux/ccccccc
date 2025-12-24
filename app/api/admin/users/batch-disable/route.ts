@@ -1,7 +1,5 @@
-// /app/api/admin/users/batch-disable/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
+import { createClient } from '@supabase/supabase-js'
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,13 +28,15 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. 创建Supabase客户端（使用Service Role Key）
-    const supabaseAdmin = createRouteHandlerClient({ 
-      cookies,
-      options: {
-        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY!
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          persistSession: false
+        }
       }
-    })
+    )
 
     let result
     let actionDescription = ''
