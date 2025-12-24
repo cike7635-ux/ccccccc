@@ -181,3 +181,21 @@ export function normalizeAccessKeys(keys: any[]): any[] {
     updated_at: key.updated_at || key.updatedAt || ''
   }))
 }
+// 性别显示函数
+export function getGenderDisplay(preferences: any): string {
+  if (!preferences || !preferences.gender) return '未设置';
+  
+  const genderMap: Record<string, string> = {
+    'male': '男',
+    'female': '女',
+    'other': '其他',
+    'M': '男',
+    'F': '女',
+    '男': '男',
+    '女': '女',
+    '未知': '未设置'
+  };
+  
+  const genderKey = String(preferences.gender).toLowerCase();
+  return genderMap[genderKey] || String(preferences.gender);
+}
