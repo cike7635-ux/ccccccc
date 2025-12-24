@@ -1,4 +1,4 @@
-// /app/admin/users/page.tsx - 完整修复版
+// /app/admin/users/page.tsx
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -66,7 +66,7 @@ export default function UsersPage() {
         throw new Error(result.error || 'API返回未知错误')
       }
 
-      // 7. 转换数据格式 - 🔥 使用下划线命名
+      // 7. 转换数据格式
       const formattedUsers: User[] = (result.data || []).map((profile: any) => {
         const lastLogin = profile.last_login_at
           ? new Date(profile.last_login_at).toLocaleString('zh-CN')
@@ -80,30 +80,28 @@ export default function UsersPage() {
           ? new Date(profile.account_expires_at) > new Date()
           : false
 
+const activeKeyData = profile.accessKeys?.[0] || profile.access_keys?.[0]
+
         return {
           id: profile.id,
           email: profile.email,
           nickname: profile.nickname,
-          full_name: profile.full_name,  // 🔥 下划线
-          avatar_url: profile.avatar_url,  // 🔥 下划线
+          fullName: profile.full_name,
+          avatarUrl: profile.avatar_url,
           bio: profile.bio,
           preferences: profile.preferences,
           isAdmin: profile.email === '2200691917@qq.com', // 您的管理员邮箱
           isPremium: isPremium,
           lastLogin: lastLogin,
-          lastLoginRaw: profile.last_login_at,  // 🔥 下划线
-          accountExpires: profile.account_expires_at,  // 🔥 下划线
+          lastLoginRaw: profile.last_login_at,
+          accountExpires: profile.account_expires_at,
           createdAt: createdAt,
-          createdAtRaw: profile.created_at,  // 🔥 下划线
-          access_key_id: profile.access_key_id,  // 🔥 下划线
-          // 列表查询不返回密钥数据，所以显示"需查看详情"
-          activeKey: '需查看详情',
-          activeKeyUsedAt: null,
-          activeKeyExpires: null,
-          isActive: true,
-          // 🔥 添加其他下划线字段
-          last_login_session: profile.last_login_session,
-          updated_at: profile.updated_at
+          createdAtRaw: profile.created_at,
+          accessKeyId: profile.access_key_id,
+          activeKey: activeKeyData?.key_code || null,
+          activeKeyUsedAt: activeKeyData?.used_at || null,
+          activeKeyExpires: activeKeyData?.key_expires_at || null,
+          isActive: true
         }
       })
 
@@ -113,105 +111,52 @@ export default function UsersPage() {
 
     } catch (error) {
       console.error('获取用户数据失败:', error)
-      setUsers([])
-      setTotalCount(0)
     } finally {
       setLoading(false)
     }
   }, [currentPage, searchTerm, filter])
 
-  // 🔥 修复：获取用户详情 - 完整修复版
+  // 获取用户详情 - 通过安全API
   const fetchUserDetail = async (userId: string) => {
-    console.log('🔍 开始获取用户详情:', userId)
     setDetailLoading(true)
-    setSelectedUserDetail(null) // 先清空旧数据
-    
     try {
       const response = await fetch(`/api/admin/data?table=profiles&detailId=${userId}`, {
         credentials: 'include',
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
       })
 
       if (!response.ok) {
-        const errorText = await response.text()
-        console.error('❌ API响应失败:', response.status, errorText)
         throw new Error(`获取详情失败: ${response.status}`)
       }
 
       const result = await response.json()
       
-      console.log('📦 API返回详情结果:', {
-        成功: result.success,
-        错误信息: result.error,
-        数据结构: result.data ? Object.keys(result.data) : '无数据',
-        密钥字段存在: result.data && 'access_keys' in result.data,
-        密钥长度: result.data?.access_keys?.length || 0,
-        AI字段存在: result.data && 'ai_usage_records' in result.data,
-        AI长度: result.data?.ai_usage_records?.length || 0,
-        游戏字段存在: result.data && 'game_history' in result.data,
-        游戏长度: result.data?.game_history?.length || 0
-      })
-      
       if (!result.success) {
-        console.error('❌ API返回失败:', result.error)
         throw new Error(result.error || '未找到用户详情')
       }
 
-      if (!result.data) {
-        console.error('❌ API返回的data为空')
-        throw new Error('用户详情数据为空')
-      }
-
-      // 🔥 直接构建 UserDetail 对象（使用下划线命名）
       const userDetail: UserDetail = {
-        id: result.data.id || '',
-        email: result.data.email || '',
-        nickname: result.data.nickname || null,
-        full_name: result.data.full_name || null,
-        avatar_url: result.data.avatar_url || null,
-        bio: result.data.bio || null,
-        preferences: result.data.preferences || {},
-        account_expires_at: result.data.account_expires_at || null,
-        last_login_at: result.data.last_login_at || null,
-        last_login_session: result.data.last_login_session || null,
-        access_key_id: result.data.access_key_id || null,
-        created_at: result.data.created_at || '',
-        updated_at: result.data.updated_at || '',
-        access_keys: result.data.access_keys || [],
-        ai_usage_records: result.data.ai_usage_records || [],
-        game_history: result.data.game_history || [],
-        // 可选字段
-        key_usage_history: result.data.key_usage_history || [],
-        current_access_key: result.data.current_access_key || null
+        id: result.data.id,
+        email: result.data.email,
+        nickname: result.data.nickname,
+        full_name: result.data.full_name,
+        avatar_url: result.data.avatar_url,
+        bio: result.data.bio,
+        preferences: result.data.preferences,
+        account_expires_at: result.data.account_expires_at,
+        last_login_at: result.data.last_login_at,
+        last_login_session: result.data.last_login_session,
+        access_key_id: result.data.access_key_id,
+        created_at: result.data.created_at,
+        updated_at: result.data.updated_at,
+        accessKeys: result.data.access_keys || [],
+        aiUsageRecords: result.data.ai_usage_records || [],
+        gameHistory: result.data.game_history || []
       }
-
-      console.log('✅ 构建的用户详情对象:', {
-        id: userDetail.id,
-        email: userDetail.email,
-        access_keys长度: userDetail.access_keys.length,
-        ai_usage_records长度: userDetail.ai_usage_records.length,
-        game_history长度: userDetail.game_history.length,
-        日期字段: {
-          account_expires_at: userDetail.account_expires_at,
-          last_login_at: userDetail.last_login_at,
-          created_at: userDetail.created_at
-        }
-      })
 
       setSelectedUserDetail(userDetail)
 
-    } catch (error: any) {
-      console.error('❌ 获取用户详情失败:', error.message)
-      console.error('错误堆栈:', error.stack)
-      setSelectedUserDetail(null)
-      
-      // 显示友好的错误提示（可选）
-      if (process.env.NODE_ENV === 'development') {
-        alert(`获取用户详情失败: ${error.message}\n请查看控制台日志获取详细信息。`)
-      }
+    } catch (error) {
+      console.error('获取用户详情失败:', error)
     } finally {
       setDetailLoading(false)
     }
@@ -233,7 +178,7 @@ export default function UsersPage() {
       user.isPremium ? '会员中' : '免费',
       user.lastLogin,
       user.createdAt,
-      user.activeKey || '需查看详情',
+      user.activeKey || '',
       user.activeKeyUsedAt ? new Date(user.activeKeyUsedAt).toLocaleString('zh-CN') : ''
     ])
 
@@ -256,18 +201,9 @@ export default function UsersPage() {
 
   // 处理详情查看
   const handleViewDetail = async (userId: string) => {
-    console.log('👀 查看用户详情:', userId)
     await fetchUserDetail(userId)
     setDetailModalOpen(true)
   }
-
-  // 🔥 刷新详情数据
-  const handleRefreshDetail = useCallback(async () => {
-    if (selectedUserDetail?.id) {
-      console.log('🔄 刷新用户详情:', selectedUserDetail.id)
-      await fetchUserDetail(selectedUserDetail.id)
-    }
-  }, [selectedUserDetail])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-900 to-gray-950 p-4 md:p-6">
@@ -460,9 +396,9 @@ export default function UsersPage() {
                     </td>
                     <td className="py-3 px-4 md:px-6">
                       <div className="flex items-center">
-                        {user.avatar_url ? (
+                        {user.avatarUrl ? (
                           <img 
-                            src={user.avatar_url} 
+                            src={user.avatarUrl} 
                             alt={user.nickname || user.email}
                             className="w-8 h-8 rounded-full mr-3"
                           />
@@ -486,15 +422,20 @@ export default function UsersPage() {
                       </div>
                     </td>
                     <td className="py-3 px-4 md:px-6">
-                      {/* 🔥 列表页面不显示具体密钥，提示用户查看详情 */}
-                      <div className="text-center">
-                        <span className="text-gray-500 text-sm">{user.activeKey}</span>
-                        {user.access_key_id && (
-                          <p className="text-gray-600 text-xs mt-1">
-                            密钥ID: {user.access_key_id}
-                          </p>
-                        )}
-                      </div>
+                      {user.activeKey ? (
+                        <div>
+                          <code className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded font-mono">
+                            {user.activeKey}
+                          </code>
+                          {user.activeKeyUsedAt && (
+                            <p className="text-gray-500 text-xs mt-1">
+                              于 {new Date(user.activeKeyUsedAt).toLocaleString('zh-CN')}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-500 text-sm">无</span>
+                      )}
                     </td>
                     <td className="py-3 px-4 md:px-6">
                       <div>
@@ -540,7 +481,6 @@ export default function UsersPage() {
         onClose={() => setDetailModalOpen(false)}
         userDetail={selectedUserDetail}
         loading={detailLoading}
-        onRefresh={handleRefreshDetail}
       />
     </div>
   )
