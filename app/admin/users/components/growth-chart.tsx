@@ -137,11 +137,14 @@ export default function GrowthChart() {
                   <div className="text-xs text-gray-500 mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {day.count}
                   </div>
-                  <div
-                    className="w-3/4 bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-sm transition-all duration-300 hover:opacity-80 cursor-pointer group-hover:shadow-lg group-hover:shadow-blue-500/20"
-                    style={{ height: `${(day.count / maxCount) * 80}%` }}
-                    title={`${day.date}: 新增 ${day.count} 人，累计 ${day.cumulative} 人`}
-                  />
+                <div
+  className="w-3/4 bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-sm transition-all duration-300 hover:opacity-80 cursor-pointer group-hover:shadow-lg group-hover:shadow-blue-500/20"
+  style={{ 
+    height: `${Math.max((day.count / maxCount) * 80, 5)}%`, // 🔥 最小5%高度
+    minHeight: '4px' // 🔥 确保即使0%也有最小高度
+  }}
+  title={`${day.date}: 新增 ${day.count} 人，累计 ${day.cumulative} 人`}
+/>
                   <div className="text-xs text-gray-500 mt-1">
                     {day.date.split('/')[1]}
                   </div>
