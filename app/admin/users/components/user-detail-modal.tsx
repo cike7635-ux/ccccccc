@@ -1,4 +1,4 @@
-// /app/admin/users/components/user-detail-modal.tsx - 优化版
+// /app/admin/users/components/user-detail-modal.tsx - 完整修复版
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
@@ -11,6 +11,25 @@ interface UserDetailModalProps {
   userDetail: UserDetail | null
   loading: boolean
   onRefresh?: () => void
+}
+
+// 性别显示函数
+const getGenderDisplay = (preferences: any): string => {
+  if (!preferences || !preferences.gender) return '未设置';
+  
+  const genderMap: Record<string, string> = {
+    'male': '男',
+    'female': '女',
+    'other': '其他',
+    'M': '男',
+    'F': '女',
+    '男': '男',
+    '女': '女',
+    '未知': '未设置'
+  };
+  
+  const genderKey = String(preferences.gender).toLowerCase();
+  return genderMap[genderKey] || String(preferences.gender);
 }
 
 export default function UserDetailModal({ isOpen, onClose, userDetail, loading, onRefresh }: UserDetailModalProps) {
@@ -67,8 +86,8 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     try {
       return new Date(dateString).toLocaleString('zh-CN', {
         year: 'numeric',
-        month: 'short',
-        day: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
         hour: '2-digit',
         minute: '2-digit'
       })
@@ -78,9 +97,15 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   }
   
   const formatShortDate = (dateString: string | null) => {
-    if (!dateString) return '无'
+    if (!dateString) return '无记录'
     try {
-      return new Date(dateString).toLocaleDateString('zh-CN')
+      return new Date(dateString).toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
     } catch {
       return dateString
     }
@@ -280,6 +305,17 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                               <span className="text-white">{userDetail.nickname || '未设置'}</span>
                             </div>
                             
+                            {/* 新增：性别显示 */}
+                            <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
+                              <div className="flex items-center">
+                                <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                                <span className="text-gray-400">性别:</span>
+                              </div>
+                              <span className="text-white">{getGenderDisplay(userDetail.preferences)}</span>
+                            </div>
+                            
                             <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
                               <div className="flex items-center">
                                 <Activity className="w-4 h-4 mr-2 text-gray-400" />
@@ -325,12 +361,13 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                             </span>
                           </div>
                           
+                          {/* 🔥 修改：会员到期时间使用formatDate，与注册时间格式一致 */}
                           <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
                             <div className="flex items-center">
                               <Calendar className="w-4 h-4 mr-2 text-gray-400" />
                               <span className="text-gray-400">会员到期:</span>
                             </div>
-                            <span className="text-white">{formatShortDate(userDetail.account_expires_at)}</span>
+                            <span className="text-white">{formatDate(userDetail.account_expires_at)}</span>
                           </div>
                           
                           <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
