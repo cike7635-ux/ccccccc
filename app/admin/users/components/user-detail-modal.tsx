@@ -164,147 +164,199 @@ export default function UserDetailModal({
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [showRawData, setShowRawData] = useState(false)
 
-  // 🔥 关键优化：使用归一化的用户数据
-  const userDetail = useMemo(() => {
-    if (!rawUserDetail) return null
-    return normalizeUserDetail(rawUserDetail)
-  }, [rawUserDetail])
+// 🔥 关键优化：使用归一化的用户数据
+const userDetail = useMemo(() => {
+  if (!rawUserDetail) return null
+  return normalizeUserDetail(rawUserDetail)
+}, [rawUserDetail])
 
-  // 🔥 性能优化：缓存计算值
-  const {
+// 🔥 性能优化：缓存计算值
+const {
+  isPremiumUser,
+  daysRemaining,
+  membershipStatus,
+  memberSinceDays,
+  lastActiveDays,
+  gameStats,
+  keyStats,
+  aiStats
+} = useMemo(() => {
+  if (!userDetail) {
+    return {
+      isPremiumUser: false,
+      daysRemaining: 0,
+      membershipStatus: 'free' as const,
+      memberSinceDays: 0,
+      lastActiveDays: 0,
+      gameStats: null,
+      keyStats: null,
+      aiStats: null
+    }
+  }
+
+  const now = new Date()
+  
+  // 会员状态
+  const expiresAt = userDetail.accountExpiresAt
+  const isPremiumUser = expiresAt ? isAfter(expiresAt, now.toISOString()) : false
+  const daysRemaining = expiresAt ? calculateDaysDifference(expiresAt, now.toISOString()) : 0
+  
+  // 注册时间
+  const createdAt = userDetail.createdAt
+  const memberSinceDays = createdAt ? calculateDaysDifference(createdAt, now.toISOString()) : 0
+  
+  // 最后活跃
+  const lastLoginAt = userDetail.lastLoginAt
+  const lastActiveDays = lastLoginAt ? calculateDaysDifference(lastLoginAt, now.toISOString()) : -1
+
+  // 游戏统计
+  const games = userDetail.gameHistory || []
+  const totalGames = games.length
+  const wins = games.filter(g => g.winnerId === userDetail.id).length
+  const losses = games.filter(g => g.winnerId && g.winnerId !== userDetail.id).length
+  const draws = games.filter(g => !g.winnerId).length
+  const winRate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0
+
+  // 密钥统计
+  const keys = userDetail.accessKeys || []
+  const activeKeys = keys.filter(k => k.isActive).length
+  const expiredKeys = keys.filter(k => k.keyExpiresAt && isBefore(k.keyExpiresAt, now.toISOString())).length
+  const usedKeys = keys.filter(k => k.usedAt).length
+
+  // AI统计
+  const aiRecords = userDetail.aiUsageRecords || []
+  const successfulAiCalls = aiRecords.filter(r => r.success).length
+  const failedAiCalls = aiRecords.filter(r => !r.success).length
+  const aiSuccessRate = aiRecords.length > 0 ? Math.round((successfulAiCalls / aiRecords.length) * 100) : 0
+
+  return {
     isPremiumUser,
     daysRemaining,
-    membershipStatus,
+    membershipStatus: isPremiumUser ? 'premium' : 'free' as const,
     memberSinceDays,
     lastActiveDays,
-    gameStats,
-    keyStats,
-    aiStats
-  } = useMemo(() => {
-    if (!userDetail) {
-      return {
-        isPremiumUser: false,
-        daysRemaining: 0,
-        membershipStatus: 'free' as const,
-        memberSinceDays: 0,
-        lastActiveDays: 0,
-        gameStats: null,
-        keyStats: null,
-        aiStats: null
-      }
+    gameStats: {
+      totalGames,
+      wins,
+      losses,
+      draws,
+      winRate,
+      avgGameDuration: 0 // 需要游戏时长数据
+    },
+    keyStats: {
+      total: keys.length,
+      active: activeKeys,
+      expired: expiredKeys,
+      used: usedKeys,
+      unused: keys.length - usedKeys
+    },
+    aiStats: {
+      total: aiRecords.length,
+      successful: successfulAiCalls,
+      failed: failedAiCalls,
+      successRate: aiSuccessRate,
+      lastUsed: aiRecords[0]?.createdAt || null
     }
+  }
+}, [userDetail])
 
-    const now = new Date()
-    
-    // 会员状态
-    const expiresAt = userDetail.accountExpiresAt
-    const isPremiumUser = expiresAt ? isAfter(expiresAt, now.toISOString()) : false
-    const daysRemaining = expiresAt ? calculateDaysDifference(expiresAt, now.toISOString()) : 0
-    
-    // 注册时间
-    const createdAt = userDetail.createdAt
-    const memberSinceDays = createdAt ? calculateDaysDifference(createdAt, now.toISOString()) : 0
-    
-    // 最后活跃
-    const lastLoginAt = userDetail.lastLoginAt
-    const lastActiveDays = lastLoginAt ? calculateDaysDifference(lastLoginAt, now.toISOString()) : -1
-
-    // 游戏统计
-    const games = userDetail.gameHistory || []
-    const totalGames = games.length
-    const wins = games.filter(g => g.winnerId === userDetail.id).length
-    const losses = games.filter(g => g.winnerId && g.winnerId !== userDetail.id).length
-    const draws = games.filter(g => !g.winnerId).length
-    const winRate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0
-
-    // 密钥统计
-    const keys = userDetail.accessKeys || []
-    const activeKeys = keys.filter(k => k.isActive).length
-    const expiredKeys = keys.filter(k => k.keyExpiresAt && isBefore(k.keyExpiresAt, now.toISOString())).length
-    const usedKeys = keys.filter(k => k.usedAt).length
-
-    // AI统计
-    const aiRecords = userDetail.aiUsageRecords || []
-    const successfulAiCalls = aiRecords.filter(r => r.success).length
-    const failedAiCalls = aiRecords.filter(r => !r.success).length
-    const aiSuccessRate = aiRecords.length > 0 ? Math.round((successfulAiCalls / aiRecords.length) * 100) : 0
-
-    return {
-      isPremiumUser,
-      daysRemaining,
-      membershipStatus: isPremiumUser ? 'premium' : 'free' as const,
-      memberSinceDays,
-      lastActiveDays,
-      gameStats: {
-        totalGames,
-        wins,
-        losses,
-        draws,
-        winRate,
-        avgGameDuration: 0 // 需要游戏时长数据
+// 🔥 调试信息收集和数据验证
+useEffect(() => {
+  if (userDetail) {
+    // 1. 收集原始调试信息
+    const debugData = {
+      timestamp: new Date().toISOString(),
+      rawDataStructure: {
+        keys: Object.keys(rawUserDetail || {}),
+        hasAccessKeys: 'accessKeys' in (rawUserDetail || {}),
+        hasAccessKeysAlt: 'access_keys' in (rawUserDetail || {}),
+        keysCount: (rawUserDetail as any)?.accessKeys?.length || (rawUserDetail as any)?.access_keys?.length || 0
       },
-      keyStats: {
-        total: keys.length,
-        active: activeKeys,
-        expired: expiredKeys,
-        used: usedKeys,
-        unused: keys.length - usedKeys
+      normalizedData: {
+        id: userDetail.id,
+        email: userDetail.email,
+        accessKeysCount: userDetail.accessKeys?.length || 0,
+        aiRecordsCount: userDetail.aiUsageRecords?.length || 0,
+        gameHistoryCount: userDetail.gameHistory?.length || 0
       },
-      aiStats: {
-        total: aiRecords.length,
-        successful: successfulAiCalls,
-        failed: failedAiCalls,
-        successRate: aiSuccessRate,
-        lastUsed: aiRecords[0]?.createdAt || null
+      dataQuality: {
+        hasEmail: !!userDetail.email,
+        hasAccessKeyId: !!userDetail.accessKeyId,
+        isValidAccessKeyId: typeof userDetail.accessKeyId === 'number',
+        hasKeysArray: Array.isArray(userDetail.accessKeys),
+        hasAiArray: Array.isArray(userDetail.aiUsageRecords),
+        hasGameArray: Array.isArray(userDetail.gameHistory)
       }
     }
-  }, [userDetail])
 
-  // 🔥 调试信息收集
-  useEffect(() => {
-    if (userDetail) {
-      const debugData = {
-        timestamp: new Date().toISOString(),
-        rawDataStructure: {
-          keys: Object.keys(rawUserDetail || {}),
-          hasAccessKeys: 'accessKeys' in (rawUserDetail || {}),
-          hasAccessKeysAlt: 'access_keys' in (rawUserDetail || {}),
-          keysCount: (rawUserDetail as any)?.accessKeys?.length || (rawUserDetail as any)?.access_keys?.length || 0
-        },
-        normalizedData: {
-          id: userDetail.id,
-          email: userDetail.email,
-          accessKeysCount: userDetail.accessKeys?.length || 0,
-          aiRecordsCount: userDetail.aiUsageRecords?.length || 0,
-          gameHistoryCount: userDetail.gameHistory?.length || 0
-        },
-        dataQuality: {
-          hasEmail: !!userDetail.email,
-          hasAccessKeyId: !!userDetail.accessKeyId,
-          isValidAccessKeyId: typeof userDetail.accessKeyId === 'number',
-          hasKeysArray: Array.isArray(userDetail.accessKeys),
-          hasAiArray: Array.isArray(userDetail.aiUsageRecords),
-          hasGameArray: Array.isArray(userDetail.gameHistory)
-        }
-      }
-
-      console.log('🔍 用户详情数据调试:', debugData)
-      setDebugInfo(debugData)
+    console.log('🔍 用户详情数据调试:', debugData)
+    setDebugInfo(debugData)
+    
+    // 2. 🎯 新增：关键数据验证（这是我们最需要的）
+    console.log('🎯 关键数据验证:', {
+      '原始数据字段': Object.keys(rawUserDetail || {}),
+      '原始accessKeys类型': typeof (rawUserDetail as any)?.accessKeys,
+      '原始accessKeys是数组': Array.isArray((rawUserDetail as any)?.accessKeys),
+      '原始accessKeys长度': (rawUserDetail as any)?.accessKeys?.length || 0,
+      '原始aiUsageRecords长度': (rawUserDetail as any)?.aiUsageRecords?.length || 0,
+      '---': '---',
+      '归一化后accessKeys长度': userDetail.accessKeys?.length || 0,
+      '归一化后aiUsageRecords长度': userDetail.aiUsageRecords?.length || 0,
+      '归一化后gameHistory长度': userDetail.gameHistory?.length || 0,
+      '---': '---',
+      'accessKeyId值': userDetail.accessKeyId,
+      'accessKeyId类型': typeof userDetail.accessKeyId
+    })
+    
+    // 3. 🔍 详细检查每个密钥
+    if (userDetail.accessKeys && userDetail.accessKeys.length > 0) {
+      console.log('🗝️ 密钥详情（第一个）:', userDetail.accessKeys[0])
+      console.log('🗝️ 密钥所有字段:', Object.keys(userDetail.accessKeys[0] || {}))
+    } else {
+      console.log('❌ 归一化后accessKeys为空数组')
     }
-  }, [userDetail, rawUserDetail])
+    
+    // 4. 🔍 详细检查AI记录
+    if (userDetail.aiUsageRecords && userDetail.aiUsageRecords.length > 0) {
+      console.log('🤖 AI记录详情（前2条）:', userDetail.aiUsageRecords.slice(0, 2))
+      console.log('🤖 AI记录字段（第一条）:', Object.keys(userDetail.aiUsageRecords[0] || {}))
+    } else {
+      console.log('❌ 归一化后aiUsageRecords为空数组')
+    }
+    
+    // 5. 🔥 如果归一化后为空但原始数据不为空，说明归一化函数有问题
+    const rawAccessKeysLength = (rawUserDetail as any)?.accessKeys?.length || 0
+    const normalizedAccessKeysLength = userDetail.accessKeys?.length || 0
+    
+    if (rawAccessKeysLength > 0 && normalizedAccessKeysLength === 0) {
+      console.error('🚨 数据丢失警告：原始数据有密钥但归一化后为空！')
+      console.error('原始accessKeys:', (rawUserDetail as any)?.accessKeys)
+      console.error('请检查 normalizeUserDetail 函数！')
+    }
+    
+    const rawAiRecordsLength = (rawUserDetail as any)?.aiUsageRecords?.length || 0
+    const normalizedAiRecordsLength = userDetail.aiUsageRecords?.length || 0
+    
+    if (rawAiRecordsLength > 0 && normalizedAiRecordsLength === 0) {
+      console.error('🚨 数据丢失警告：原始数据有AI记录但归一化后为空！')
+      console.error('原始aiUsageRecords:', (rawUserDetail as any)?.aiUsageRecords)
+      console.error('请检查 normalizeUserDetail 函数！')
+    }
+  }
+}, [userDetail, rawUserDetail])
 
-  // 🔥 自动刷新
-  useEffect(() => {
-    if (!autoRefresh || !onRefresh) return
-    
-    const interval = setInterval(() => {
-      console.log('🔄 自动刷新用户数据...')
-      onRefresh()
-      setLastRefresh(new Date())
-    }, 30000) // 30秒刷新一次
-    
-    return () => clearInterval(interval)
-  }, [autoRefresh, onRefresh])
+// 🔥 自动刷新
+useEffect(() => {
+  if (!autoRefresh || !onRefresh) return
+  
+  const interval = setInterval(() => {
+    console.log('🔄 自动刷新用户数据...')
+    onRefresh()
+    setLastRefresh(new Date())
+  }, 30000) // 30秒刷新一次
+  
+  return () => clearInterval(interval)
+}, [autoRefresh, onRefresh])
 
   const copyToClipboard = useCallback((text: string) => {
     navigator.clipboard.writeText(text).then(() => {
