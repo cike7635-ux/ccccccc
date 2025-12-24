@@ -57,11 +57,16 @@ export function getGenderDisplay(preferences: any): string {
     'male': '男',
     'female': '女',
     'other': '其他',
+    'non_binary': '非二元',
     'M': '男',
     'F': '女',
     '男': '男',
     '女': '女',
-    '未知': '未设置'
+    '未知': '未设置',
+    '未设置': '未设置',
+    '': '未设置',
+    null: '未设置',
+    undefined: '未设置'
   };
   
   const genderKey = String(preferences.gender).toLowerCase();

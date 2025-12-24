@@ -2,8 +2,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { 
-  Users, Mail, Search, Download, MoreVertical, Key, ChevronDown, 
+import {
+  Users, Mail, Search, Download, MoreVertical, Key, ChevronDown,
   Shield, Calendar, User, Clock, Tag, Filter,
   SortAsc, SortDesc
 } from 'lucide-react'
@@ -29,7 +29,7 @@ export default function UsersPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [showBatchMenu, setShowBatchMenu] = useState(false)
   const [batchActionLoading, setBatchActionLoading] = useState(false)
-  
+
   // 排序状态
   const [sortField, setSortField] = useState<SortField>('createdAt')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
@@ -78,7 +78,7 @@ export default function UsersPage() {
         const lastLogin = profile.last_login_at
           ? new Date(profile.last_login_at).toLocaleString('zh-CN')
           : '从未登录'
-        
+
         const createdAt = profile.created_at
           ? new Date(profile.created_at).toLocaleString('zh-CN')
           : '未知'
@@ -96,7 +96,7 @@ export default function UsersPage() {
         let activeKeyUsedAt = null
         let activeKeyExpires = null
         let keyStatus: 'active' | 'expired' | 'unused' = 'unused'
-        
+
         const accessKeys = profile.access_keys || []
         if (Array.isArray(accessKeys) && accessKeys.length > 0) {
           // 优先使用当前密钥ID对应的密钥
@@ -109,57 +109,86 @@ export default function UsersPage() {
               keyStatus = getKeyStatus(currentKey)
             }
           }
-          // 如果没有当前密钥，使用第一个密钥
-          if (!activeKey && accessKeys.length > 0) {
-            const firstKey = accessKeys[0]
-            activeKey = firstKey.key_code || firstKey.keyCode
-            activeKeyUsedAt = firstKey.used_at || firstKey.usedAt
-            activeKeyExpires = firstKey.key_expires_at || firstKey.keyExpiresAt
-            keyStatus = getKeyStatus(firstKey)
+          // 获取密钥信息 - 修复逻辑
+          let activeKey = null
+          let activeKeyUsedAt = null
+          let activeKeyExpires = null
+          let keyStatus: 'active' | 'expired' | 'unused' = 'unused'
+          let keyCode = null
+          let keyId = profile.access_key_id
+
+          // 首先检查 current_access_key
+          if (profile.current_access_key) {
+            const currentKey = profile.current_access_key
+            keyCode = currentKey.key_code || currentKey.keyCode
+            activeKeyUsedAt = currentKey.used_at || currentKey.usedAt
+            activeKeyExpires = currentKey.key_expires_at || currentKey.keyExpiresAt
+            keyStatus = getKeyStatus(currentKey)
           }
-        }
-        
-        // 备用方案
-        if (!activeKey && profile.current_access_key) {
-          const currentKey = profile.current_access_key
-          activeKey = currentKey.key_code || currentKey.keyCode
-          activeKeyUsedAt = currentKey.used_at || currentKey.usedAt
-          activeKeyExpires = currentKey.key_expires_at || currentKey.keyExpiresAt
-          keyStatus = getKeyStatus(currentKey)
-        }
-        
-        if (!activeKey && profile.access_key_id) {
-          activeKey = `ID: ${profile.access_key_id}`
-        }
 
-        // 获取性别
-        const gender = getGenderDisplay(profile.preferences)
+          // 如果没有 current_access_key，检查 access_keys 数组
+          if (!keyCode && profile.access_keys && Array.isArray(profile.access_keys)) {
+            // 优先使用当前密钥ID对应的密钥
+            if (profile.access_key_id) {
+              const currentKey = profile.access_keys.find((key: any) =>
+                key.id === profile.access_key_id || key.id === Number(profile.access_key_id)
+              )
+              if (currentKey) {
+                keyCode = currentKey.key_code || currentKey.keyCode
+                activeKeyUsedAt = currentKey.used_at || currentKey.usedAt
+                activeKeyExpires = currentKey.key_expires_at || currentKey.keyExpiresAt
+                keyStatus = getKeyStatus(currentKey)
+              }
+            }
 
-        return {
-          id: profile.id,
-          email: profile.email,
-          nickname: profile.nickname,
-          fullName: profile.full_name,
-          avatarUrl: profile.avatar_url,
-          bio: profile.bio,
-          preferences: profile.preferences,
-          isAdmin: profile.email === '2200691917@qq.com',
-          isPremium: isPremium,
-          lastLogin: lastLogin,
-          lastLoginRaw: profile.last_login_at,
-          accountExpires: accountExpires,
-          accountExpiresRaw: profile.account_expires_at,
-          createdAt: createdAt,
-          createdAtRaw: profile.created_at,
-          accessKeyId: profile.access_key_id,
-          activeKey: activeKey || '无',
-          activeKeyUsedAt: activeKeyUsedAt,
-          activeKeyExpires: activeKeyExpires,
-          isActive: true,
-          gender: gender,
-          keyStatus: keyStatus
-        }
-      })
+            // 如果没有找到匹配的密钥，使用第一个密钥
+            if (!keyCode && profile.access_keys.length > 0) {
+              const firstKey = profile.access_keys[0]
+              keyCode = firstKey.key_code || firstKey.keyCode
+              activeKeyUsedAt = firstKey.used_at || firstKey.usedAt
+              activeKeyExpires = firstKey.key_expires_at || firstKey.keyExpiresAt
+              keyStatus = getKeyStatus(firstKey)
+            }
+          }
+
+          // 如果还没有密钥代码，但有密钥ID，则显示ID
+          if (!keyCode && profile.access_key_id) {
+            keyCode = `ID: ${profile.access_key_id}`
+          }
+
+          // 如果所有方法都失败，显示"无"
+          if (!keyCode) {
+            keyCode = '无'
+          }
+
+          // 获取性别
+          const gender = getGenderDisplay(profile.preferences)
+
+          return {
+            id: profile.id,
+            email: profile.email,
+            nickname: profile.nickname,
+            fullName: profile.full_name,
+            avatarUrl: profile.avatar_url,
+            bio: profile.bio,
+            preferences: profile.preferences,
+            isAdmin: profile.email === '2200691917@qq.com',
+            isPremium: isPremium,
+            lastLogin: lastLogin,
+            lastLoginRaw: profile.last_login_at,
+            accountExpires: accountExpires,
+            accountExpiresRaw: profile.account_expires_at,
+            createdAt: createdAt,
+            createdAtRaw: profile.created_at,
+            accessKeyId: profile.access_key_id,
+            activeKey: keyCode,  // 修改这一行
+            activeKeyUsedAt: activeKeyUsedAt,
+            activeKeyExpires: activeKeyExpires,
+            isActive: true,
+            gender: gender,
+            keyStatus: keyStatus
+          }
+        })
 
       setUsers(formattedUsers)
       setTotalCount(result.pagination?.total || 0)
@@ -177,7 +206,7 @@ export default function UsersPage() {
   const fetchUserDetail = async (userId: string) => {
     setDetailLoading(true)
     setSelectedUserDetail(null)
-    
+
     try {
       const response = await fetch(`/api/admin/data?table=profiles&detailId=${userId}`, {
         credentials: 'include',
@@ -188,7 +217,7 @@ export default function UsersPage() {
       }
 
       const result = await response.json()
-      
+
       if (!result.success) {
         throw new Error(result.error || '未找到用户详情')
       }
@@ -218,11 +247,11 @@ export default function UsersPage() {
   // 排序后的用户数据
   const sortedUsers = useMemo(() => {
     if (!users.length) return []
-    
+
     const sorted = [...users].sort((a, b) => {
       let aValue: any
       let bValue: any
-      
+
       switch (sortField) {
         case 'id':
           aValue = a.id
@@ -263,32 +292,32 @@ export default function UsersPage() {
         default:
           return 0
       }
-      
+
       // 处理空值
       if (!aValue && bValue) return sortDirection === 'asc' ? 1 : -1
       if (aValue && !bValue) return sortDirection === 'asc' ? -1 : 1
       if (!aValue && !bValue) return 0
-      
+
       // 布尔值比较
       if (typeof aValue === 'boolean') {
-        return sortDirection === 'asc' 
+        return sortDirection === 'asc'
           ? (aValue === bValue ? 0 : aValue ? -1 : 1)
           : (aValue === bValue ? 0 : aValue ? 1 : -1)
       }
-      
+
       // 日期比较
       if (typeof aValue === 'string' && !isNaN(Date.parse(aValue)) && !isNaN(Date.parse(bValue))) {
         const dateA = new Date(aValue).getTime()
         const dateB = new Date(bValue).getTime()
         return sortDirection === 'asc' ? dateA - dateB : dateB - dateA
       }
-      
+
       // 字符串比较
-      return sortDirection === 'asc' 
+      return sortDirection === 'asc'
         ? aValue.localeCompare(bValue)
         : bValue.localeCompare(aValue)
     })
-    
+
     return sorted
   }, [users, sortField, sortDirection])
 
@@ -301,7 +330,7 @@ export default function UsersPage() {
         </svg>
       )
     }
-    return sortDirection === 'asc' 
+    return sortDirection === 'asc'
       ? <SortAsc className="w-4 h-4 text-blue-400" />
       : <SortDesc className="w-4 h-4 text-blue-400" />
   }
@@ -309,26 +338,26 @@ export default function UsersPage() {
   // 批量操作
   const handleBatchAction = async (action: 'disable' | 'enable' | 'delete') => {
     if (!selectedUsers.length) return
-    
+
     const actionNames = {
       disable: { text: '禁用', confirm: '确定要禁用这些账户吗？\n\n禁用后用户将无法登录系统。' },
       enable: { text: '启用', confirm: '确定要启用这些账户吗？\n\n启用后用户将恢复会员权限。' },
       delete: { text: '删除', confirm: '确定要删除这些账户吗？\n\n此操作会将用户标记为删除，但保留历史数据。' }
     }
-    
+
     const { text, confirm: confirmText } = actionNames[action]
-    
+
     if (!confirm(`${confirmText}\n\n涉及 ${selectedUsers.length} 个用户`)) return
-    
+
     setBatchActionLoading(true)
-    
+
     try {
       const response = await fetch('/api/admin/users/batch-disable', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           userIds: selectedUsers,
           action: action,
           reason: `管理员批量${text}操作`
@@ -337,7 +366,7 @@ export default function UsersPage() {
       })
 
       const result = await response.json()
-      
+
       if (result.success) {
         alert(`✅ 成功${text}了 ${result.data.affectedCount} 个用户`)
         setSelectedUsers([])
@@ -412,7 +441,7 @@ export default function UsersPage() {
         </div>
       )
     }
-    
+
     if (user.activeKey.startsWith('ID:')) {
       return (
         <div className="group relative">
@@ -426,13 +455,13 @@ export default function UsersPage() {
         </div>
       )
     }
-    
+
     const keyStatusColors = {
       active: 'bg-green-500/10 text-green-400',
       expired: 'bg-red-500/10 text-red-400',
       unused: 'bg-yellow-500/10 text-yellow-400'
     }
-    
+
     return (
       <div className="space-y-1">
         <div className="flex items-center">
@@ -456,16 +485,16 @@ export default function UsersPage() {
   // 渲染性别单元格
   const renderGenderCell = (user: UserType) => {
     const gender = user.gender || '未设置'
-    
+
     const genderColors: Record<string, { bg: string, text: string }> = {
       '男': { bg: 'bg-blue-500/10', text: 'text-blue-400' },
       '女': { bg: 'bg-pink-500/10', text: 'text-pink-400' },
       '其他': { bg: 'bg-purple-500/10', text: 'text-purple-400' },
       '未设置': { bg: 'bg-gray-500/10', text: 'text-gray-400' }
     }
-    
+
     const { bg, text } = genderColors[gender] || genderColors['未设置']
-    
+
     return (
       <span className={`px-2 py-1 rounded text-xs ${bg} ${text}`}>
         {gender}
@@ -479,11 +508,11 @@ export default function UsersPage() {
     const femaleCount = sortedUsers.filter(u => u.gender === '女').length
     const otherGenderCount = sortedUsers.filter(u => !['男', '女', '未设置'].includes(u.gender)).length
     const unknownCount = sortedUsers.filter(u => u.gender === '未设置').length
-    
+
     return {
       total: sortedUsers.length,
       premium: sortedUsers.filter(u => u.isPremium).length,
-      active24h: sortedUsers.filter(u => 
+      active24h: sortedUsers.filter(u =>
         u.lastLoginRaw && new Date(u.lastLoginRaw) > new Date(Date.now() - 24 * 60 * 60 * 1000)
       ).length,
       male: maleCount,
@@ -519,7 +548,7 @@ export default function UsersPage() {
               <Download className="w-4 h-4 mr-2" />
               导出CSV
             </button>
-            
+
             {selectedUsers.length > 0 && (
               <div className="relative">
                 <div className="flex gap-2">
@@ -540,7 +569,7 @@ export default function UsersPage() {
                     <ChevronDown className={`w-4 h-4 ml-1 transition-transform ${showBatchMenu ? 'rotate-180' : ''}`} />
                   </button>
                 </div>
-                
+
                 {showBatchMenu && (
                   <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50">
                     <button
@@ -565,7 +594,7 @@ export default function UsersPage() {
             )}
           </div>
         </div>
-        
+
         {/* 搜索、筛选和排序栏 */}
         <div className="flex flex-col md:flex-row gap-3 mt-6">
           <div className="flex-1 relative">
@@ -581,7 +610,7 @@ export default function UsersPage() {
               }}
             />
           </div>
-          
+
           <div className="relative group">
             <button
               onClick={() => setShowSortMenu(!showSortMenu)}
@@ -591,7 +620,7 @@ export default function UsersPage() {
               排序
               <ChevronDown className={`w-4 h-4 ml-1 transition-transform ${showSortMenu ? 'rotate-180' : ''}`} />
             </button>
-            
+
             {showSortMenu && (
               <div className="absolute right-0 mt-1 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50">
                 {[
@@ -618,7 +647,7 @@ export default function UsersPage() {
               </div>
             )}
           </div>
-          
+
           <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0">
             {[
               { value: 'all', label: '全部用户' },
@@ -629,11 +658,10 @@ export default function UsersPage() {
             ].map((item) => (
               <button
                 key={item.value}
-                className={`px-3 py-2 rounded-lg text-sm whitespace-nowrap ${
-                  filter === item.value
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                }`}
+                className={`px-3 py-2 rounded-lg text-sm whitespace-nowrap ${filter === item.value
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}
                 onClick={() => {
                   setFilter(item.value)
                   setCurrentPage(1)
@@ -680,7 +708,7 @@ export default function UsersPage() {
             <h2 className="text-lg font-semibold text-white">用户列表</h2>
             {totalPages > 1 && (
               <div className="flex items-center space-x-2">
-                <button 
+                <button
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
                   className="px-3 py-1 bg-gray-800 rounded text-sm disabled:opacity-50 hover:bg-gray-700"
@@ -690,7 +718,7 @@ export default function UsersPage() {
                 <span className="text-gray-400 text-sm">
                   第 {currentPage} / {totalPages} 页
                 </span>
-                <button 
+                <button
                   onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                   disabled={currentPage === totalPages}
                   className="px-3 py-1 bg-gray-800 rounded text-sm disabled:opacity-50 hover:bg-gray-700"
@@ -701,7 +729,7 @@ export default function UsersPage() {
             )}
           </div>
         </div>
-        
+
         {loading ? (
           <div className="p-8 text-center">
             <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
@@ -718,8 +746,8 @@ export default function UsersPage() {
               <thead>
                 <tr className="border-b border-gray-700/50">
                   <th className="text-left py-3 px-4 md:px-6">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       checked={selectedUsers.length === sortedUsers.length && sortedUsers.length > 0}
                       onChange={(e) => {
                         if (e.target.checked) {
@@ -732,7 +760,7 @@ export default function UsersPage() {
                     />
                   </th>
                   <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
-                    <button 
+                    <button
                       className="flex items-center hover:text-gray-300"
                       onClick={() => handleSort('id')}
                     >
@@ -741,7 +769,7 @@ export default function UsersPage() {
                     </button>
                   </th>
                   <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
-                    <button 
+                    <button
                       className="flex items-center hover:text-gray-300"
                       onClick={() => handleSort('email')}
                     >
@@ -750,7 +778,7 @@ export default function UsersPage() {
                     </button>
                   </th>
                   <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
-                    <button 
+                    <button
                       className="flex items-center hover:text-gray-300"
                       onClick={() => handleSort('keyStatus')}
                     >
@@ -759,7 +787,7 @@ export default function UsersPage() {
                     </button>
                   </th>
                   <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
-                    <button 
+                    <button
                       className="flex items-center hover:text-gray-300"
                       onClick={() => handleSort('isPremium')}
                     >
@@ -768,7 +796,7 @@ export default function UsersPage() {
                     </button>
                   </th>
                   <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
-                    <button 
+                    <button
                       className="flex items-center hover:text-gray-300"
                       onClick={() => handleSort('gender')}
                     >
@@ -777,7 +805,7 @@ export default function UsersPage() {
                     </button>
                   </th>
                   <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
-                    <button 
+                    <button
                       className="flex items-center hover:text-gray-300"
                       onClick={() => handleSort('lastLogin')}
                     >
@@ -786,7 +814,7 @@ export default function UsersPage() {
                     </button>
                   </th>
                   <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
-                    <button 
+                    <button
                       className="flex items-center hover:text-gray-300"
                       onClick={() => handleSort('createdAt')}
                     >
@@ -795,7 +823,7 @@ export default function UsersPage() {
                     </button>
                   </th>
                   <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
-                    <button 
+                    <button
                       className="flex items-center hover:text-gray-300"
                       onClick={() => handleSort('accountExpires')}
                     >
@@ -812,8 +840,8 @@ export default function UsersPage() {
                 {sortedUsers.map((user) => (
                   <tr key={user.id} className="border-b border-gray-700/30 hover:bg-gray-800/30">
                     <td className="py-3 px-4 md:px-6">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={selectedUsers.includes(user.id)}
                         onChange={(e) => {
                           if (e.target.checked) {
@@ -833,8 +861,8 @@ export default function UsersPage() {
                     <td className="py-3 px-4 md:px-6">
                       <div className="flex items-center">
                         {user.avatarUrl ? (
-                          <img 
-                            src={user.avatarUrl} 
+                          <img
+                            src={user.avatarUrl}
                             alt={user.nickname || user.email}
                             className="w-8 h-8 rounded-full mr-3"
                           />
@@ -862,11 +890,10 @@ export default function UsersPage() {
                     </td>
                     <td className="py-3 px-4 md:px-6">
                       <div>
-                        <span className={`px-2 py-1 rounded text-xs ${
-                          user.isPremium 
-                            ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white' 
-                            : 'bg-gray-700 text-gray-300'
-                        }`}>
+                        <span className={`px-2 py-1 rounded text-xs ${user.isPremium
+                          ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white'
+                          : 'bg-gray-700 text-gray-300'
+                          }`}>
                           {user.isPremium ? '会员中' : '免费用户'}
                         </span>
                         {user.accountExpiresRaw && user.isPremium && (
@@ -889,7 +916,7 @@ export default function UsersPage() {
                       {user.accountExpires}
                     </td>
                     <td className="py-3 px-4 md:px-6">
-                      <button 
+                      <button
                         onClick={() => handleViewDetail(user.id)}
                         className="text-blue-400 hover:text-blue-300 text-sm hover:underline px-2 py-1 rounded hover:bg-gray-800"
                       >
@@ -903,7 +930,7 @@ export default function UsersPage() {
           </div>
         )}
       </div>
-      
+
       {/* 用户详情弹窗 */}
       <UserDetailModal
         isOpen={detailModalOpen}

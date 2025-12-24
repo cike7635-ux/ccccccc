@@ -16,7 +16,7 @@ interface UserDetailModalProps {
 // 性别显示函数
 const getGenderDisplay = (preferences: any): string => {
   if (!preferences || !preferences.gender) return '未设置';
-  
+
   const genderMap: Record<string, string> = {
     'male': '男',
     'female': '女',
@@ -27,7 +27,7 @@ const getGenderDisplay = (preferences: any): string => {
     '女': '女',
     '未知': '未设置'
   };
-  
+
   const genderKey = String(preferences.gender).toLowerCase();
   return genderMap[genderKey] || String(preferences.gender);
 }
@@ -35,52 +35,52 @@ const getGenderDisplay = (preferences: any): string => {
 export default function UserDetailModal({ isOpen, onClose, userDetail, loading, onRefresh }: UserDetailModalProps) {
   const [activeTab, setActiveTab] = useState<'basic' | 'keys' | 'ai' | 'games'>('basic')
   const [copiedField, setCopiedField] = useState<string | null>(null)
-  
+
   const accessKeys = userDetail?.access_keys || []
   const aiUsageRecords = userDetail?.ai_usage_records || []
   const gameHistory = userDetail?.game_history || []
-  
+
   const stats = useMemo(() => {
     if (!userDetail) return null
-    
+
     // 计算密钥统计
     const keyStats = {
       total: accessKeys.length,
       active: accessKeys.filter(k => k.is_active).length,
-      expired: accessKeys.filter(k => 
+      expired: accessKeys.filter(k =>
         k.key_expires_at && new Date(k.key_expires_at) < new Date()
       ).length,
       unused: accessKeys.filter(k => !k.used_at).length,
       currentId: userDetail.access_key_id
     }
-    
+
     // 计算AI统计
     const aiStats = {
       total: aiUsageRecords.length,
       success: aiUsageRecords.filter(r => r.success).length,
-      recent: aiUsageRecords.filter(r => 
+      recent: aiUsageRecords.filter(r =>
         r.created_at && new Date(r.created_at) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
       ).length
     }
-    
+
     // 计算游戏统计
     const gameStats = {
       total: gameHistory.length,
       wins: gameHistory.filter(g => g.winner_id === userDetail.id).length,
-      recent: gameHistory.filter(g => 
+      recent: gameHistory.filter(g =>
         g.started_at && new Date(g.started_at) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
       ).length
     }
-    
+
     return { keyStats, aiStats, gameStats }
   }, [userDetail, accessKeys, aiUsageRecords, gameHistory])
-  
+
   const handleCopy = (text: string, field: string) => {
     navigator.clipboard.writeText(text)
     setCopiedField(field)
     setTimeout(() => setCopiedField(null), 2000)
   }
-  
+
   const formatDate = (dateString: string | null) => {
     if (!dateString) return '无记录'
     try {
@@ -95,7 +95,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       return dateString
     }
   }
-  
+
   const formatShortDate = (dateString: string | null) => {
     if (!dateString) return '无记录'
     try {
@@ -110,7 +110,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       return dateString
     }
   }
-  
+
   const formatDuration = (start: string | null, end: string | null) => {
     if (!start || !end) return '未知'
     try {
@@ -123,19 +123,19 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       return '未知'
     }
   }
-  
+
   const getAccountStatus = () => {
     if (!userDetail?.account_expires_at) return { status: '免费用户', color: 'text-gray-400', bgColor: 'bg-gray-500/10' }
     const isExpired = new Date(userDetail.account_expires_at) < new Date()
-    return isExpired 
+    return isExpired
       ? { status: '已过期', color: 'text-red-400', bgColor: 'bg-red-500/10' }
       : { status: '会员中', color: 'text-green-400', bgColor: 'bg-green-500/10' }
   }
-  
+
   if (!isOpen) return null
-  
+
   const accountStatus = getAccountStatus()
-  
+
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 md:p-6">
       <div className="bg-gradient-to-br from-gray-900 via-gray-900 to-gray-950 rounded-2xl border border-gray-800 w-full max-w-6xl max-h-[90vh] overflow-hidden shadow-2xl">
@@ -144,8 +144,8 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
           <div className="flex items-center space-x-4">
             <div className="relative">
               {userDetail?.avatar_url ? (
-                <img 
-                  src={userDetail.avatar_url} 
+                <img
+                  src={userDetail.avatar_url}
                   alt={userDetail.nickname || userDetail.email}
                   className="w-12 h-12 rounded-full ring-2 ring-gray-700"
                 />
@@ -160,7 +160,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 <div className={`w-2 h-2 rounded-full ${accountStatus.color.replace('text-', 'bg-')}`} />
               </div>
             </div>
-            
+
             <div>
               <h2 className="text-xl font-bold text-white flex items-center">
                 {userDetail?.nickname || '无昵称'}
@@ -176,12 +176,12 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
               </p>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <div className={`px-3 py-1 rounded-full text-sm font-medium ${accountStatus.bgColor} ${accountStatus.color}`}>
               {accountStatus.status}
             </div>
-            
+
             {onRefresh && (
               <button
                 onClick={onRefresh}
@@ -192,7 +192,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               </button>
             )}
-            
+
             <button
               onClick={onClose}
               className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors hover:scale-105"
@@ -201,7 +201,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
             </button>
           </div>
         </div>
-        
+
         {/* 加载状态 */}
         {loading ? (
           <div className="p-12 text-center">
@@ -226,21 +226,19 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 ].map((tab) => (
                   <button
                     key={tab.id}
-                    className={`flex-1 flex items-center justify-center px-6 py-3 text-sm font-medium transition-all relative ${
-                      activeTab === tab.id
+                    className={`flex-1 flex items-center justify-center px-6 py-3 text-sm font-medium transition-all relative ${activeTab === tab.id
                         ? 'text-blue-400 border-b-2 border-blue-500 bg-gradient-to-t from-blue-500/5 to-transparent'
                         : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/30'
-                    }`}
+                      }`}
                     onClick={() => setActiveTab(tab.id as any)}
                   >
                     <tab.icon className="w-4 h-4 mr-2" />
                     {tab.label}
                     {tab.count !== null && (
-                      <span className={`ml-2 px-1.5 py-0.5 text-xs rounded-full ${
-                        activeTab === tab.id
+                      <span className={`ml-2 px-1.5 py-0.5 text-xs rounded-full ${activeTab === tab.id
                           ? 'bg-blue-500/20 text-blue-400'
                           : 'bg-gray-700 text-gray-400'
-                      }`}>
+                        }`}>
                         {tab.count}
                       </span>
                     )}
@@ -248,7 +246,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 ))}
               </div>
             </div>
-            
+
             {/* 标签页内容 */}
             <div className="overflow-auto max-h-[calc(90vh-180px)]">
               {/* 基本信息标签页 */}
@@ -286,7 +284,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                                 </button>
                               </div>
                             </div>
-                            
+
                             <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
                               <div className="flex items-center">
                                 <Mail className="w-4 h-4 mr-2 text-gray-400" />
@@ -295,7 +293,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                               <span className="text-white truncate">{userDetail.email}</span>
                             </div>
                           </div>
-                          
+
                           <div className="space-y-3">
                             <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
                               <div className="flex items-center">
@@ -304,7 +302,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                               </div>
                               <span className="text-white">{userDetail.nickname || '未设置'}</span>
                             </div>
-                            
+
                             {/* 新增：性别显示 */}
                             <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
                               <div className="flex items-center">
@@ -315,7 +313,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                               </div>
                               <span className="text-white">{getGenderDisplay(userDetail.preferences)}</span>
                             </div>
-                            
+
                             <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
                               <div className="flex items-center">
                                 <Activity className="w-4 h-4 mr-2 text-gray-400" />
@@ -326,7 +324,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                           </div>
                         </div>
                       </div>
-                      
+
                       {/* 偏好设置 */}
                       {userDetail.preferences && Object.keys(userDetail.preferences).length > 0 && (
                         <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
@@ -342,7 +340,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                         </div>
                       )}
                     </div>
-                    
+
                     {/* 账户状态 */}
                     <div className="space-y-6">
                       <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
@@ -360,7 +358,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                               {accountStatus.status}
                             </span>
                           </div>
-                          
+
                           {/* 🔥 修改：会员到期时间使用formatDate，与注册时间格式一致 */}
                           <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
                             <div className="flex items-center">
@@ -369,7 +367,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                             </div>
                             <span className="text-white">{formatDate(userDetail.account_expires_at)}</span>
                           </div>
-                          
+
                           <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
                             <div className="flex items-center">
                               <Clock className="w-4 h-4 mr-2 text-gray-400" />
@@ -377,7 +375,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                             </div>
                             <span className="text-white">{formatDate(userDetail.last_login_at)}</span>
                           </div>
-                          
+
                           <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
                             <div className="flex items-center">
                               <History className="w-4 h-4 mr-2 text-gray-400" />
@@ -387,7 +385,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                           </div>
                         </div>
                       </div>
-                      
+
                       {/* 统计概览 */}
                       <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
                         <h3 className="text-lg font-semibold text-white mb-4">统计概览</h3>
@@ -407,8 +405,8 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                           <div className="bg-gray-800/30 p-3 rounded-lg">
                             <p className="text-xs text-gray-400">胜率</p>
                             <p className="text-xl font-bold text-amber-400">
-                              {stats?.gameStats.total 
-                                ? `${((stats.gameStats.wins / stats.gameStats.total) * 100).toFixed(1)}%` 
+                              {stats?.gameStats.total
+                                ? `${((stats.gameStats.wins / stats.gameStats.total) * 100).toFixed(1)}%`
                                 : '0%'
                               }
                             </p>
@@ -419,7 +417,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                   </div>
                 </div>
               )}
-              
+
               {/* 密钥记录标签页 */}
               {activeTab === 'keys' && (
                 <div className="p-6">
@@ -437,11 +435,13 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                       <p className="text-2xl font-bold text-red-400">{stats?.keyStats.expired || 0}</p>
                     </div>
                     <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4">
-                      <p className="text-sm text-gray-400 mb-1">当前密钥ID</p>
-                      <p className="text-2xl font-bold text-blue-400">{userDetail.access_key_id || '无'}</p>
+                      <p className="text-sm text-gray-400 mb-1">当前密钥代码</p>
+                      <p className="text-2xl font-bold text-blue-400 font-mono truncate">
+                        {userDetail.current_access_key?.key_code || userDetail.access_key_id || '无'}
+                      </p>
                     </div>
                   </div>
-                  
+
                   {accessKeys.length === 0 ? (
                     <div className="text-center py-12">
                       <div className="w-20 h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -468,13 +468,12 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                               const isActive = key.is_active
                               const isExpired = key.key_expires_at && new Date(key.key_expires_at) < new Date()
                               const isCurrent = key.id === userDetail.access_key_id
-                              
+
                               return (
-                                <tr 
-                                  key={index} 
-                                  className={`border-b border-gray-800/30 transition-all hover:bg-gray-800/30 ${
-                                    isCurrent ? 'bg-blue-500/5' : ''
-                                  }`}
+                                <tr
+                                  key={index}
+                                  className={`border-b border-gray-800/30 transition-all hover:bg-gray-800/30 ${isCurrent ? 'bg-blue-500/5' : ''
+                                    }`}
                                 >
                                   <td className="py-4 px-6">
                                     <div className="flex items-center">
@@ -490,12 +489,10 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                                   </td>
                                   <td className="py-4 px-6">
                                     <div className="flex items-center space-x-2">
-                                      <div className={`w-2 h-2 rounded-full ${
-                                        isActive ? 'bg-green-500' : 'bg-red-500'
-                                      }`} />
-                                      <span className={`text-sm ${
-                                        isActive ? 'text-green-400' : 'text-red-400'
-                                      }`}>
+                                      <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-green-500' : 'bg-red-500'
+                                        }`} />
+                                      <span className={`text-sm ${isActive ? 'text-green-400' : 'text-red-400'
+                                        }`}>
                                         {isActive ? '活跃' : '禁用'}
                                       </span>
                                       {isExpired && (
@@ -549,7 +546,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                   )}
                 </div>
               )}
-              
+
               {/* AI使用记录标签页 */}
               {activeTab === 'ai' && (
                 <div className="p-6">
@@ -565,8 +562,8 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                       <p className="text-sm text-gray-400 mb-2">成功请求</p>
                       <p className="text-2xl font-bold text-green-400">{stats?.aiStats.success || 0}</p>
                       <p className="text-xs text-gray-500 mt-1">
-                        成功率: {stats?.aiStats.total 
-                          ? `${((stats.aiStats.success / stats.aiStats.total) * 100).toFixed(1)}%` 
+                        成功率: {stats?.aiStats.total
+                          ? `${((stats.aiStats.success / stats.aiStats.total) * 100).toFixed(1)}%`
                           : '0%'
                         }
                       </p>
@@ -574,14 +571,14 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                     <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
                       <p className="text-sm text-gray-400 mb-2">最近使用</p>
                       <p className="text-2xl font-bold text-blue-400">
-                        {aiUsageRecords.length > 0 
+                        {aiUsageRecords.length > 0
                           ? formatDate(aiUsageRecords[aiUsageRecords.length - 1]?.created_at)
                           : '从未使用'
                         }
                       </p>
                     </div>
                   </div>
-                  
+
                   {aiUsageRecords.length === 0 ? (
                     <div className="text-center py-12">
                       <div className="w-20 h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -593,8 +590,8 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                   ) : (
                     <div className="space-y-4">
                       {aiUsageRecords.slice(0, 10).map((record, index) => (
-                        <div 
-                          key={index} 
+                        <div
+                          key={index}
                           className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5 hover:border-gray-600/50 transition-all"
                         >
                           <div className="flex items-center justify-between mb-4">
@@ -602,11 +599,10 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                               <Brain className="w-5 h-5 mr-3 text-blue-400" />
                               <div>
                                 <span className="text-white font-medium">{record.feature || '未知功能'}</span>
-                                <span className={`ml-3 px-2 py-1 rounded text-xs ${
-                                  record.success 
-                                    ? 'bg-green-500/20 text-green-400' 
+                                <span className={`ml-3 px-2 py-1 rounded text-xs ${record.success
+                                    ? 'bg-green-500/20 text-green-400'
                                     : 'bg-red-500/20 text-red-400'
-                                }`}>
+                                  }`}>
                                   {record.success ? '成功' : '失败'}
                                 </span>
                               </div>
@@ -615,7 +611,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                               {formatDate(record.created_at || record.createdAt)}
                             </span>
                           </div>
-                          
+
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                             <div>
                               <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">请求数据</p>
@@ -636,7 +632,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                           </div>
                         </div>
                       ))}
-                      
+
                       {aiUsageRecords.length > 10 && (
                         <div className="text-center pt-6">
                           <p className="text-gray-400 text-sm">
@@ -648,7 +644,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                   )}
                 </div>
               )}
-              
+
               {/* 游戏记录标签页 */}
               {activeTab === 'games' && (
                 <div className="p-6">
@@ -673,14 +669,14 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                     <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
                       <p className="text-sm text-gray-400 mb-2">胜率</p>
                       <p className="text-2xl font-bold text-blue-400">
-                        {stats?.gameStats.total 
-                          ? `${((stats.gameStats.wins / stats.gameStats.total) * 100).toFixed(1)}%` 
+                        {stats?.gameStats.total
+                          ? `${((stats.gameStats.wins / stats.gameStats.total) * 100).toFixed(1)}%`
                           : '0%'
                         }
                       </p>
                     </div>
                   </div>
-                  
+
                   {gameHistory.length === 0 ? (
                     <div className="text-center py-12">
                       <div className="w-20 h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -706,10 +702,10 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                             {gameHistory.map((game, index) => {
                               const isWin = game.winner_id === userDetail.id
                               const isDraw = !game.winner_id
-                              
+
                               return (
-                                <tr 
-                                  key={index} 
+                                <tr
+                                  key={index}
                                   className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-all"
                                 >
                                   <td className="py-4 px-6">
@@ -729,12 +725,10 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                                   </td>
                                   <td className="py-4 px-6">
                                     <div className="flex items-center">
-                                      <div className={`w-3 h-3 rounded-full mr-2 ${
-                                        isWin ? 'bg-green-500' : isDraw ? 'bg-yellow-500' : 'bg-red-500'
-                                      }`} />
-                                      <span className={`text-sm ${
-                                        isWin ? 'text-green-400' : isDraw ? 'text-yellow-400' : 'text-red-400'
-                                      }`}>
+                                      <div className={`w-3 h-3 rounded-full mr-2 ${isWin ? 'bg-green-500' : isDraw ? 'bg-yellow-500' : 'bg-red-500'
+                                        }`} />
+                                      <span className={`text-sm ${isWin ? 'text-green-400' : isDraw ? 'text-yellow-400' : 'text-red-400'
+                                        }`}>
                                         {isWin ? '胜利' : isDraw ? '平局' : '失败'}
                                       </span>
                                     </div>
