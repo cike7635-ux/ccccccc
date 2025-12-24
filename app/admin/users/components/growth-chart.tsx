@@ -1,7 +1,7 @@
-// /app/admin/users/components/growth-chart.tsx - 增强修复版
+// /app/admin/users/components/growth-chart.tsx - 完整修复版
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { TrendingUp, Calendar, Users } from 'lucide-react'
 
 interface GrowthData {
@@ -15,6 +15,7 @@ export default function GrowthChart() {
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d'>('7d')
   const [useMockData, setUseMockData] = useState(false)
+  const chartContainerRef = useRef<HTMLDivElement>(null)
 
   // 获取增长数据
   const fetchGrowthData = async () => {
@@ -28,11 +29,28 @@ export default function GrowthChart() {
       
       if (response.ok) {
         const result = await response.json()
-        console.log('📊 图表API返回数据:', result)
+        console.log('📊 图表API返回数据详情:', {
+          success: result.success,
+          数据长度: result.data?.length,
+          总增长: result.totalGrowth,
+          第一条数据: result.data?.[0]
+        })
         
         if (result.success && result.data && Array.isArray(result.data)) {
           setGrowthData(result.data)
           setUseMockData(false)
+          
+          // 调试：打印计算后的高度
+          const maxCount = Math.max(...result.data.map(d => d.count), 1)
+          console.log('📊 高度计算调试:', {
+            最大count值: maxCount,
+            各柱子高度: result.data.map(day => ({
+              日期: day.date,
+              count: day.count,
+              计算高度: (day.count / maxCount) * 80,
+              最终高度: Math.max((day.count / maxCount) * 80, 8)
+            }))
+          })
         } else {
           console.warn('图表API返回数据格式不正确，使用模拟数据')
           setUseMockData(true)
@@ -88,8 +106,28 @@ export default function GrowthChart() {
   const totalGrowth = growthData.reduce((sum, day) => sum + day.count, 0)
   const maxCount = Math.max(...growthData.map(d => d.count), 1)
 
+  // 获取柱子颜色
+  const getBarColor = (count: number) => {
+    if (count === 0) return 'from-gray-500 to-gray-400'
+    if (count <= 2) return 'from-blue-400 to-blue-300'
+    if (count <= 5) return 'from-blue-500 to-blue-400'
+    if (count <= 10) return 'from-blue-600 to-blue-500'
+    return 'from-blue-700 to-blue-600'
+  }
+
+  // 获取柱子高度
+  const getBarHeight = (count: number, maxCount: number) => {
+    if (count === 0) return '10px' // 0数据固定10px高度
+    
+    const baseHeight = (count / maxCount) * 80
+    const minHeight = 10 // 最小10px
+    const calculatedHeight = Math.max(baseHeight, minHeight)
+    
+    return `${calculatedHeight}%`
+  }
+
   return (
-    <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 h-full">
+    <div ref={chartContainerRef} className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 h-full">
       <div className="flex items-center justify-between mb-4">
         <div>
           <p className="text-sm text-gray-400 flex items-center">
@@ -129,13 +167,19 @@ export default function GrowthChart() {
         </div>
       ) : (
         <>
-          {/* 柱状图 */}
+          {/* 柱状图 - 关键修复 */}
           <div className="relative">
             <div className="flex items-end h-32 gap-1 mb-2">
               {growthData.map((day, index) => {
-                // 🔥 关键修复：确保最小高度，即使count为0
-                const baseHeight = (day.count / maxCount) * 80
-                const heightPercent = Math.max(baseHeight, 8) // 最小8%高度
+                const height = getBarHeight(day.count, maxCount)
+                const color = getBarColor(day.count)
+                
+                console.log(`📊 渲染柱子 ${index}:`, {
+                  日期: day.date,
+                  新增: day.count,
+                  高度: height,
+                  颜色: color
+                })
                 
                 return (
                   <div key={index} className="flex-1 flex flex-col items-center group">
@@ -143,13 +187,18 @@ export default function GrowthChart() {
                       {day.count}
                     </div>
                     <div
-                      className="w-3/4 bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-sm transition-all duration-300 hover:opacity-80 cursor-pointer group-hover:shadow-lg group-hover:shadow-blue-500/20"
+                      className={`w-3/4 bg-gradient-to-t ${color} rounded-t-sm transition-all duration-300 hover:opacity-80 cursor-pointer group-hover:shadow-lg group-hover:shadow-blue-500/20`}
                       style={{ 
-                        height: `${heightPercent}%`,
-                        minHeight: '4px' // 额外确保最小像素高度
+                        height: height,
+                        minHeight: '10px' // 确保有最小高度
                       }}
                       title={`${day.date}: 新增 ${day.count} 人，累计 ${day.cumulative} 人`}
-                    />
+                    >
+                      {/* 柱子内部内容，用于调试 */}
+                      <div className="h-full w-full opacity-0 hover:opacity-100 transition-opacity flex items-end justify-center">
+                        <span className="text-white text-xs mb-1">{day.count}</span>
+                      </div>
+                    </div>
                     <div className="text-xs text-gray-500 mt-1">
                       {day.date.split('/')[1]}
                     </div>
@@ -158,8 +207,17 @@ export default function GrowthChart() {
               })}
             </div>
             
+            {/* Y轴标签 */}
+            <div className="absolute left-0 top-0 bottom-0 w-8 flex flex-col justify-between text-xs text-gray-500">
+              <span>{maxCount}</span>
+              <span>{Math.round(maxCount * 0.75)}</span>
+              <span>{Math.round(maxCount * 0.5)}</span>
+              <span>{Math.round(maxCount * 0.25)}</span>
+              <span>0</span>
+            </div>
+            
             {/* 网格线 */}
-            <div className="absolute top-0 left-0 w-full h-32 pointer-events-none">
+            <div className="absolute top-0 left-8 right-0 h-32 pointer-events-none">
               {[0, 25, 50, 75, 100].map((percent) => (
                 <div
                   key={percent}
@@ -195,6 +253,18 @@ export default function GrowthChart() {
               </p>
             </div>
           </div>
+          
+          {/* 调试信息（仅开发环境显示） */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="mt-4 p-2 bg-gray-900/50 rounded text-xs">
+              <div className="text-gray-400 mb-1">调试信息：</div>
+              <div className="text-gray-500">
+                数据点数: {growthData.length} | 
+                最大count: {maxCount} | 
+                总增长: {totalGrowth}
+              </div>
+            </div>
+          )}
           
           {/* 刷新按钮 */}
           <div className="mt-3 text-center">
