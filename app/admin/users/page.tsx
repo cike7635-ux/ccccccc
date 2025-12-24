@@ -1,10 +1,10 @@
-// /app/admin/users/page.tsx - 完整主页面
+// /app/admin/users/page.tsx - 修复版本
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { 
   Users, Mail, Search, Download, MoreVertical, Key, ChevronDown, 
-  Shield, ChevronUpDown, Calendar, User, Clock, Tag, Filter,
+  Shield, Calendar, User, Clock, Tag, Filter,
   SortAsc, SortDesc
 } from 'lucide-react'
 import UserDetailModal from './components/user-detail-modal'
@@ -295,7 +295,11 @@ export default function UsersPage() {
   // 获取排序图标
   const getSortIcon = (field: SortField) => {
     if (sortField !== field) {
-      return <ChevronUpDown className="w-4 h-4 text-gray-400" />
+      return (
+        <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+        </svg>
+      )
     }
     return sortDirection === 'asc' 
       ? <SortAsc className="w-4 h-4 text-blue-400" />
