@@ -17,8 +17,8 @@ export async function GET(request: NextRequest) {
       userAgent: request.headers.get('user-agent')
     }
 
-    const isAuthenticated = 
-      authMethods.cookie || 
+    const isAuthenticated =
+      authMethods.cookie ||
       (authMethods.referer?.includes('/admin/') && authMethods.userAgent)
 
     if (!isAuthenticated) {
@@ -66,10 +66,10 @@ export async function GET(request: NextRequest) {
     // 5. 处理用户详情查询（重点修复）
     if (table === 'profiles' && detailId) {
       console.log(`🔍 查询用户详情: ${detailId}`)
-      
+
       try {
         // 并行查询所有相关数据
-        const [profileResult, keyUsageHistoryResult, currentKeyResult, aiUsageResult, gameHistoriesResult] = 
+        const [profileResult, keyUsageHistoryResult, currentKeyResult, aiUsageResult, gameHistoriesResult] =
           await Promise.allSettled([
             // 用户基本信息
             supabaseAdmin
@@ -141,8 +141,8 @@ export async function GET(request: NextRequest) {
           ])
 
         // 处理查询结果
-        const profileData = profileResult.status === 'fulfilled' && profileResult.value.data 
-          ? profileResult.value.data 
+        const profileData = profileResult.status === 'fulfilled' && profileResult.value.data
+          ? profileResult.value.data
           : null
 
         if (!profileData) {
@@ -154,8 +154,8 @@ export async function GET(request: NextRequest) {
         }
 
         // 处理密钥使用历史
-        const keyUsageHistory = keyUsageHistoryResult.status === 'fulfilled' && keyUsageHistoryResult.value.data 
-          ? keyUsageHistoryResult.value.data 
+        const keyUsageHistory = keyUsageHistoryResult.status === 'fulfilled' && keyUsageHistoryResult.value.data
+          ? keyUsageHistoryResult.value.data
           : []
 
         console.log('🗝️ 密钥使用历史查询结果:', { 记录数量: keyUsageHistory.length })
@@ -182,8 +182,8 @@ export async function GET(request: NextRequest) {
         const allKeys = Array.from(uniqueKeysMap.values())
 
         // AI记录
-        let aiUsageRecords = aiUsageResult.status === 'fulfilled' && aiUsageResult.value.data 
-          ? aiUsageResult.value.data 
+        let aiUsageRecords = aiUsageResult.status === 'fulfilled' && aiUsageResult.value.data
+          ? aiUsageResult.value.data
           : []
 
         console.log('🤖 AI记录查询结果:', { 记录数量: aiUsageRecords.length })
@@ -197,7 +197,7 @@ export async function GET(request: NextRequest) {
             .eq('user_id', detailId)
             .order('created_at', { ascending: false })
             .limit(10)
-          
+
           if (directAiRecords && directAiRecords.length > 0) {
             console.log('✅ 直接查询成功，获取到AI记录:', directAiRecords.length)
             aiUsageRecords = directAiRecords
@@ -235,7 +235,7 @@ export async function GET(request: NextRequest) {
             access_key_id: profileData.access_key_id,
             created_at: profileData.created_at,
             updated_at: profileData.updated_at,
-            
+
             // 密钥使用历史（下划线命名）
             key_usage_history: keyUsageHistory.map(record => ({
               id: record.id,
@@ -249,7 +249,7 @@ export async function GET(request: NextRequest) {
               notes: record.notes,
               created_at: record.created_at,
               updated_at: record.updated_at,
-              
+
               access_key: record.access_key ? {
                 id: record.access_key.id,
                 key_code: record.access_key.key_code,
@@ -263,14 +263,14 @@ export async function GET(request: NextRequest) {
                 created_at: record.access_key.created_at,
                 updated_at: record.access_key.updated_at
               } : null,
-              
+
               operator: record.operator ? {
                 id: record.operator.id,
                 email: record.operator.email,
                 nickname: record.operator.nickname
               } : null
             })),
-            
+
             // 当前使用的密钥（下划线命名）
             current_access_key: currentKey ? {
               id: currentKey.id,
@@ -285,7 +285,7 @@ export async function GET(request: NextRequest) {
               created_at: currentKey.created_at,
               updated_at: currentKey.updated_at
             } : null,
-            
+
             // 所有密钥（下划线命名）
             access_keys: allKeys.map(key => ({
               id: key.id,
@@ -300,7 +300,7 @@ export async function GET(request: NextRequest) {
               created_at: key.created_at,
               updated_at: key.updated_at
             })),
-            
+
             // AI使用记录（下划线命名）
             ai_usage_records: aiUsageRecords.map(record => ({
               id: record.id,
@@ -311,7 +311,7 @@ export async function GET(request: NextRequest) {
               response_data: record.response_data,
               success: record.success
             })),
-            
+
             // 游戏历史记录（下划线命名）
             game_history: gameHistory.map(game => ({
               id: game.id,
@@ -330,8 +330,8 @@ export async function GET(request: NextRequest) {
       } catch (error: any) {
         console.error('❌ 用户详情查询异常:', error)
         return NextResponse.json(
-          { 
-            success: false, 
+          {
+            success: false,
             error: '获取用户详情失败',
             details: process.env.NODE_ENV === 'development' ? error.message : undefined
           },
@@ -343,7 +343,7 @@ export async function GET(request: NextRequest) {
     // 6. 处理profiles列表查询
     if (table === 'profiles' && !detailId) {
       console.log('📋 查询用户列表...')
-      
+
       try {
         // 构建基础查询（不包含关联数据，提高性能）
         let query = supabaseAdmin
@@ -376,41 +376,131 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        // 执行分页查询
-        const { data: profiles, error: listError, count } = await query
-          .order('created_at', { ascending: false })
-          .range(offset, offset + limit - 1)
+        // 应用分页
+        const page = parseInt(searchParams.get('page') || '1')
+        const limit = parseInt(searchParams.get('limit') || '20')
+        const start = (page - 1) * limit
+        const end = start + limit - 1
+        query = query.range(start, end)
 
-        if (listError) {
-          console.error('❌ 用户列表查询失败:', listError)
-          throw listError
+        // 应用排序
+        const sortBy = searchParams.get('sortBy') || 'created_at'
+        const sortOrder = searchParams.get('sortOrder') || 'desc'
+        query = query.order(sortBy, { ascending: sortOrder === 'asc' })
+
+        console.log(`📊 执行查询: page=${page}, limit=${limit}, filter=${filter}, search=${search}`)
+
+        // 执行查询
+        const result = await query
+
+        if (result.error) {
+          console.error('❌ 查询用户列表失败:', result.error)
+          return NextResponse.json({
+            success: false,
+            error: '数据库查询失败: ' + result.error.message
+          }, { status: 500 })
         }
 
-        console.log(`✅ 用户列表查询成功: ${profiles?.length || 0} 条记录`)
+        console.log(`✅ 查询成功: ${result.data?.length || 0} 条记录，总数: ${result.count}`)
 
+        // 如果查询到用户数据，获取每个用户的密钥信息
+        if (result.data && result.data.length > 0) {
+          // 收集所有用户ID
+          const userIds = result.data.map((profile: any) => profile.id)
+
+          console.log(`🔑 为 ${userIds.length} 个用户查询密钥信息...`)
+
+          // 批量查询这些用户的密钥
+          const { data: accessKeysData, error: accessKeysError } = await supabaseAdmin
+            .from('access_keys')
+            .select('*')
+            .in('user_id', userIds)
+            .order('created_at', { ascending: false })
+
+          if (accessKeysError) {
+            console.error('❌ 查询用户密钥失败:', accessKeysError)
+            // 即使密钥查询失败，也返回用户数据（只是没有密钥信息）
+            return NextResponse.json({
+              success: true,
+              data: result.data,
+              pagination: {
+                total: result.count || 0,
+                page,
+                limit,
+                totalPages: Math.ceil((result.count || 0) / limit)
+              }
+            })
+          }
+
+          console.log(`✅ 获取到 ${accessKeysData?.length || 0} 条密钥记录`)
+
+          // 将密钥数据按用户分组
+          const keysByUser: Record<string, any[]> = {}
+          if (accessKeysData && accessKeysData.length > 0) {
+            accessKeysData.forEach((key: any) => {
+              if (key.user_id) {
+                if (!keysByUser[key.user_id]) {
+                  keysByUser[key.user_id] = []
+                }
+                keysByUser[key.user_id].push(key)
+              }
+            })
+          }
+
+          // 为每个用户添加密钥信息
+          const profilesWithKeys = result.data.map((profile: any) => {
+            const userKeys = keysByUser[profile.id] || []
+
+            // 查找当前使用的密钥
+            let currentAccessKey = null
+            if (profile.access_key_id && userKeys.length > 0) {
+              // 尝试多种匹配方式
+              currentAccessKey = userKeys.find((key: any) => {
+                return key.id === profile.access_key_id ||
+                  key.id === Number(profile.access_key_id) ||
+                  String(key.id) === String(profile.access_key_id)
+              })
+            }
+
+            return {
+              ...profile,
+              access_keys: userKeys,
+              current_access_key: currentAccessKey || null
+            }
+          })
+
+          console.log(`✅ 返回 ${profilesWithKeys.length} 个用户数据，包含密钥信息`)
+
+          return NextResponse.json({
+            success: true,
+            data: profilesWithKeys,
+            pagination: {
+              total: result.count || 0,
+              page,
+              limit,
+              totalPages: Math.ceil((result.count || 0) / limit)
+            }
+          })
+        }
+
+        // 如果没有用户数据，直接返回
         return NextResponse.json({
           success: true,
-          data: profiles || [],
+          data: [],
           pagination: {
+            total: 0,
             page,
             limit,
-            total: count || 0,
-            total_pages: Math.ceil((count || 0) / limit),
-            has_next_page: (count || 0) > offset + limit
+            totalPages: 0
           }
         })
 
       } catch (error: any) {
-        console.error('❌ 用户列表查询异常:', error)
-        return NextResponse.json(
-          { 
-            success: false, 
-            error: '获取用户列表失败',
-            data: [],
-            pagination: { page: 1, limit: 20, total: 0, total_pages: 0, has_next_page: false }
-          },
-          { status: 500 }
-        )
+        console.error('❌ 查询用户列表异常:', error)
+        return NextResponse.json({
+          success: false,
+          error: '服务器内部错误: ' + error.message
+        }, { status: 500 })
       }
     }
 
