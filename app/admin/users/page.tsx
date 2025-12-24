@@ -1,18 +1,23 @@
-// /app/admin/users/page.tsx - 完整修复版
+// /app/admin/users/page.tsx - 完整主页面
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { Users, Mail, Search, Download, MoreVertical, Key, ChevronDown, Shield } from 'lucide-react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { 
+  Users, Mail, Search, Download, MoreVertical, Key, ChevronDown, 
+  Shield, ChevronUpDown, Calendar, User, Clock, Tag, Filter,
+  SortAsc, SortDesc
+} from 'lucide-react'
 import UserDetailModal from './components/user-detail-modal'
 import GrowthChart from './components/growth-chart'
-import { User, UserDetail } from './types'
+import { User as UserType, SortField, SortDirection, getGenderDisplay, getKeyStatus, normalizeUserDetail } from './types'
 
 export const dynamic = 'force-dynamic'
 
 const ITEMS_PER_PAGE = 20
 
 export default function UsersPage() {
-  const [users, setUsers] = useState<User[]>([])
+  // 状态管理
+  const [users, setUsers] = useState<UserType[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedUsers, setSelectedUsers] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
@@ -20,101 +25,115 @@ export default function UsersPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [filter, setFilter] = useState('all')
   const [detailModalOpen, setDetailModalOpen] = useState(false)
-  const [selectedUserDetail, setSelectedUserDetail] = useState<UserDetail | null>(null)
+  const [selectedUserDetail, setSelectedUserDetail] = useState<any>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [showBatchMenu, setShowBatchMenu] = useState(false)
   const [batchActionLoading, setBatchActionLoading] = useState(false)
+  
+  // 排序状态
+  const [sortField, setSortField] = useState<SortField>('createdAt')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
+  const [showSortMenu, setShowSortMenu] = useState(false)
 
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE)
 
-  // 获取用户数据 - 通过安全API
+  // 获取用户数据
   const fetchUsers = useCallback(async () => {
     setLoading(true)
     setUsers([])
 
     try {
-      // 1. 构建查询参数
       const params = new URLSearchParams({
         table: 'profiles',
         page: currentPage.toString(),
         limit: ITEMS_PER_PAGE.toString(),
       })
 
-      // 2. 添加搜索参数
       if (searchTerm.trim()) {
         params.append('search', searchTerm.trim())
       }
 
-      // 3. 添加筛选参数
       if (filter !== 'all') {
         params.append('filter', filter)
       }
 
-      // 4. 调用安全API端点
       const apiUrl = `/api/admin/data?${params.toString()}`
       const response = await fetch(apiUrl, {
         credentials: 'include',
       })
 
-      // 5. 检查响应状态
       if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`API请求失败 (${response.status}): ${errorText}`)
+        throw new Error(`API请求失败 (${response.status})`)
       }
 
-      // 6. 解析JSON数据
       const result = await response.json()
 
       if (!result.success) {
         throw new Error(result.error || 'API返回未知错误')
       }
 
-      // 7. 转换数据格式 - 修复密钥显示
-      const formattedUsers: User[] = (result.data || []).map((profile: any) => {
+      // 转换用户数据
+      const formattedUsers: UserType[] = (result.data || []).map((profile: any) => {
+        // 格式化日期
         const lastLogin = profile.last_login_at
           ? new Date(profile.last_login_at).toLocaleString('zh-CN')
           : '从未登录'
         
         const createdAt = profile.created_at
-          ? new Date(profile.created_at).toLocaleDateString('zh-CN')
+          ? new Date(profile.created_at).toLocaleString('zh-CN')
           : '未知'
+
+        const accountExpires = profile.account_expires_at
+          ? new Date(profile.account_expires_at).toLocaleString('zh-CN')
+          : '无记录'
 
         const isPremium = profile.account_expires_at
           ? new Date(profile.account_expires_at) > new Date()
           : false
 
-        // 🔥 修复密钥获取逻辑
+        // 获取密钥信息
         let activeKey = null
         let activeKeyUsedAt = null
         let activeKeyExpires = null
+        let keyStatus: 'active' | 'expired' | 'unused' = 'unused'
         
-        // 方法1: 如果API返回了access_keys数组
         const accessKeys = profile.access_keys || []
         if (Array.isArray(accessKeys) && accessKeys.length > 0) {
-          // 如果有access_key_id，找对应的密钥
+          // 优先使用当前密钥ID对应的密钥
           if (profile.access_key_id) {
             const currentKey = accessKeys.find((key: any) => key.id === profile.access_key_id)
             if (currentKey) {
-              activeKey = currentKey.key_code
-              activeKeyUsedAt = currentKey.used_at
-              activeKeyExpires = currentKey.key_expires_at
+              activeKey = currentKey.key_code || currentKey.keyCode
+              activeKeyUsedAt = currentKey.used_at || currentKey.usedAt
+              activeKeyExpires = currentKey.key_expires_at || currentKey.keyExpiresAt
+              keyStatus = getKeyStatus(currentKey)
             }
           }
-          // 如果没有找到特定的，用第一个
+          // 如果没有当前密钥，使用第一个密钥
           if (!activeKey && accessKeys.length > 0) {
             const firstKey = accessKeys[0]
-            activeKey = firstKey.key_code
-            activeKeyUsedAt = firstKey.used_at
-            activeKeyExpires = firstKey.key_expires_at
+            activeKey = firstKey.key_code || firstKey.keyCode
+            activeKeyUsedAt = firstKey.used_at || firstKey.usedAt
+            activeKeyExpires = firstKey.key_expires_at || firstKey.keyExpiresAt
+            keyStatus = getKeyStatus(firstKey)
           }
         }
         
-        // 方法2: 如果API返回了单独的current_access_key
+        // 备用方案
         if (!activeKey && profile.current_access_key) {
-          activeKey = profile.current_access_key.key_code
-          activeKeyUsedAt = profile.current_access_key.used_at
-          activeKeyExpires = profile.current_access_key.key_expires_at
+          const currentKey = profile.current_access_key
+          activeKey = currentKey.key_code || currentKey.keyCode
+          activeKeyUsedAt = currentKey.used_at || currentKey.usedAt
+          activeKeyExpires = currentKey.key_expires_at || currentKey.keyExpiresAt
+          keyStatus = getKeyStatus(currentKey)
         }
+        
+        if (!activeKey && profile.access_key_id) {
+          activeKey = `ID: ${profile.access_key_id}`
+        }
+
+        // 获取性别
+        const gender = getGenderDisplay(profile.preferences)
 
         return {
           id: profile.id,
@@ -128,18 +147,20 @@ export default function UsersPage() {
           isPremium: isPremium,
           lastLogin: lastLogin,
           lastLoginRaw: profile.last_login_at,
-          accountExpires: profile.account_expires_at,
+          accountExpires: accountExpires,
+          accountExpiresRaw: profile.account_expires_at,
           createdAt: createdAt,
           createdAtRaw: profile.created_at,
           accessKeyId: profile.access_key_id,
-          activeKey: activeKey || (profile.access_key_id ? '需查看详情' : '无'),
+          activeKey: activeKey || '无',
           activeKeyUsedAt: activeKeyUsedAt,
           activeKeyExpires: activeKeyExpires,
-          isActive: true
+          isActive: true,
+          gender: gender,
+          keyStatus: keyStatus
         }
       })
 
-      // 8. 更新状态
       setUsers(formattedUsers)
       setTotalCount(result.pagination?.total || 0)
 
@@ -154,7 +175,6 @@ export default function UsersPage() {
 
   // 获取用户详情
   const fetchUserDetail = async (userId: string) => {
-    console.log('🔍 开始获取用户详情:', userId)
     setDetailLoading(true)
     setSelectedUserDetail(null)
     
@@ -173,25 +193,7 @@ export default function UsersPage() {
         throw new Error(result.error || '未找到用户详情')
       }
 
-      const userDetail: UserDetail = {
-        id: result.data.id || '',
-        email: result.data.email || '',
-        nickname: result.data.nickname || null,
-        full_name: result.data.full_name || null,
-        avatar_url: result.data.avatar_url || null,
-        bio: result.data.bio || null,
-        preferences: result.data.preferences || {},
-        account_expires_at: result.data.account_expires_at || null,
-        last_login_at: result.data.last_login_at || null,
-        last_login_session: result.data.last_login_session || null,
-        access_key_id: result.data.access_key_id || null,
-        created_at: result.data.created_at || '',
-        updated_at: result.data.updated_at || '',
-        access_keys: result.data.access_keys || [],
-        ai_usage_records: result.data.ai_usage_records || [],
-        game_history: result.data.game_history || []
-      }
-
+      const userDetail = normalizeUserDetail(result.data)
       setSelectedUserDetail(userDetail)
 
     } catch (error: any) {
@@ -200,6 +202,104 @@ export default function UsersPage() {
     } finally {
       setDetailLoading(false)
     }
+  }
+
+  // 排序处理
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDirection('desc')
+    }
+    setShowSortMenu(false)
+  }
+
+  // 排序后的用户数据
+  const sortedUsers = useMemo(() => {
+    if (!users.length) return []
+    
+    const sorted = [...users].sort((a, b) => {
+      let aValue: any
+      let bValue: any
+      
+      switch (sortField) {
+        case 'id':
+          aValue = a.id
+          bValue = b.id
+          break
+        case 'email':
+          aValue = a.email
+          bValue = b.email
+          break
+        case 'nickname':
+          aValue = a.nickname || ''
+          bValue = b.nickname || ''
+          break
+        case 'keyStatus':
+          aValue = a.keyStatus || 'unused'
+          bValue = b.keyStatus || 'unused'
+          break
+        case 'isPremium':
+          aValue = a.isPremium
+          bValue = b.isPremium
+          break
+        case 'gender':
+          aValue = a.gender || '未设置'
+          bValue = b.gender || '未设置'
+          break
+        case 'lastLogin':
+          aValue = a.lastLoginRaw || ''
+          bValue = b.lastLoginRaw || ''
+          break
+        case 'createdAt':
+          aValue = a.createdAtRaw || ''
+          bValue = b.createdAtRaw || ''
+          break
+        case 'accountExpires':
+          aValue = a.accountExpiresRaw || ''
+          bValue = b.accountExpiresRaw || ''
+          break
+        default:
+          return 0
+      }
+      
+      // 处理空值
+      if (!aValue && bValue) return sortDirection === 'asc' ? 1 : -1
+      if (aValue && !bValue) return sortDirection === 'asc' ? -1 : 1
+      if (!aValue && !bValue) return 0
+      
+      // 布尔值比较
+      if (typeof aValue === 'boolean') {
+        return sortDirection === 'asc' 
+          ? (aValue === bValue ? 0 : aValue ? -1 : 1)
+          : (aValue === bValue ? 0 : aValue ? 1 : -1)
+      }
+      
+      // 日期比较
+      if (typeof aValue === 'string' && !isNaN(Date.parse(aValue)) && !isNaN(Date.parse(bValue))) {
+        const dateA = new Date(aValue).getTime()
+        const dateB = new Date(bValue).getTime()
+        return sortDirection === 'asc' ? dateA - dateB : dateB - dateA
+      }
+      
+      // 字符串比较
+      return sortDirection === 'asc' 
+        ? aValue.localeCompare(bValue)
+        : bValue.localeCompare(aValue)
+    })
+    
+    return sorted
+  }, [users, sortField, sortDirection])
+
+  // 获取排序图标
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ChevronUpDown className="w-4 h-4 text-gray-400" />
+    }
+    return sortDirection === 'asc' 
+      ? <SortAsc className="w-4 h-4 text-blue-400" />
+      : <SortDesc className="w-4 h-4 text-blue-400" />
   }
 
   // 批量操作
@@ -236,12 +336,11 @@ export default function UsersPage() {
       
       if (result.success) {
         alert(`✅ 成功${text}了 ${result.data.affectedCount} 个用户`)
-        // 刷新用户列表
-        fetchUsers()
-        // 清空选择
         setSelectedUsers([])
-        // 关闭菜单
         setShowBatchMenu(false)
+        setTimeout(() => {
+          fetchUsers()
+        }, 1000)
       } else {
         throw new Error(result.error || '操作失败')
       }
@@ -255,17 +354,18 @@ export default function UsersPage() {
 
   // CSV导出
   const handleExportCSV = () => {
-    const headers = ['ID', '邮箱', '昵称', '会员状态', '最后登录', '注册时间', '当前密钥', '密钥使用时间', '密钥过期时间']
-    const csvData = users.map(user => [
+    const headers = ['ID', '邮箱', '昵称', '性别', '会员状态', '当前密钥', '密钥状态', '最后登录', '注册时间', '会员到期时间']
+    const csvData = sortedUsers.map(user => [
       user.id,
       user.email,
       user.nickname || '',
+      user.gender,
       user.isPremium ? '会员中' : '免费',
+      user.activeKey || '',
+      user.keyStatus === 'active' ? '已使用' : user.keyStatus === 'expired' ? '已过期' : '未使用',
       user.lastLogin,
       user.createdAt,
-      user.activeKey || '',
-      user.activeKeyUsedAt ? new Date(user.activeKeyUsedAt).toLocaleString('zh-CN') : '',
-      user.activeKeyExpires ? new Date(user.activeKeyExpires).toLocaleDateString('zh-CN') : ''
+      user.accountExpires
     ])
 
     const csvContent = [
@@ -280,12 +380,7 @@ export default function UsersPage() {
     link.click()
   }
 
-  // 初始化加载
-  useEffect(() => {
-    fetchUsers()
-  }, [fetchUsers])
-
-  // 处理详情查看
+  // 查看详情
   const handleViewDetail = async (userId: string) => {
     await fetchUserDetail(userId)
     setDetailModalOpen(true)
@@ -298,8 +393,13 @@ export default function UsersPage() {
     }
   }, [selectedUserDetail])
 
+  // 初始化加载
+  useEffect(() => {
+    fetchUsers()
+  }, [fetchUsers])
+
   // 渲染密钥单元格
-  const renderKeyCell = (user: User) => {
+  const renderKeyCell = (user: UserType) => {
     if (!user.activeKey || user.activeKey === '无') {
       return (
         <div className="flex items-center text-gray-500">
@@ -309,45 +409,85 @@ export default function UsersPage() {
       )
     }
     
-    if (user.activeKey === '需查看详情') {
+    if (user.activeKey.startsWith('ID:')) {
       return (
-        <div className="text-center">
-          <span className="text-blue-400 text-sm">{user.activeKey}</span>
-          {user.accessKeyId && (
-            <p className="text-gray-600 text-xs mt-1">
-              密钥ID: {user.accessKeyId}
-            </p>
-          )}
+        <div className="group relative">
+          <span className="text-blue-400 text-sm hover:underline cursor-help">
+            需查看详情
+          </span>
+          <div className="absolute hidden group-hover:block z-50 bg-gray-800 p-2 rounded shadow-lg text-xs min-w-[200px]">
+            <div className="font-semibold text-gray-300 mb-1">密钥信息</div>
+            <div className="text-gray-400">密钥ID: {user.accessKeyId}</div>
+          </div>
         </div>
       )
+    }
+    
+    const keyStatusColors = {
+      active: 'bg-green-500/10 text-green-400',
+      expired: 'bg-red-500/10 text-red-400',
+      unused: 'bg-yellow-500/10 text-yellow-400'
     }
     
     return (
       <div className="space-y-1">
         <div className="flex items-center">
           <Key className="w-3 h-3 mr-1 text-amber-400" />
-          <code className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded font-mono truncate max-w-[120px]">
+          <code className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded font-mono truncate max-w-[120px] hover:bg-amber-500/20 transition-colors" title={`密钥: ${user.activeKey}`}>
             {user.activeKey}
           </code>
         </div>
-        {user.activeKeyUsedAt && (
-          <p className="text-gray-500 text-xs">
-            使用: {new Date(user.activeKeyUsedAt).toLocaleDateString('zh-CN')}
-          </p>
-        )}
-        {user.activeKeyExpires && (
-          <p className="text-gray-500 text-xs">
-            过期: {new Date(user.activeKeyExpires).toLocaleDateString('zh-CN')}
-          </p>
-        )}
-        {user.accessKeyId && (
-          <p className="text-gray-600 text-xs">
-            ID: {user.accessKeyId}
-          </p>
-        )}
+        <div className="flex items-center justify-between">
+          <span className={`text-xs px-1.5 py-0.5 rounded ${keyStatusColors[user.keyStatus || 'unused']}`}>
+            {user.keyStatus === 'active' ? '已使用' : user.keyStatus === 'expired' ? '已过期' : '未使用'}
+          </span>
+          {user.accessKeyId && (
+            <span className="text-gray-600 text-xs">ID: {user.accessKeyId}</span>
+          )}
+        </div>
       </div>
     )
   }
+
+  // 渲染性别单元格
+  const renderGenderCell = (user: UserType) => {
+    const gender = user.gender || '未设置'
+    
+    const genderColors: Record<string, { bg: string, text: string }> = {
+      '男': { bg: 'bg-blue-500/10', text: 'text-blue-400' },
+      '女': { bg: 'bg-pink-500/10', text: 'text-pink-400' },
+      '其他': { bg: 'bg-purple-500/10', text: 'text-purple-400' },
+      '未设置': { bg: 'bg-gray-500/10', text: 'text-gray-400' }
+    }
+    
+    const { bg, text } = genderColors[gender] || genderColors['未设置']
+    
+    return (
+      <span className={`px-2 py-1 rounded text-xs ${bg} ${text}`}>
+        {gender}
+      </span>
+    )
+  }
+
+  // 统计数据
+  const stats = useMemo(() => {
+    const maleCount = sortedUsers.filter(u => u.gender === '男').length
+    const femaleCount = sortedUsers.filter(u => u.gender === '女').length
+    const otherGenderCount = sortedUsers.filter(u => !['男', '女', '未设置'].includes(u.gender)).length
+    const unknownCount = sortedUsers.filter(u => u.gender === '未设置').length
+    
+    return {
+      total: sortedUsers.length,
+      premium: sortedUsers.filter(u => u.isPremium).length,
+      active24h: sortedUsers.filter(u => 
+        u.lastLoginRaw && new Date(u.lastLoginRaw) > new Date(Date.now() - 24 * 60 * 60 * 1000)
+      ).length,
+      male: maleCount,
+      female: femaleCount,
+      otherGender: otherGenderCount,
+      unknown: unknownCount
+    }
+  }, [sortedUsers])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-900 to-gray-950 p-4 md:p-6">
@@ -361,13 +501,16 @@ export default function UsersPage() {
             </h1>
             <p className="text-gray-400 mt-2">
               共 {totalCount} 个用户，{selectedUsers.length} 个已选择
+              <span className="ml-2 text-xs text-gray-500">
+                | 排序: {sortField} ({sortDirection === 'asc' ? '升序' : '降序'})
+              </span>
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={handleExportCSV}
               className="px-3 py-2 md:px-4 md:py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-sm text-gray-300 flex items-center"
-              disabled={users.length === 0}
+              disabled={sortedUsers.length === 0}
             >
               <Download className="w-4 h-4 mr-2" />
               导出CSV
@@ -394,7 +537,6 @@ export default function UsersPage() {
                   </button>
                 </div>
                 
-                {/* 批量操作菜单 */}
                 {showBatchMenu && (
                   <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50">
                     <button
@@ -420,7 +562,7 @@ export default function UsersPage() {
           </div>
         </div>
         
-        {/* 搜索与筛选栏 */}
+        {/* 搜索、筛选和排序栏 */}
         <div className="flex flex-col md:flex-row gap-3 mt-6">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500" />
@@ -435,6 +577,44 @@ export default function UsersPage() {
               }}
             />
           </div>
+          
+          <div className="relative group">
+            <button
+              onClick={() => setShowSortMenu(!showSortMenu)}
+              className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-700 flex items-center"
+            >
+              <Filter className="w-4 h-4 mr-2" />
+              排序
+              <ChevronDown className={`w-4 h-4 ml-1 transition-transform ${showSortMenu ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {showSortMenu && (
+              <div className="absolute right-0 mt-1 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50">
+                {[
+                  { field: 'createdAt' as SortField, label: '注册时间', icon: Calendar },
+                  { field: 'lastLogin' as SortField, label: '最后登录', icon: Clock },
+                  { field: 'accountExpires' as SortField, label: '会员到期', icon: Calendar },
+                  { field: 'gender' as SortField, label: '性别', icon: User },
+                  { field: 'isPremium' as SortField, label: '会员状态', icon: Shield },
+                  { field: 'email' as SortField, label: '邮箱', icon: Mail },
+                  { field: 'keyStatus' as SortField, label: '密钥状态', icon: Key }
+                ].map(({ field, label, icon: Icon }) => (
+                  <button
+                    key={field}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 border-b border-gray-700 last:border-b-0 flex items-center"
+                    onClick={() => handleSort(field)}
+                  >
+                    <Icon className="w-4 h-4 mr-2" />
+                    {label}
+                    <span className="ml-auto">
+                      {getSortIcon(field)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          
           <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0">
             {[
               { value: 'all', label: '全部用户' },
@@ -463,25 +643,27 @@ export default function UsersPage() {
       </div>
 
       {/* 统计卡片 */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 mb-6 md:mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 md:gap-4 mb-6 md:mb-8">
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4">
           <p className="text-sm text-gray-400">总用户数</p>
-          <p className="text-xl md:text-2xl font-bold text-white mt-1">{totalCount}</p>
+          <p className="text-xl md:text-2xl font-bold text-white mt-1">{stats.total}</p>
         </div>
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4">
           <p className="text-sm text-gray-400">会员用户</p>
-          <p className="text-xl md:text-2xl font-bold text-white mt-1">
-            {users.filter(u => u.isPremium).length}
-          </p>
+          <p className="text-xl md:text-2xl font-bold text-white mt-1">{stats.premium}</p>
         </div>
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4">
-          <p className="text-sm text-gray-400">24h活跃</p>
-          <p className="text-xl md:text-2xl font-bold text-white mt-1">
-            {users.filter(u => u.lastLoginRaw && 
-              new Date(u.lastLoginRaw) > new Date(Date.now() - 24 * 60 * 60 * 1000)).length}
-          </p>
+          <p className="text-sm text-gray-400">男性用户</p>
+          <p className="text-xl md:text-2xl font-bold text-blue-400 mt-1">{stats.male}</p>
         </div>
-        {/* 增长趋势图表 */}
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4">
+          <p className="text-sm text-gray-400">女性用户</p>
+          <p className="text-xl md:text-2xl font-bold text-pink-400 mt-1">{stats.female}</p>
+        </div>
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4">
+          <p className="text-sm text-gray-400">其他性别</p>
+          <p className="text-xl md:text-2xl font-bold text-purple-400 mt-1">{stats.otherGender}</p>
+        </div>
         <div className="col-span-2">
           <GrowthChart />
         </div>
@@ -521,23 +703,23 @@ export default function UsersPage() {
             <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
             <p className="text-gray-400 mt-4">加载用户列表中...</p>
           </div>
-        ) : users.length === 0 ? (
+        ) : sortedUsers.length === 0 ? (
           <div className="p-8 text-center">
             <Users className="w-12 h-12 text-gray-600 mx-auto mb-3" />
             <p className="text-gray-400">未找到匹配的用户</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1000px]">
+            <table className="w-full min-w-[1300px]">
               <thead>
                 <tr className="border-b border-gray-700/50">
                   <th className="text-left py-3 px-4 md:px-6">
                     <input 
                       type="checkbox" 
-                      checked={selectedUsers.length === users.length && users.length > 0}
+                      checked={selectedUsers.length === sortedUsers.length && sortedUsers.length > 0}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setSelectedUsers(users.map(u => u.id))
+                          setSelectedUsers(sortedUsers.map(u => u.id))
                         } else {
                           setSelectedUsers([])
                         }
@@ -545,17 +727,85 @@ export default function UsersPage() {
                       className="rounded border-gray-600"
                     />
                   </th>
-                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">用户ID</th>
-                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">邮箱/昵称</th>
-                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">当前密钥</th>
-                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">会员状态</th>
-                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">最后登录</th>
-                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">注册时间</th>
-                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">操作</th>
+                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
+                    <button 
+                      className="flex items-center hover:text-gray-300"
+                      onClick={() => handleSort('id')}
+                    >
+                      用户ID
+                      <span className="ml-1">{getSortIcon('id')}</span>
+                    </button>
+                  </th>
+                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
+                    <button 
+                      className="flex items-center hover:text-gray-300"
+                      onClick={() => handleSort('email')}
+                    >
+                      邮箱/昵称
+                      <span className="ml-1">{getSortIcon('email')}</span>
+                    </button>
+                  </th>
+                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
+                    <button 
+                      className="flex items-center hover:text-gray-300"
+                      onClick={() => handleSort('keyStatus')}
+                    >
+                      当前密钥
+                      <span className="ml-1">{getSortIcon('keyStatus')}</span>
+                    </button>
+                  </th>
+                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
+                    <button 
+                      className="flex items-center hover:text-gray-300"
+                      onClick={() => handleSort('isPremium')}
+                    >
+                      会员状态
+                      <span className="ml-1">{getSortIcon('isPremium')}</span>
+                    </button>
+                  </th>
+                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
+                    <button 
+                      className="flex items-center hover:text-gray-300"
+                      onClick={() => handleSort('gender')}
+                    >
+                      性别
+                      <span className="ml-1">{getSortIcon('gender')}</span>
+                    </button>
+                  </th>
+                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
+                    <button 
+                      className="flex items-center hover:text-gray-300"
+                      onClick={() => handleSort('lastLogin')}
+                    >
+                      最后登录
+                      <span className="ml-1">{getSortIcon('lastLogin')}</span>
+                    </button>
+                  </th>
+                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
+                    <button 
+                      className="flex items-center hover:text-gray-300"
+                      onClick={() => handleSort('createdAt')}
+                    >
+                      注册时间
+                      <span className="ml-1">{getSortIcon('createdAt')}</span>
+                    </button>
+                  </th>
+                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
+                    <button 
+                      className="flex items-center hover:text-gray-300"
+                      onClick={() => handleSort('accountExpires')}
+                    >
+                      会员到期
+                      <span className="ml-1">{getSortIcon('accountExpires')}</span>
+                    </button>
+                  </th>
+                  <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">
+                    操作
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {users.map((user) => (
+                {sortedUsers.map((user) => (
                   <tr key={user.id} className="border-b border-gray-700/30 hover:bg-gray-800/30">
                     <td className="py-3 px-4 md:px-6">
                       <input 
@@ -615,18 +865,24 @@ export default function UsersPage() {
                         }`}>
                           {user.isPremium ? '会员中' : '免费用户'}
                         </span>
-                        {user.accountExpires && (
+                        {user.accountExpiresRaw && user.isPremium && (
                           <p className="text-gray-500 text-xs mt-1">
-                            到期: {new Date(user.accountExpires).toLocaleDateString('zh-CN')}
+                            到期: {new Date(user.accountExpiresRaw).toLocaleDateString('zh-CN')}
                           </p>
                         )}
                       </div>
+                    </td>
+                    <td className="py-3 px-4 md:px-6">
+                      {renderGenderCell(user)}
                     </td>
                     <td className="py-3 px-4 md:px-6 text-gray-300 text-sm">
                       {user.lastLogin}
                     </td>
                     <td className="py-3 px-4 md:px-6 text-gray-300 text-sm">
                       {user.createdAt}
+                    </td>
+                    <td className="py-3 px-4 md:px-6 text-gray-300 text-sm">
+                      {user.accountExpires}
                     </td>
                     <td className="py-3 px-4 md:px-6">
                       <button 
