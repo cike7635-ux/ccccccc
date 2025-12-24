@@ -340,185 +340,186 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 6. 处理profiles列表查询
-    if (table === 'profiles' && !detailId) {
-      console.log('📋 查询用户列表...')
+   // 6. 处理profiles列表查询
+if (table === 'profiles' && !detailId) {
+  console.log('📋 查询用户列表...')
 
-      try {
-        // 构建基础查询
-        let query = supabaseAdmin
-          .from('profiles')
-          .select('*', { count: 'exact' })
+  try {
+    // ... [前面的查询构建代码保持不变] ...
 
-        // 应用搜索条件
-        if (search && search.trim()) {
-          const searchTerm = `%${search.trim()}%`
-          query = query.or(`email.ilike.${searchTerm},nickname.ilike.${searchTerm}`)
+    // 执行查询
+    const result = await query
+
+    if (result.error) {
+      console.error('❌ 查询用户列表失败:', result.error)
+      return NextResponse.json({
+        success: false,
+        error: '数据库查询失败: ' + result.error.message
+      }, { status: 500 })
+    }
+
+    console.log(`✅ 查询成功: ${result.data?.length || 0} 条记录，总数: ${result.count}`)
+
+    // 如果没有用户数据，直接返回
+    if (!result.data || result.data.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: [],
+        pagination: {
+          total: result.count || 0,
+          page,
+          limit,
+          totalPages: Math.ceil((result.count || 0) / limit)
         }
+      })
+    }
 
-        // 应用筛选条件
-        const now = new Date().toISOString()
-        if (filter) {
-          switch (filter) {
-            case 'premium':
-              query = query.gt('account_expires_at', now)
-              break
-            case 'free':
-              query = query.or(`account_expires_at.lte.${now},account_expires_at.is.null`)
-              break
-            case 'active24h':
-              const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-              query = query.gt('last_login_at', yesterday)
-              break
-            case 'expired':
-              query = query.lt('account_expires_at', now)
-              break
-          }
-        }
+    // 收集所有用户ID
+    const userIds = result.data.map((profile: any) => profile.id)
+    console.log(`🔑 为 ${userIds.length} 个用户查询密钥信息...`)
 
-        // 应用分页
-        const page = parseInt(searchParams.get('page') || '1')
-        const limit = parseInt(searchParams.get('limit') || '20')
-        const start = (page - 1) * limit
-        const end = start + limit - 1
-        query = query.range(start, end)
+    // 🔧 修复：通过profiles.access_key_id关联查询密钥
+    const accessKeyIds = result.data
+      .map((profile: any) => profile.access_key_id)
+      .filter((id): id is number => id !== null && id !== undefined)
 
-        // 默认按创建时间排序
-        query = query.order('created_at', { ascending: false })
+    let accessKeysData = []
+    let accessKeysError = null
 
-        console.log(`📊 执行查询: page=${page}, limit=${limit}, filter=${filter}, search=${search}`)
+    if (accessKeyIds.length > 0) {
+      // 方法1：直接通过access_key_id查询密钥表
+      const { data: keysById, error: error1 } = await supabaseAdmin
+        .from('access_keys')
+        .select('*')
+        .in('id', accessKeyIds)
 
-        // 执行查询
-        const result = await query
+      if (!error1 && keysById) {
+        accessKeysData = keysById
+        console.log(`✅ 通过access_key_id查询到 ${accessKeysData.length} 条密钥记录`)
+      } else {
+        console.warn('通过access_key_id查询密钥失败，尝试备用方案:', error1)
 
-        if (result.error) {
-          console.error('❌ 查询用户列表失败:', result.error)
-          return NextResponse.json({
-            success: false,
-            error: '数据库查询失败: ' + result.error.message
-          }, { status: 500 })
-        }
+        // 方法2（备用）：通过key_usage_history表关联查询
+        const { data: keyUsageData, error: error2 } = await supabaseAdmin
+          .from('key_usage_history')
+          .select(`
+            access_key:access_keys (
+              id,
+              key_code,
+              is_active,
+              used_count,
+              max_uses,
+              key_expires_at,
+              account_valid_for_days,
+              user_id,
+              used_at,
+              created_at,
+              updated_at
+            )
+          `)
+          .in('user_id', userIds)
+          .order('used_at', { ascending: false })
 
-        console.log(`✅ 查询成功: ${result.data?.length || 0} 条记录，总数: ${result.count}`)
-
-        // 如果查询到用户数据，获取每个用户的密钥信息
-        if (result.data && result.data.length > 0) {
-          // 收集所有用户ID
-          const userIds = result.data.map((profile: any) => profile.id)
-
-          console.log(`🔑 为 ${userIds.length} 个用户查询密钥信息...`)
-
-          // 批量查询这些用户的密钥 - 确保选择所有字段，包括key_code
-          const { data: accessKeysData, error: accessKeysError } = await supabaseAdmin
-            .from('access_keys')
-            .select('*')
-            .in('user_id', userIds)
-            .order('created_at', { ascending: false })
-
-          if (accessKeysError) {
-            console.error('❌ 查询用户密钥失败:', accessKeysError)
-            // 即使密钥查询失败，也返回用户数据（只是没有密钥信息）
-            return NextResponse.json({
-              success: true,
-              data: result.data,
-              pagination: {
-                total: result.count || 0,
-                page,
-                limit,
-                totalPages: Math.ceil((result.count || 0) / limit)
-              }
-            })
-          }
-
-          console.log(`✅ 获取到 ${accessKeysData?.length || 0} 条密钥记录`)
-
-          // 为每个用户添加密钥信息
-          const profilesWithKeys = result.data.map((profile: any) => {
-            // 找到当前用户的密钥
-            const userKeys = accessKeysData?.filter((key: any) => key.user_id === profile.id) || []
-
-            // 查找当前使用的密钥 - 精确匹配
-            let currentAccessKey = null
-            if (profile.access_key_id && userKeys.length > 0) {
-              currentAccessKey = userKeys.find((key: any) => {
-                // 多种匹配方式确保找到正确的密钥
-                return String(key.id) === String(profile.access_key_id) ||
-                  key.id === profile.access_key_id ||
-                  key.id === Number(profile.access_key_id)
-              })
-            }
-
-            // 如果没找到匹配的密钥，使用第一个（如果有）
-            if (!currentAccessKey && userKeys.length > 0) {
-              currentAccessKey = userKeys[0]
-            }
-
-            // 调试日志
-            console.log(`用户 ${profile.email} 的密钥信息:`, {
-              access_key_id: profile.access_key_id,
-              found_keys: userKeys.length,
-              current_key: currentAccessKey ? {
-                id: currentAccessKey.id,
-                key_code: currentAccessKey.key_code,
-                user_id: currentAccessKey.user_id
-              } : '无'
-            })
-
-            return {
-              ...profile,
-              access_keys: userKeys,
-              current_access_key: currentAccessKey || null
+        if (!error2 && keyUsageData) {
+          // 从key_usage_history中提取唯一的密钥
+          const uniqueKeys = new Map()
+          keyUsageData.forEach(record => {
+            if (record.access_key && !uniqueKeys.has(record.access_key.id)) {
+              uniqueKeys.set(record.access_key.id, record.access_key)
             }
           })
-
-          console.log(`✅ 返回 ${profilesWithKeys.length} 个用户数据，包含密钥信息`)
-
-          return NextResponse.json({
-            success: true,
-            data: profilesWithKeys,
-            pagination: {
-              total: result.count || 0,
-              page,
-              limit,
-              totalPages: Math.ceil((result.count || 0) / limit)
-            }
-          })
+          accessKeysData = Array.from(uniqueKeys.values())
+          console.log(`✅ 通过key_usage_history查询到 ${accessKeysData.length} 条密钥记录`)
+        } else {
+          accessKeysError = error2
         }
-
-        // 如果没有用户数据，直接返回
-        return NextResponse.json({
-          success: true,
-          data: [],
-          pagination: {
-            total: 0,
-            page,
-            limit,
-            totalPages: 0
-          }
-        })
-
-      } catch (error: any) {
-        console.error('❌ 查询用户列表异常:', error)
-        return NextResponse.json({
-          success: false,
-          error: '服务器内部错误: ' + error.message
-        }, { status: 500 })
       }
     }
 
-    // 7. 处理其他表查询
-    return NextResponse.json(
-      { success: false, error: `不支持的表名: ${table}` },
-      { status: 400 }
-    )
+    if (accessKeysError) {
+      console.error('❌ 查询用户密钥失败:', accessKeysError)
+      // 即使密钥查询失败，也返回用户数据（只是没有密钥信息）
+      return NextResponse.json({
+        success: true,
+        data: result.data,
+        pagination: {
+          total: result.count || 0,
+          page,
+          limit,
+          totalPages: Math.ceil((result.count || 0) / limit)
+        }
+      })
+    }
+
+    console.log(`✅ 获取到 ${accessKeysData?.length || 0} 条密钥记录`)
+
+    // 🔧 关键修复：建立 access_key_id 到密钥对象的映射
+    const keyMap = new Map()
+    if (accessKeysData && accessKeysData.length > 0) {
+      accessKeysData.forEach((key: any) => {
+        keyMap.set(key.id, key)
+      })
+    }
+
+    // 为每个用户添加密钥信息
+    const profilesWithKeys = result.data.map((profile: any) => {
+      // ✅ 修复：直接通过 profiles.access_key_id 从映射中查找密钥
+      let currentAccessKey = null
+
+      if (profile.access_key_id && keyMap.has(profile.access_key_id)) {
+        currentAccessKey = keyMap.get(profile.access_key_id)
+      }
+
+      // ✅ 调试日志 - 确认找到了正确的密钥
+      console.log(`用户 ${profile.email} 的密钥查找:`, {
+        access_key_id: profile.access_key_id,
+        是否找到: !!currentAccessKey,
+        密钥代码: currentAccessKey?.key_code,
+        密钥ID: currentAccessKey?.id
+      })
+
+      return {
+        ...profile,
+        access_keys: currentAccessKey ? [currentAccessKey] : [], // 返回包含当前密钥的数组
+        current_access_key: currentAccessKey || null
+      }
+    })
+
+    console.log(`✅ 返回 ${profilesWithKeys.length} 个用户数据，包含密钥信息`)
+
+    return NextResponse.json({
+      success: true,
+      data: profilesWithKeys,
+      pagination: {
+        total: result.count || 0,
+        page,
+        limit,
+        totalPages: Math.ceil((result.count || 0) / limit)
+      }
+    })
 
   } catch (error: any) {
-    console.error('💥 API全局错误:', error)
-    return NextResponse.json(
-      { success: false, error: '服务器内部错误', code: 'INTERNAL_SERVER_ERROR' },
-      { status: 500 }
-    )
+    console.error('❌ 查询用户列表异常:', error)
+    return NextResponse.json({
+      success: false,
+      error: '服务器内部错误: ' + error.message
+    }, { status: 500 })
   }
+}
+
+// 7. 处理其他表查询
+return NextResponse.json(
+  { success: false, error: `不支持的表名: ${table}` },
+  { status: 400 }
+)
+
+} catch (error: any) {
+  console.error('💥 API全局错误:', error)
+  return NextResponse.json(
+    { success: false, error: '服务器内部错误', code: 'INTERNAL_SERVER_ERROR' },
+    { status: 500 }
+  )
+}
 }
 
 export async function POST() {
