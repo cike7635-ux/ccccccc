@@ -1,4 +1,4 @@
-// /app/admin/users/components/growth-chart.tsx
+// /app/admin/users/components/growth-chart.tsx - 增强修复版
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -132,24 +132,30 @@ export default function GrowthChart() {
           {/* 柱状图 */}
           <div className="relative">
             <div className="flex items-end h-32 gap-1 mb-2">
-              {growthData.map((day, index) => (
-                <div key={index} className="flex-1 flex flex-col items-center group">
-                  <div className="text-xs text-gray-500 mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {day.count}
+              {growthData.map((day, index) => {
+                // 🔥 关键修复：确保最小高度，即使count为0
+                const baseHeight = (day.count / maxCount) * 80
+                const heightPercent = Math.max(baseHeight, 8) // 最小8%高度
+                
+                return (
+                  <div key={index} className="flex-1 flex flex-col items-center group">
+                    <div className="text-xs text-gray-500 mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {day.count}
+                    </div>
+                    <div
+                      className="w-3/4 bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-sm transition-all duration-300 hover:opacity-80 cursor-pointer group-hover:shadow-lg group-hover:shadow-blue-500/20"
+                      style={{ 
+                        height: `${heightPercent}%`,
+                        minHeight: '4px' // 额外确保最小像素高度
+                      }}
+                      title={`${day.date}: 新增 ${day.count} 人，累计 ${day.cumulative} 人`}
+                    />
+                    <div className="text-xs text-gray-500 mt-1">
+                      {day.date.split('/')[1]}
+                    </div>
                   </div>
-                <div
-  className="w-3/4 bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-sm transition-all duration-300 hover:opacity-80 cursor-pointer group-hover:shadow-lg group-hover:shadow-blue-500/20"
-  style={{ 
-    height: `${Math.max((day.count / maxCount) * 80, 5)}%`, // 🔥 最小5%高度
-    minHeight: '4px' // 🔥 确保即使0%也有最小高度
-  }}
-  title={`${day.date}: 新增 ${day.count} 人，累计 ${day.cumulative} 人`}
-/>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {day.date.split('/')[1]}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
             
             {/* 网格线 */}
