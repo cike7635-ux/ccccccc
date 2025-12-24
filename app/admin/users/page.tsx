@@ -80,7 +80,7 @@ export default function UsersPage() {
           ? new Date(profile.account_expires_at) > new Date()
           : false
 
-        const activeKeyData = profile.access_keys?.[0]
+const activeKeyData = profile.accessKeys?.[0] || profile.access_keys?.[0]
 
         return {
           id: profile.id,
