@@ -37,39 +37,42 @@ export default function UsersPage() {
 
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE)
 
+
+
+
   // 获取用户数据
   const fetchUsers = useCallback(async () => {
-    setLoading(true)
-    setUsers([])
+    setLoading(true);
+    setUsers([]);
 
     try {
       const params = new URLSearchParams({
         table: 'profiles',
         page: currentPage.toString(),
         limit: ITEMS_PER_PAGE.toString(),
-      })
+      });
 
       if (searchTerm.trim()) {
-        params.append('search', searchTerm.trim())
+        params.append('search', searchTerm.trim());
       }
 
       if (filter !== 'all') {
-        params.append('filter', filter)
+        params.append('filter', filter);
       }
 
-      const apiUrl = `/api/admin/data?${params.toString()}`
+      const apiUrl = `/api/admin/data?${params.toString()}`;
       const response = await fetch(apiUrl, {
         credentials: 'include',
-      })
+      });
 
       if (!response.ok) {
-        throw new Error(`API请求失败 (${response.status})`)
+        throw new Error(`API请求失败 (${response.status})`);
       }
 
-      const result = await response.json()
+      const result = await response.json();
 
       if (!result.success) {
-        throw new Error(result.error || 'API返回未知错误')
+        throw new Error(result.error || 'API返回未知错误');
       }
 
       // 转换用户数据
@@ -77,129 +80,111 @@ export default function UsersPage() {
         // 格式化日期
         const lastLogin = profile.last_login_at
           ? new Date(profile.last_login_at).toLocaleString('zh-CN')
-          : '从未登录'
+          : '从未登录';
 
         const createdAt = profile.created_at
           ? new Date(profile.created_at).toLocaleString('zh-CN')
-          : '未知'
+          : '未知';
 
         const accountExpires = profile.account_expires_at
           ? new Date(profile.account_expires_at).toLocaleString('zh-CN')
-          : '无记录'
+          : '无记录';
 
         const isPremium = profile.account_expires_at
           ? new Date(profile.account_expires_at) > new Date()
-          : false
+          : false;
 
-        // 获取密钥信息
-        let activeKey = null
-        let activeKeyUsedAt = null
-        let activeKeyExpires = null
-        let keyStatus: 'active' | 'expired' | 'unused' = 'unused'
+        // 获取密钥信息 - 修复逻辑
+        let keyCode = null;
+        let activeKeyUsedAt = null;
+        let activeKeyExpires = null;
+        let keyStatus: 'active' | 'expired' | 'unused' = 'unused';
 
-        const accessKeys = profile.access_keys || []
-        if (Array.isArray(accessKeys) && accessKeys.length > 0) {
+        // 首先检查 current_access_key
+        if (profile.current_access_key) {
+          const currentKey = profile.current_access_key;
+          keyCode = currentKey.key_code || currentKey.keyCode;
+          activeKeyUsedAt = currentKey.used_at || currentKey.usedAt;
+          activeKeyExpires = currentKey.key_expires_at || currentKey.keyExpiresAt;
+          keyStatus = getKeyStatus(currentKey);
+        }
+
+        // 如果没有 current_access_key，检查 access_keys 数组
+        if (!keyCode && profile.access_keys && Array.isArray(profile.access_keys)) {
           // 优先使用当前密钥ID对应的密钥
           if (profile.access_key_id) {
-            const currentKey = accessKeys.find((key: any) => key.id === profile.access_key_id)
+            const currentKey = profile.access_keys.find((key: any) =>
+              key.id === profile.access_key_id || key.id === Number(profile.access_key_id)
+            );
             if (currentKey) {
-              activeKey = currentKey.key_code || currentKey.keyCode
-              activeKeyUsedAt = currentKey.used_at || currentKey.usedAt
-              activeKeyExpires = currentKey.key_expires_at || currentKey.keyExpiresAt
-              keyStatus = getKeyStatus(currentKey)
-            }
-          }
-          // 获取密钥信息 - 修复逻辑
-          let activeKey = null
-          let activeKeyUsedAt = null
-          let activeKeyExpires = null
-          let keyStatus: 'active' | 'expired' | 'unused' = 'unused'
-          let keyCode = null
-          let keyId = profile.access_key_id
-
-          // 首先检查 current_access_key
-          if (profile.current_access_key) {
-            const currentKey = profile.current_access_key
-            keyCode = currentKey.key_code || currentKey.keyCode
-            activeKeyUsedAt = currentKey.used_at || currentKey.usedAt
-            activeKeyExpires = currentKey.key_expires_at || currentKey.keyExpiresAt
-            keyStatus = getKeyStatus(currentKey)
-          }
-
-          // 如果没有 current_access_key，检查 access_keys 数组
-          if (!keyCode && profile.access_keys && Array.isArray(profile.access_keys)) {
-            // 优先使用当前密钥ID对应的密钥
-            if (profile.access_key_id) {
-              const currentKey = profile.access_keys.find((key: any) =>
-                key.id === profile.access_key_id || key.id === Number(profile.access_key_id)
-              )
-              if (currentKey) {
-                keyCode = currentKey.key_code || currentKey.keyCode
-                activeKeyUsedAt = currentKey.used_at || currentKey.usedAt
-                activeKeyExpires = currentKey.key_expires_at || currentKey.keyExpiresAt
-                keyStatus = getKeyStatus(currentKey)
-              }
-            }
-
-            // 如果没有找到匹配的密钥，使用第一个密钥
-            if (!keyCode && profile.access_keys.length > 0) {
-              const firstKey = profile.access_keys[0]
-              keyCode = firstKey.key_code || firstKey.keyCode
-              activeKeyUsedAt = firstKey.used_at || firstKey.usedAt
-              activeKeyExpires = firstKey.key_expires_at || firstKey.keyExpiresAt
-              keyStatus = getKeyStatus(firstKey)
+              keyCode = currentKey.key_code || currentKey.keyCode;
+              activeKeyUsedAt = currentKey.used_at || currentKey.usedAt;
+              activeKeyExpires = currentKey.key_expires_at || currentKey.keyExpiresAt;
+              keyStatus = getKeyStatus(currentKey);
             }
           }
 
-          // 如果还没有密钥代码，但有密钥ID，则显示ID
-          if (!keyCode && profile.access_key_id) {
-            keyCode = `ID: ${profile.access_key_id}`
+          // 如果没有找到匹配的密钥，使用第一个密钥
+          if (!keyCode && profile.access_keys.length > 0) {
+            const firstKey = profile.access_keys[0];
+            keyCode = firstKey.key_code || firstKey.keyCode;
+            activeKeyUsedAt = firstKey.used_at || firstKey.usedAt;
+            activeKeyExpires = firstKey.key_expires_at || firstKey.keyExpiresAt;
+            keyStatus = getKeyStatus(firstKey);
           }
+        }
 
-          // 如果所有方法都失败，显示"无"
-          if (!keyCode) {
-            keyCode = '无'
-          }
+        // 如果还没有密钥代码，但有密钥ID，则显示ID
+        if (!keyCode && profile.access_key_id) {
+          keyCode = `ID: ${profile.access_key_id}`;
+        }
 
-          // 获取性别
-          const gender = getGenderDisplay(profile.preferences);
+        // 如果所有方法都失败，显示"无"
+        if (!keyCode) {
+          keyCode = '无';
+        }
 
-          return {
-            id: profile.id,
-            email: profile.email,
-            nickname: profile.nickname,
-            fullName: profile.full_name,
-            avatarUrl: profile.avatar_url,
-            bio: profile.bio,
-            preferences: profile.preferences,
-            isAdmin: profile.email === '2200691917@qq.com',
-            isPremium: isPremium,
-            lastLogin: lastLogin,
-            lastLoginRaw: profile.last_login_at,
-            accountExpires: accountExpires,
-            accountExpiresRaw: profile.account_expires_at,
-            createdAt: createdAt,
-            createdAtRaw: profile.created_at,
-            accessKeyId: profile.access_key_id,
-            activeKey: keyCode,  // 修改这一行
-            activeKeyUsedAt: activeKeyUsedAt,
-            activeKeyExpires: activeKeyExpires,
-            isActive: true,
-            gender: gender,
-            keyStatus: keyStatus
-          };
-        });
-      setUsers(formattedUsers)
-      setTotalCount(result.pagination?.total || 0)
+        // 获取性别
+        const gender = getGenderDisplay(profile.preferences);
+
+        return {
+          id: profile.id,
+          email: profile.email,
+          nickname: profile.nickname,
+          fullName: profile.full_name,
+          avatarUrl: profile.avatar_url,
+          bio: profile.bio,
+          preferences: profile.preferences,
+          isAdmin: profile.email === '2200691917@qq.com',
+          isPremium: isPremium,
+          lastLogin: lastLogin,
+          lastLoginRaw: profile.last_login_at,
+          accountExpires: accountExpires,
+          accountExpiresRaw: profile.account_expires_at,
+          createdAt: createdAt,
+          createdAtRaw: profile.created_at,
+          accessKeyId: profile.access_key_id,
+          activeKey: keyCode,
+          activeKeyUsedAt: activeKeyUsedAt,
+          activeKeyExpires: activeKeyExpires,
+          isActive: true,
+          gender: gender,
+          keyStatus: keyStatus
+        };
+      });
+
+      setUsers(formattedUsers);
+      setTotalCount(result.pagination?.total || 0);
 
     } catch (error) {
-      console.error('获取用户数据失败:', error)
-      setUsers([])
-      setTotalCount(0)
+      console.error('获取用户数据失败:', error);
+      setUsers([]);
+      setTotalCount(0);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [currentPage, searchTerm, filter])
+  }, [currentPage, searchTerm, filter]);
+
 
   // 获取用户详情
   const fetchUserDetail = async (userId: string) => {
