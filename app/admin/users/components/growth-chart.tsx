@@ -27,7 +27,13 @@ export default function GrowthChart() {
         const result = await response.json()
         if (result.success) {
           setGrowthData(result.data)
+        } else {
+          // API未实现，使用模拟数据
+          generateMockData()
         }
+      } else {
+        // API失败，使用模拟数据
+        generateMockData()
       }
     } catch (error) {
       console.error('获取增长数据失败:', error)
@@ -60,11 +66,9 @@ export default function GrowthChart() {
     }
     
     setGrowthData(mockData)
-    setLoading(false)
   }
 
   useEffect(() => {
-    // 先尝试调用API，如果失败则使用模拟数据
     fetchGrowthData()
   }, [timeRange])
 
