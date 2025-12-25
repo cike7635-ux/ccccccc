@@ -1,7 +1,6 @@
-// /app/api/admin/keys/export/route.ts
+// /app/api/admin/keys/export/route.ts - 修复版
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
-import { stringify } from 'csv-stringify/sync'
 
 // 导出选项类型
 interface ExportOptions {
@@ -10,6 +9,31 @@ interface ExportOptions {
   selected_ids?: number[]
   page?: number
   limit?: number
+}
+
+// 手动生成CSV，避免依赖问题
+function generateCSV(headers: string[], data: any[][]): string {
+  // 添加BOM支持中文
+  let csvContent = '\uFEFF'
+  
+  // 添加表头
+  csvContent += headers.map(header => `"${header}"`).join(',') + '\n'
+  
+  // 添加数据行
+  data.forEach(row => {
+    csvContent += row.map(cell => {
+      // 转义双引号并包裹字段
+      if (cell === null || cell === undefined) {
+        return '""'
+      }
+      const stringCell = String(cell)
+      // 转义双引号
+      const escapedCell = stringCell.replace(/"/g, '""')
+      return `"${escapedCell}"`
+    }).join(',') + '\n'
+  })
+  
+  return csvContent
 }
 
 export async function POST(request: NextRequest) {
@@ -240,14 +264,11 @@ export async function POST(request: NextRequest) {
       '原始小时数', '密钥ID'
     ]
 
-    // 10. 生成CSV内容（添加BOM支持中文）
-    const csvContent = stringify([csvHeaders, ...csvData], {
-      quoted: true,
-      bom: true
-    })
+    // 10. 使用手动生成CSV函数
+    const csvContent = generateCSV(csvHeaders, csvData)
 
     // 11. 生成文件名
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0]
+    const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '')
     const filename = `love-ludo-keys_${timestamp}_${keys?.length || 0}条.csv`
 
     console.log(`✅ CSV导出完成，共 ${keys?.length || 0} 条记录`)
