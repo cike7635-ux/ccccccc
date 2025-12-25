@@ -1,38 +1,44 @@
-// /app/admin/keys/types.ts
+// /app/admin/keys/types.ts - 完整版
+import { LucideIcon } from 'lucide-react'
 
 // 密钥状态类型
 export type KeyStatus = 'unused' | 'used' | 'expired' | 'disabled'
 
-// 密钥基础类型
+// 密钥基础类型（对应 access_keys 表）
 export interface AccessKey {
+  // 基础信息
   id: number
   key_code: string
   description: string | null
+  
+  // 状态信息
   is_active: boolean
+  status: KeyStatus
+  
+  // 使用限制
   used_count: number
   max_uses: number | null
-  key_expires_at: string | null
+  usage_count: number
+  
+  // 时间信息
   account_valid_for_days: number
   original_duration_hours: number | null
   duration_unit: string
-  user_id: string | null
-  used_at: string | null
+  key_expires_at: string | null
   created_at: string
   updated_at: string
-  
-  // 计算字段
-  status: KeyStatus
-  usage_count: number
+  used_at: string | null
   last_used_at: string | null
   
-  // 关联用户
+  // 关联信息
+  user_id: string | null
   current_user: {
     email: string
     nickname: string | null
   } | null
 }
 
-// 使用历史记录
+// 使用历史记录（对应 key_usage_history 表）
 export interface KeyUsageHistory {
   id: number
   user_id: string
@@ -207,3 +213,184 @@ export interface GenerateKeysRequest {
   description?: string
   absolute_expiry_days?: number
 }
+
+// 状态配置
+export interface StatusConfig {
+  label: string
+  color: string
+  bgColor: string
+  icon: LucideIcon
+}
+
+// 状态配置映射
+export const statusConfig: Record<KeyStatus, StatusConfig> = {
+  unused: {
+    label: '未使用',
+    color: 'text-amber-400',
+    bgColor: 'bg-amber-500/15',
+    icon: Clock
+  },
+  used: {
+    label: '已使用',
+    color: 'text-green-400',
+    bgColor: 'bg-green-500/15',
+    icon: Check
+  },
+  expired: {
+    label: '已过期',
+    color: 'text-red-400',
+    bgColor: 'bg-red-500/15',
+    icon: AlertCircle
+  },
+  disabled: {
+    label: '已禁用',
+    color: 'text-gray-400',
+    bgColor: 'bg-gray-500/15',
+    icon: Ban
+  }
+}
+
+// 排序选项
+export interface SortOption {
+  value: string
+  label: string
+}
+
+// 每页数量选项
+export interface PageSizeOption {
+  value: number
+  label: string
+}
+
+// 密钥操作结果
+export interface KeyOperationResult {
+  success: boolean
+  data?: any
+  error?: string
+  message?: string
+}
+
+// 导出结果
+export interface ExportResult {
+  filename: string
+  content: string
+  count: number
+}
+
+// 分页信息
+export interface PaginationInfo {
+  current: number
+  total: number
+  pageSize: number
+  totalPages: number
+  startItem: number
+  endItem: number
+}
+
+// 表格列配置
+export interface TableColumn {
+  key: string
+  label: string
+  sortable?: boolean
+  filterable?: boolean
+  width?: string
+  align?: 'left' | 'center' | 'right'
+}
+
+// 筛选选项
+export interface FilterOption {
+  key: string
+  label: string
+  type: 'select' | 'date' | 'number' | 'text' | 'boolean'
+  options?: Array<{ value: string; label: string }>
+  placeholder?: string
+}
+
+// 密钥状态统计
+export interface KeyStatusStats {
+  total: number
+  unused: number
+  used: number
+  expired: number
+  disabled: number
+  active: number
+}
+
+// 使用统计
+export interface UsageStats {
+  total_uses: number
+  unique_users: number
+  avg_uses_per_day: number
+  usage_rate: number
+}
+
+// 增长统计
+export interface GrowthStats {
+  today: number
+  yesterday: number
+  week: number
+  month: number
+  growth_rate: number
+}
+
+// 时长分布
+export interface DurationDistribution {
+  '1小时': number
+  '2小时': number
+  '4小时': number
+  '12小时': number
+  '1天': number
+  '7天': number
+  '30天': number
+  '90天': number
+  '180天': number
+  '365天': number
+  '其他': number
+}
+
+// 使用类型分布
+export interface UsageTypeDistribution {
+  activate: number
+  renew: number
+  transfer: number
+  other: number
+}
+
+// 趋势数据
+export interface TrendData {
+  date: string
+  value: number
+}
+
+// 时间段
+export interface TimeRange {
+  start: string
+  end: string
+  label: string
+}
+
+// 批量操作状态
+export interface BatchOperationState {
+  selectedKeys: number[]
+  operation: 'disable' | 'enable' | 'delete' | null
+  loading: boolean
+  error: string | null
+}
+
+// 导出状态
+export interface ExportState {
+  type: 'current_page' | 'filtered' | 'selected'
+  loading: boolean
+  error: string | null
+  progress: number
+}
+
+// 页面状态
+export interface PageState {
+  loading: boolean
+  error: string | null
+  initialized: boolean
+}
+
+// 需要导入的图标（如果需要）
+import { Clock, Check, AlertCircle, Ban } from 'lucide-react'

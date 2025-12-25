@@ -1,7 +1,7 @@
-// /app/admin/keys/page.tsx - 核心结构
+// /app/admin/keys/page.tsx - 修复版
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { 
@@ -49,7 +49,8 @@ const statusConfig: Record<KeyStatus, {
   }
 }
 
-export default function KeysPage() {
+// 内层组件 - 使用 useSearchParams
+function KeysPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   
@@ -941,5 +942,24 @@ export default function KeysPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+// 外层组件 - 用Suspense包裹内层组件
+export default function KeysPage() {
+  return (
+    <Suspense 
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-900 to-gray-950 p-4 md:p-6">
+          <div className="flex flex-col items-center justify-center h-96">
+            <div className="w-12 h-12 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-gray-400 mt-4">正在加载密钥管理页面...</p>
+            <p className="text-gray-500 text-sm mt-2">请稍候</p>
+          </div>
+        </div>
+      }
+    >
+      <KeysPageContent />
+    </Suspense>
   )
 }
