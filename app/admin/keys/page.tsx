@@ -1,79 +1,56 @@
-// /app/admin/keys/page.tsx - 修复后的导入部分
+// /app/admin/keys/page.tsx - 完全修复版
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
-import {
-  Key
-  , Copy, Check, Trash2, Plus, Search, Filter, Download,
-  Shield
-  , Clock, Users, Eye, EyeOff, RefreshCw, AlertCircle,
-  BarChart3
-  , MoreVertical, ChevronDown, Edit, Ban, Loader2,
-  ExternalLink
-  , Calendar, Hash, Zap, Settings, Star, User,
-  Mail
-  , Smartphone, Globe, Lock, Unlock, FileText, Info,
-  X, ChevronUp, ChevronRight, ChevronLeft, ChevronFirst, ChevronLast,
-  DownloadCloud
-  , BarChart, PieChart, TrendingUp, Activity, Database,
-  AlertTriangle
-  , HelpCircle, Maximize2, Minimize2, Grid, List,
-  Columns
-  , FilterX, History, CalendarDays, Tag, CreditCard,
-  ArrowUpDown
-  , Sliders, Cpu, Battery, Wifi, Cloud,
-  GitBranch
-  , GitPullRequest, GitCommit, GitMerge, GitCompare,
-  Folder
-  , FolderOpen, File, FileText as FileTextIcon,
-  FolderTree
-  , Network, Server, HardDrive, MemoryStick,
-  Cpu
-    as CpuIcon, Thermometer, Gauge, BatteryCharging,
-  Power
-  , PowerOff, Play, Pause, StopCircle, SkipForward,
-  SkipBack
-  , FastForward, Rewind, Repeat, Shuffle,
-  Volume2
-  , VolumeX, Mic, MicOff, Headphones, Radio,
-  Music
-  , Video, Film, Camera, Image, Palette,
-  Paintbrush
-  , Brush, PenTool, Ruler, Scissors,
-  Package
-  , Box, Cube, Package2, Container, Layers,
-  Archive
-  , Inbox, Mailbox, Send, MailOpen, Reply,
-  Share2
-  , Link, Link2, Unlink, LockKeyhole,
-  KeyRound
-  , KeySquare, Keyboard, MousePointerClick,
-  Hand
-  , HandMetal, Globe2, Map, MapPin, Navigation,
-  Compass
-  , Flag, Home, Building, Building2, Hotel,
-  Store
-  , ShoppingCart, ShoppingBag, CreditCard as CreditCardIcon,
-  DollarSign
-  , Euro, PoundSterling, Yen, Bitcoin,
-  TrendingUp
-    as TrendingUpIcon, TrendingDown, LineChart,
-  CandlestickChart
-  , PieChart as PieChartIcon, DonutChart,
-  BarChart2
-  , BarChartHorizontal, Timeline,
-  Graph
-} from 'lucide-react'
+
+// 1. 从lucide-react单独导入图标，避免barrel optimization冲突
+import { Key } from 'lucide-react'
+import { Copy } from 'lucide-react'
+import { Check } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
+import { Plus } from 'lucide-react'
+import { Search } from 'lucide-react'
+import { Filter } from 'lucide-react'
+import { Download } from 'lucide-react'
+import { Shield } from 'lucide-react'
+import { Clock } from 'lucide-react'
+import { Users } from 'lucide-react'
+import { Eye } from 'lucide-react'
+import { EyeOff } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
+import { AlertCircle } from 'lucide-react'
+import { MoreVertical } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
+import { Ban } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
+import { Calendar } from 'lucide-react'
+import { Hash } from 'lucide-react'
+import { Zap } from 'lucide-react'
+import { User } from 'lucide-react'
+import { Unlock } from 'lucide-react'
+import { Info } from 'lucide-react'
+import { X } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
+import { ChevronLeft } from 'lucide-react'
+import { ChevronFirst } from 'lucide-react'
+import { ChevronLast } from 'lucide-react'
+import { BarChart3 } from 'lucide-react'
+
+// 2. 导入其他依赖
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
-// 导入组件
-import KeyTable from './components/KeyTable'
-import StatsPanel from './components/StatsPanel'
-import Filters from './components/Filters'
-import BulkActions from './components/BulkActions'
+// 3. 导入组件和类型
 import ExportModal from './components/ExportModal'
-import { AccessKey, KeyStatus, statusConfig, KeyStatistics } from './types'
+import { AccessKey, KeyStatus } from './types'
+
+// 4. 在组件内部导入状态配置（避免循环依赖）
+const statusConfig = {
+  unused: { label: '未使用', color: 'text-amber-400', bgColor: 'bg-amber-500/15', icon: Clock },
+  used: { label: '已使用', color: 'text-green-400', bgColor: 'bg-green-500/15', icon: Check },
+  expired: { label: '已过期', color: 'text-red-400', bgColor: 'bg-red-500/15', icon: AlertCircle },
+  disabled: { label: '已禁用', color: 'text-gray-400', bgColor: 'bg-gray-500/15', icon: Ban }
+}
 
 // 主页面组件
 export default function KeysPage() {
@@ -84,7 +61,7 @@ export default function KeysPage() {
   )
 }
 
-// 加载页面
+// 加载状态组件
 function LoadingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-900 to-gray-950 p-4 md:p-6">
@@ -102,7 +79,7 @@ function LoadingPage() {
 function KeysContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-
+  
   // 状态管理
   const [keys, setKeys] = useState<AccessKey[]>([])
   const [loading, setLoading] = useState(true)
@@ -116,19 +93,19 @@ function KeysContent() {
   const [bulkOperationLoading, setBulkOperationLoading] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [showExportModal, setShowExportModal] = useState(false)
-
+  
   // 筛选状态
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<KeyStatus | 'all'>('all')
   const [sortBy, setSortBy] = useState<'created_at' | 'key_code' | 'used_count'>('created_at')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
-
+  
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(20)
-
+  
   // 统计信息
-  const [stats, setStats] = useState<KeyStatistics>({
+  const [stats, setStats] = useState({
     total: 0,
     active: 0,
     used: 0,
@@ -143,41 +120,41 @@ function KeysContent() {
   const fetchKeys = useCallback(async () => {
     setLoading(true)
     setError(null)
-
+    
     try {
       console.log('📡 开始获取密钥数据...')
-
+      
       const response = await fetch('/api/admin/keys/list', {
         credentials: 'include',
         headers: { 'Cache-Control': 'no-cache' }
       })
 
       console.log('📦 API响应状态:', response.status)
-
+      
       if (!response.ok) {
         throw new Error(`API请求失败 (${response.status})`)
       }
 
       const result = await response.json()
-
+      
       if (!result.success) {
         throw new Error(result.error || '获取密钥数据失败')
       }
 
       const keysData: AccessKey[] = result.data || []
       console.log(`✅ 获取到 ${keysData.length} 条密钥数据`)
-
+      
       setKeys(keysData)
 
       // 计算统计数据
       const now = new Date()
       const today = new Date()
       today.setHours(23, 59, 59, 999)
-
+      
       const sevenDaysLater = new Date()
       sevenDaysLater.setDate(sevenDaysLater.getDate() + 7)
-
-      const statsData: KeyStatistics = {
+      
+      const statsData = {
         total: keysData.length,
         active: keysData.filter(k => k.is_active && (!k.key_expires_at || new Date(k.key_expires_at) > now)).length,
         used: keysData.filter(k => k.used_count > 0 || k.used_at || k.user_id).length,
@@ -195,7 +172,7 @@ function KeysContent() {
           return expiry > now && expiry <= sevenDaysLater
         }).length
       }
-
+      
       setStats(statsData)
 
     } catch (error: any) {
@@ -204,34 +181,6 @@ function KeysContent() {
       setKeys([])
     } finally {
       setLoading(false)
-    }
-  }, [])
-
-  // 获取统计信息
-  const fetchStatistics = useCallback(async () => {
-    try {
-      const response = await fetch('/api/admin/keys/statistics', {
-        credentials: 'include'
-      })
-
-      if (response.ok) {
-        const result = await response.json()
-        if (result.success && result.data) {
-          const data = result.data.overview
-          setStats({
-            total: data.total_keys || 0,
-            active: data.active_keys || 0,
-            used: data.used_keys || 0,
-            unused: data.unused_keys || 0,
-            expired: data.expired_keys || 0,
-            inactive: data.disabled_keys || 0,
-            todayExpiring: data.today_expiring || 0,
-            nearExpiring: data.near_expiring || 0
-          })
-        }
-      }
-    } catch (error) {
-      console.error('获取统计信息失败:', error)
     }
   }, [])
 
@@ -245,21 +194,21 @@ function KeysContent() {
   // 计算密钥状态
   const getKeyStatus = (key: AccessKey): KeyStatus => {
     const now = new Date()
-
+    
     if (!key.is_active) {
       return 'disabled'
     }
-
+    
     // 检查绝对有效期是否过期
     if (key.key_expires_at && new Date(key.key_expires_at) < now) {
       return 'expired'
     }
-
+    
     // 检查是否已使用
     if (key.used_count > 0 || key.used_at || key.user_id) {
       return 'used'
     }
-
+    
     // 未使用
     return 'unused'
   }
@@ -267,43 +216,43 @@ function KeysContent() {
   // 计算剩余有效期
   const getRemainingTime = (key: AccessKey): { text: string; color: string; isExpired: boolean } => {
     const now = new Date()
-
+    
     // 1. 检查绝对有效期（激活截止时间）
     if (key.key_expires_at) {
       const expiryDate = new Date(key.key_expires_at)
       const diffMs = expiryDate.getTime() - now.getTime()
-
+      
       if (diffMs <= 0) {
-        return {
-          text: '已过期',
+        return { 
+          text: '已过期', 
           color: 'text-red-400',
           isExpired: true
         }
       }
-
+      
       // 未激活，显示激活截止时间
       if (!key.used_at && !key.user_id) {
         const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
-
+        
         if (diffDays <= 7) {
-          return {
-            text: `${diffDays}天后激活截止`,
+          return { 
+            text: `${diffDays}天后激活截止`, 
             color: 'text-amber-400',
             isExpired: false
           }
         }
-        return {
-          text: `${diffDays}天后激活截止`,
+        return { 
+          text: `${diffDays}天后激活截止`, 
           color: 'text-blue-400',
           isExpired: false
         }
       }
     }
-
+    
     // 2. 如果已激活，计算使用有效期
     if (key.used_at) {
       const usedDate = new Date(key.used_at)
-
+      
       // 优先使用 original_duration_hours 计算
       let expiryTime
       if (key.original_duration_hours) {
@@ -311,47 +260,47 @@ function KeysContent() {
       } else {
         expiryTime = new Date(usedDate.getTime() + key.account_valid_for_days * 24 * 60 * 60 * 1000)
       }
-
+      
       const diffMs = expiryTime.getTime() - now.getTime()
-
+      
       if (diffMs <= 0) {
-        return {
-          text: '已过期',
+        return { 
+          text: '已过期', 
           color: 'text-red-400',
           isExpired: true
         }
       }
-
+      
       // 转换为友好的时间显示
       const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
       const diffDays = Math.floor(diffHours / 24)
       const remainingHours = diffHours % 24
-
+      
       if (diffDays > 0) {
         if (remainingHours > 0) {
-          return {
-            text: `${diffDays}天${remainingHours}小时后过期`,
+          return { 
+            text: `${diffDays}天${remainingHours}小时后过期`, 
             color: diffDays <= 7 ? 'text-amber-400' : 'text-green-400',
             isExpired: false
           }
         }
-        return {
-          text: `${diffDays}天后过期`,
+        return { 
+          text: `${diffDays}天后过期`, 
           color: diffDays <= 7 ? 'text-amber-400' : 'text-green-400',
           isExpired: false
         }
       } else {
-        return {
-          text: `${diffHours}小时后过期`,
+        return { 
+          text: `${diffHours}小时后过期`, 
           color: diffHours <= 24 ? 'text-amber-400' : 'text-blue-400',
           isExpired: false
         }
       }
     }
-
+    
     // 3. 未激活也没有绝对有效期
-    return {
-      text: `有效期${key.account_valid_for_days}天`,
+    return { 
+      text: `有效期${key.account_valid_for_days}天`, 
       color: 'text-green-400',
       isExpired: false
     }
@@ -362,12 +311,12 @@ function KeysContent() {
     // 优先使用 original_duration_hours
     if (key.original_duration_hours) {
       const hours = key.original_duration_hours
-
+      
       if (hours < 24) {
         // 显示小时
         const displayHours = Math.floor(hours)
         const displayMinutes = Math.round((hours - displayHours) * 60)
-
+        
         if (displayHours === 0) {
           return `${displayMinutes}分钟`
         } else if (displayMinutes === 0) {
@@ -398,7 +347,7 @@ function KeysContent() {
         }
       }
     }
-
+    
     // 回退到 account_valid_for_days
     const days = key.account_valid_for_days
     if (days < 30) {
@@ -413,14 +362,14 @@ function KeysContent() {
   const filteredKeys = useMemo(() => {
     return keys.filter(key => {
       // 搜索过滤
-      const searchMatch = search === '' ||
+      const searchMatch = search === '' || 
         key.key_code.toLowerCase().includes(search.toLowerCase()) ||
         (key.description && key.description.toLowerCase().includes(search.toLowerCase())) ||
         (key.user?.email && key.user.email.toLowerCase().includes(search.toLowerCase()))
-
+      
       // 状态过滤
       let statusMatch = true
-
+      
       if (statusFilter !== 'all') {
         const keyStatus = getKeyStatus(key)
         statusMatch = keyStatus === statusFilter
@@ -430,7 +379,7 @@ function KeysContent() {
     }).sort((a, b) => {
       // 排序
       let aValue: any, bValue: any
-
+      
       if (sortBy === 'key_code') {
         aValue = a.key_code
         bValue = b.key_code
@@ -441,7 +390,7 @@ function KeysContent() {
         aValue = a.created_at
         bValue = b.created_at
       }
-
+      
       if (sortOrder === 'asc') {
         return aValue > bValue ? 1 : -1
       } else {
@@ -457,42 +406,42 @@ function KeysContent() {
   }, [filteredKeys, currentPage, itemsPerPage])
 
   // 单个密钥操作
-  const handleKeyAction = async (keyId: number, action: 'disable' | 'enable' | 'delete', reason?: string) => {
+  const handleKeyAction = async (keyId: number, action: 'disable' | 'enable' | 'delete') => {
     const actionText = {
       disable: '禁用',
       enable: '启用',
       delete: '删除'
     }[action]
-
+    
     if (action === 'delete') {
-      if (!confirm(`确定要删除此密钥吗？\n此操作不可撤销！${reason ? `\n原因：${reason}` : ''}`)) {
+      if (!confirm(`确定要删除此密钥吗？\n此操作不可撤销！`)) {
         return
       }
     } else {
-      if (!confirm(`确定要${actionText}此密钥吗？${reason ? `\n原因：${reason}` : ''}`)) {
+      if (!confirm(`确定要${actionText}此密钥吗？`)) {
         return
       }
     }
-
+    
     setOperationLoading(keyId)
-
+    
     try {
       const response = await fetch(`/api/admin/keys/${keyId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, reason }),
+        body: JSON.stringify({ action }),
         credentials: 'include'
       })
-
+      
       const result = await response.json()
-
+      
       if (result.success) {
         setSuccessMessage(`密钥已${actionText}`)
         setTimeout(() => setSuccessMessage(null), 3000)
-
+        
         // 刷新数据
         setRefreshTrigger(prev => prev + 1)
-
+        
         // 如果删除了选中的密钥，从选中列表中移除
         if (action === 'delete') {
           setSelectedKeys(prev => prev.filter(id => id !== keyId))
@@ -508,43 +457,42 @@ function KeysContent() {
   }
 
   // 批量操作
-  const handleBulkAction = async (action: 'disable' | 'enable' | 'delete', reason?: string) => {
+  const handleBulkAction = async (action: 'disable' | 'enable' | 'delete') => {
     if (selectedKeys.length === 0) return
-
+    
     const actionText = {
       disable: '禁用',
       enable: '启用',
       delete: '删除'
     }[action]
-
+    
     const confirmText = {
-      disable: `确定要禁用选中的 ${selectedKeys.length} 个密钥吗？\n禁用后密钥将无法使用。${reason ? `\n原因：${reason}` : ''}`,
-      enable: `确定要启用选中的 ${selectedKeys.length} 个密钥吗？\n启用后密钥可以正常使用。${reason ? `\n原因：${reason}` : ''}`,
-      delete: `确定要删除选中的 ${selectedKeys.length} 个密钥吗？\n此操作不可撤销！${reason ? `\n原因：${reason}` : ''}`
+      disable: `确定要禁用选中的 ${selectedKeys.length} 个密钥吗？\n禁用后密钥将无法使用。`,
+      enable: `确定要启用选中的 ${selectedKeys.length} 个密钥吗？\n启用后密钥可以正常使用。`,
+      delete: `确定要删除选中的 ${selectedKeys.length} 个密钥吗？\n此操作不可撤销！`
     }[action]
-
+    
     if (!confirm(confirmText)) return
-
+    
     setBulkOperationLoading(true)
-
+    
     try {
       const response = await fetch('/api/admin/keys/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action,
-          keyIds: selectedKeys,
-          reason
+          keyIds: selectedKeys
         }),
         credentials: 'include'
       })
-
+      
       const result = await response.json()
-
+      
       if (result.success) {
         setSuccessMessage(`成功${actionText}了 ${selectedKeys.length} 个密钥`)
         setTimeout(() => setSuccessMessage(null), 3000)
-
+        
         // 刷新数据
         setRefreshTrigger(prev => prev + 1)
         setSelectedKeys([])
@@ -559,25 +507,6 @@ function KeysContent() {
     }
   }
 
-  // 查看密钥详情
-  const viewKeyDetail = (keyId: number) => {
-    router.push(`/admin/keys/${keyId}`)
-  }
-
-  // 复制选中的密钥
-  const copySelectedKeys = () => {
-    const selectedKeyCodes = keys
-      .filter(key => selectedKeys.includes(key.id))
-      .map(key => key.key_code)
-
-    if (selectedKeyCodes.length === 0) return
-
-    const text = selectedKeyCodes.join('\n')
-    navigator.clipboard.writeText(text)
-    setSuccessMessage(`已复制 ${selectedKeyCodes.length} 个密钥到剪贴板`)
-    setTimeout(() => setSuccessMessage(null), 2000)
-  }
-
   // 全选/取消全选
   const toggleSelectAll = () => {
     if (selectedKeys.length === filteredKeys.length) {
@@ -587,18 +516,78 @@ function KeysContent() {
     }
   }
 
+  // 查看密钥详情
+  const viewKeyDetail = (keyId: number) => {
+    window.open(`/admin/keys/${keyId}`, '_blank')
+  }
+
+  // 复制选中的密钥
+  const copySelectedKeys = () => {
+    const selectedKeyCodes = keys
+      .filter(key => selectedKeys.includes(key.id))
+      .map(key => key.key_code)
+    
+    if (selectedKeyCodes.length === 0) return
+    
+    const text = selectedKeyCodes.join('\n')
+    navigator.clipboard.writeText(text)
+    setSuccessMessage(`已复制 ${selectedKeyCodes.length} 个密钥到剪贴板`)
+    setTimeout(() => setSuccessMessage(null), 2000)
+  }
+
+  // 导出功能
+  const handleExport = async (format: 'csv' | 'json' | 'txt') => {
+    try {
+      setBulkOperationLoading(true)
+      
+      const response = await fetch('/api/admin/keys/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          format,
+          selected_ids: selectedKeys.length > 0 ? selectedKeys : undefined,
+          filters: {
+            status: statusFilter,
+            search
+          }
+        }),
+        credentials: 'include'
+      })
+
+      if (!response.ok) {
+        throw new Error('导出请求失败')
+      }
+
+      // 创建下载链接
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      
+      const filename = response.headers.get('Content-Disposition')
+        ?.split('filename=')[1]
+        ?.replace(/"/g, '') || `love-ludo-keys-export.${format}`
+      
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+
+      setSuccessMessage(`导出成功，文件已开始下载`)
+      setTimeout(() => setSuccessMessage(null), 3000)
+      
+    } catch (error: any) {
+      alert(`❌ 导出失败: ${error.message}`)
+    } finally {
+      setBulkOperationLoading(false)
+    }
+  }
+
   // 初始化加载
   useEffect(() => {
     fetchKeys()
-    fetchStatistics()
-
-    // 设置定时刷新（每5分钟）
-    const interval = setInterval(() => {
-      fetchStatistics()
-    }, 5 * 60 * 1000)
-
-    return () => clearInterval(interval)
-  }, [fetchKeys, fetchStatistics, refreshTrigger])
+  }, [fetchKeys, refreshTrigger])
 
   // 自动清除成功消息
   useEffect(() => {
@@ -624,15 +613,15 @@ function KeysContent() {
               密钥管理
             </h1>
             <p className="text-gray-400 mt-2">
-              共 {stats.total} 个密钥 •
-              <span className="mx-2 text-green-400">{stats.active} 个有效</span> •
+              共 {stats.total} 个密钥 • 
+              <span className="mx-2 text-green-400">{stats.active} 个有效</span> • 
               <span className="mx-2 text-amber-400">{stats.unused} 个未使用</span>
               {stats.todayExpiring > 0 && (
                 <span className="ml-2 text-red-400">⚠️ {stats.todayExpiring} 个今日过期</span>
               )}
             </p>
           </div>
-
+          
           <div className="flex flex-wrap gap-2">
             {selectedKeys.length > 0 && (
               <div className="flex gap-2">
@@ -654,7 +643,7 @@ function KeysContent() {
                 </button>
               </div>
             )}
-
+            
             <button
               onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
               className="px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-sm text-gray-300 flex items-center"
@@ -662,15 +651,46 @@ function KeysContent() {
               <Filter className="w-4 h-4 mr-2" />
               高级筛选
             </button>
-
-            <button
-              onClick={() => setShowExportModal(true)}
-              className="px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-sm text-gray-300 flex items-center"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              导出数据
-            </button>
-
+            
+            <div className="relative">
+              <button
+                onClick={() => setShowExportModal(!showExportModal)}
+                className="px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-sm text-gray-300 flex items-center"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                导出数据
+              </button>
+              
+              {showExportModal && (
+                <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50">
+                  <button
+                    onClick={() => handleExport('csv')}
+                    disabled={bulkOperationLoading}
+                    className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 border-b border-gray-700 flex items-center disabled:opacity-50"
+                  >
+                    <Download className="w-4 h-4 mr-2 text-green-400" />
+                    CSV格式
+                  </button>
+                  <button
+                    onClick={() => handleExport('json')}
+                    disabled={bulkOperationLoading}
+                    className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 border-b border-gray-700 flex items-center disabled:opacity-50"
+                  >
+                    <File className="w-4 h-4 mr-2 text-blue-400" />
+                    JSON格式
+                  </button>
+                  <button
+                    onClick={() => handleExport('txt')}
+                    disabled={bulkOperationLoading}
+                    className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 flex items-center disabled:opacity-50"
+                  >
+                    <FileText className="w-4 h-4 mr-2 text-amber-400" />
+                    文本格式
+                  </button>
+                </div>
+              )}
+            </div>
+            
             <Link
               href="/admin/keys/generate"
               className="px-3 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:opacity-90 rounded-lg text-sm text-white flex items-center"
@@ -814,7 +834,7 @@ function KeysContent() {
                   <option value="used_count">使用次数</option>
                 </select>
               </div>
-
+              
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   排序顺序
@@ -834,7 +854,7 @@ function KeysContent() {
                   </button>
                 </div>
               </div>
-
+              
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   每页显示
@@ -850,7 +870,7 @@ function KeysContent() {
                   <option value={100}>100 条/页</option>
                 </select>
               </div>
-
+              
               <div className="md:col-span-3">
                 <div className="flex gap-2">
                   <button
@@ -887,7 +907,7 @@ function KeysContent() {
           </div>
           <p className="text-xl md:text-2xl font-bold text-white mt-2">{stats.total}</p>
         </div>
-
+        
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
           <div className="flex items-center">
             <Shield className="w-5 h-5 mr-2 text-green-400" />
@@ -895,7 +915,7 @@ function KeysContent() {
           </div>
           <p className="text-xl md:text-2xl font-bold text-white mt-2">{stats.active}</p>
         </div>
-
+        
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
           <div className="flex items-center">
             <Clock className="w-5 h-5 mr-2 text-amber-400" />
@@ -903,7 +923,7 @@ function KeysContent() {
           </div>
           <p className="text-xl md:text-2xl font-bold text-amber-400 mt-2">{stats.unused}</p>
         </div>
-
+        
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
           <div className="flex items-center">
             <Check className="w-5 h-5 mr-2 text-blue-400" />
@@ -911,7 +931,7 @@ function KeysContent() {
           </div>
           <p className="text-xl md:text-2xl font-bold text-blue-400 mt-2">{stats.used}</p>
         </div>
-
+        
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
           <div className="flex items-center">
             <AlertCircle className="w-5 h-5 mr-2 text-red-400" />
@@ -919,7 +939,7 @@ function KeysContent() {
           </div>
           <p className="text-xl md:text-2xl font-bold text-red-400 mt-2">{stats.expired}</p>
         </div>
-
+        
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
           <div className="flex items-center">
             <Ban className="w-5 h-5 mr-2 text-gray-400" />
@@ -927,7 +947,7 @@ function KeysContent() {
           </div>
           <p className="text-xl md:text-2xl font-bold text-gray-400 mt-2">{stats.inactive}</p>
         </div>
-
+        
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
           <div className="flex items-center">
             <Calendar className="w-5 h-5 mr-2 text-red-400" />
@@ -935,7 +955,7 @@ function KeysContent() {
           </div>
           <p className="text-xl md:text-2xl font-bold text-red-400 mt-2">{stats.todayExpiring}</p>
         </div>
-
+        
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
           <div className="flex items-center">
             <Zap className="w-5 h-5 mr-2 text-amber-400" />
@@ -958,7 +978,7 @@ function KeysContent() {
                 显示 {paginatedKeys.length} / {filteredKeys.length} 个密钥 • 第 {currentPage} 页，共 {Math.ceil(filteredKeys.length / itemsPerPage)} 页
               </p>
             </div>
-
+            
             <div className="flex items-center space-x-2">
               <button
                 onClick={fetchKeys}
@@ -1048,10 +1068,10 @@ function KeysContent() {
                     const durationDisplay = getDurationDisplay(key)
                     const isSelected = selectedKeys.includes(key.id)
                     const isOperationLoading = operationLoading === key.id
-
+                    
                     return (
-                      <tr
-                        key={key.id}
+                      <tr 
+                        key={key.id} 
                         className={`border-b border-gray-700/30 hover:bg-gray-800/30 transition-colors ${isSelected ? 'bg-blue-500/5' : ''}`}
                       >
                         <td className="py-3 px-4 md:px-6">
@@ -1069,10 +1089,10 @@ function KeysContent() {
                             disabled={isOperationLoading}
                           />
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           <div className="flex items-center space-x-2">
-                            <code
+                            <code 
                               className="font-mono text-sm bg-gray-900 px-3 py-2 rounded-lg border border-gray-700 hover:border-gray-600 transition-colors cursor-pointer truncate max-w-[180px]"
                               onClick={() => copyToClipboard(key.key_code)}
                               title="点击复制密钥"
@@ -1093,7 +1113,7 @@ function KeysContent() {
                             </button>
                           </div>
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           <div className="max-w-[150px]">
                             <p className="text-gray-300 text-sm truncate" title={key.description || ''}>
@@ -1101,7 +1121,7 @@ function KeysContent() {
                             </p>
                           </div>
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           <div className="flex flex-col">
                             <span className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded text-xs font-medium mb-1 w-fit">
@@ -1114,14 +1134,14 @@ function KeysContent() {
                             )}
                           </div>
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           <span className={`inline-flex items-center px-2.5 py-1.5 rounded-full text-xs ${status.bgColor} ${status.color}`}>
                             <StatusIcon className="w-3 h-3 mr-1.5" />
                             {status.label}
                           </span>
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           {key.user ? (
                             <div className="space-y-1 max-w-[150px]">
@@ -1140,7 +1160,7 @@ function KeysContent() {
                             <span className="text-gray-500 text-sm">-</span>
                           )}
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           <div className="flex items-center space-x-2">
                             <Hash className="w-4 h-4 text-gray-400" />
@@ -1150,7 +1170,7 @@ function KeysContent() {
                               </span>
                               {key.max_uses && (
                                 <div className="w-full bg-gray-700 rounded-full h-1.5 mt-1">
-                                  <div
+                                  <div 
                                     className="bg-green-500 h-1.5 rounded-full"
                                     style={{ width: `${Math.min(100, ((key.used_count || 0) / key.max_uses) * 100)}%` }}
                                   ></div>
@@ -1159,7 +1179,7 @@ function KeysContent() {
                             </div>
                           </div>
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           <div className="flex items-center space-x-2">
                             <Clock className="w-4 h-4 text-gray-400" />
@@ -1168,11 +1188,11 @@ function KeysContent() {
                             </span>
                           </div>
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6 text-gray-300 text-sm">
                           {new Date(key.created_at).toLocaleString('zh-CN')}
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           <div className="flex items-center space-x-2">
                             <button
@@ -1225,7 +1245,7 @@ function KeysContent() {
                     显示第 {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredKeys.length)} 条，
                     共 {filteredKeys.length} 条记录
                   </div>
-
+                  
                   <div className="flex items-center space-x-2">
                     <select
                       value={itemsPerPage}
@@ -1237,7 +1257,7 @@ function KeysContent() {
                       <option value={50}>50 条/页</option>
                       <option value={100}>100 条/页</option>
                     </select>
-
+                    
                     <div className="flex items-center space-x-1">
                       <button
                         onClick={() => setCurrentPage(1)}
@@ -1253,11 +1273,11 @@ function KeysContent() {
                       >
                         <ChevronLeft className="w-4 h-4 text-gray-400" />
                       </button>
-
+                      
                       <span className="px-3 py-1 text-sm text-gray-300">
                         {currentPage} / {Math.ceil(filteredKeys.length / itemsPerPage)}
                       </span>
-
+                      
                       <button
                         onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredKeys.length / itemsPerPage), prev + 1))}
                         disabled={currentPage >= Math.ceil(filteredKeys.length / itemsPerPage)}
@@ -1280,20 +1300,6 @@ function KeysContent() {
           </>
         )}
       </div>
-
-      {/* 导出模态框 */}
-      <ExportModal
-        isOpen={showExportModal}
-        onClose={() => setShowExportModal(false)}
-        selectedKeys={selectedKeys}
-        totalKeys={filteredKeys.length}
-        filters={{
-          status: statusFilter,
-          search,
-          sort_by: sortBy,
-          sort_order: sortOrder
-        }}
-      />
 
       {/* 底部提示信息 */}
       <div className="mt-6 p-4 bg-gray-800/30 border border-gray-700/50 rounded-lg">
