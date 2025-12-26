@@ -319,6 +319,9 @@ export default function GenerateTasksSection({
     if (suggestions.length === 0) {
       return (
         <>
+          {/* 🔥 关键修复：在模态框内显示AI使用统计 */}
+          {renderUsageStats()}
+          
           <div className="space-y-4 mb-6">
             <div className="glass rounded-xl p-4">
               <p className="text-sm font-medium mb-2">当前主题</p>
@@ -487,6 +490,7 @@ export default function GenerateTasksSection({
             基于主题和个人偏好，快速生成符合情侣互动的任务列表
           </p>
           
+          {/* 非内联模式：在模态框外显示AI计次 */}
           {renderUsageStats()}
           
           <Button
