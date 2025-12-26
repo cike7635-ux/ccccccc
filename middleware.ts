@@ -230,11 +230,11 @@ async function performStrictDeviceCheck(
       存储的会话: profile.last_login_session,
       当前会话: currentSessionId,
       时间差: `${timeSinceLastLogin}ms (${Math.round(timeSinceLastLogin/1000)}秒)`,
-      是否在30秒内: timeSinceLastLogin < 30000
+      是否在30秒内: timeSinceLastLogin < 3000
     });
     
     // 🔥 如果用户最后活动时间在30秒内，允许更新会话
-    if (timeSinceLastLogin < 30000) { // 30秒 = 30000ms
+    if (timeSinceLastLogin < 3000) { // 30秒 = 3000ms
       console.log(`[${requestId}] ⚡ 用户在30秒内有活动，更新会话标识为: ${currentSessionId}`);
       
       await supabase
