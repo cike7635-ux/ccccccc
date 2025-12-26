@@ -1,4 +1,4 @@
-// /components/login-form.tsx - 优化版
+// /components/login-form.tsx - 修复版（立即更新会话）
 "use client";
 
 import { cn } from "@/lib/utils";
@@ -69,19 +69,20 @@ export function LoginForm({
 
       console.log("[LoginForm] 登录成功，更新会话标识");
 
-      // 🔥 关键：登录成功后立即更新会话信息
+      // 🔥 关键：登录成功后立即更新会话信息（支持多设备检测）
       if (data?.user && data?.session) {
-        console.time('[登录] 更新会话');
+        console.time('[登录] 更新会话信息');
         const sessionFingerprint = `sess_${data.user.id}_${data.session.access_token.substring(0, 12)}`;
         
-        // 🔥 时间缓冲：向前调整1秒
+        // 时间缓冲：向前调整1秒
         const adjustedNow = new Date(Date.now() - 1000);
         
+        // 立即更新，确保中间件能看到最新状态
         const { error: updateError } = await supabase
           .from('profiles')
           .update({
             last_login_session: sessionFingerprint,
-            last_login_at: adjustedNow.toISOString(), // 🔥 使用调整后的时间
+            last_login_at: adjustedNow.toISOString(),
             updated_at: new Date().toISOString()
           })
           .eq('id', data.user.id);
@@ -91,17 +92,17 @@ export function LoginForm({
         } else {
           console.log('[登录] 会话信息已更新');
         }
-        console.timeEnd('[登录] 更新会话');
+        console.timeEnd('[登录] 更新会话信息');
       }
 
       // 显示成功消息
       setSuccessMessage("✅ 登录成功！");
 
-      // 🔥 移除500ms延迟，立即重定向
+      // 🔥 立即重定向
       console.time('[登录] 重定向');
       setTimeout(() => {
         window.location.href = redirectTo;
-      }, 0); // 立即执行
+      }, 0); // 0ms延迟，立即执行
       console.timeEnd('[登录] 重定向');
 
       console.timeEnd('[登录] 总耗时');
