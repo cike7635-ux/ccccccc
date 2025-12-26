@@ -1,11 +1,18 @@
+<<<<<<< HEAD
 // /app/api/auth/signup-with-key/route.ts - 修复版（不使用membership_level）
+=======
+// /app/api/auth/signup-with-key/route.ts - 注册API（优化版）
+>>>>>>> parent of a8d0af5 (登陆流程优化)
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
 export async function POST(request: NextRequest) {
   console.log('[API] 注册开始');
+<<<<<<< HEAD
   
+=======
+>>>>>>> parent of a8d0af5 (登陆流程优化)
   try {
     const cookieStore = await cookies();
     const supabase = createServerClient(
@@ -52,7 +59,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '密钥已过期' }, { status: 400 });
     }
 
+<<<<<<< HEAD
     // 3. 创建用户
+=======
+    // 3. 创建用户（不自动登录）
+>>>>>>> parent of a8d0af5 (登陆流程优化)
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: email.trim(),
       password: password.trim(),
@@ -66,6 +77,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `注册失败: ${authError?.message}` }, { status: 400 });
     }
 
+<<<<<<< HEAD
     // 4. 同步创建用户资料（使用现有字段）
     const now = new Date();
     const validDays = keyData.account_valid_for_days || 30;
@@ -104,29 +116,69 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. 异步更新密钥使用次数
+=======
+    // 4. 计算有效期
+    const validDays = keyData.account_valid_for_days || 30;
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + validDays);
+    const accountExpiresAt = expiryDate.toISOString();
+
+    // 5. ✅ 关键修复：设置初始会话标识
+    const now = new Date();
+    const initialSessionId = `init_${authData.user.id}_${Date.now()}`;
+    
+    // 异步初始化用户资料（不阻塞响应）
+>>>>>>> parent of a8d0af5 (登陆流程优化)
     setTimeout(async () => {
       try {
-        await supabase
+        // 更新用户资料（profiles 表）
+        const { error: profileError } = await supabase.from('profiles').upsert({
+          id: authData.user.id,
+          email: email.trim(),
+          access_key_id: keyData.id,
+          account_expires_at: accountExpiresAt,
+          last_login_at: now.toISOString(),
+          last_login_session: initialSessionId,  // 初始会话标识
+          created_at: now.toISOString(),
+          updated_at: now.toISOString(),
+        });
+        
+        if (profileError) {
+          console.error('[API] 异步更新profiles失败:', profileError);
+        }
+        
+        // 更新密钥使用次数
+        const { error: updateKeyError } = await supabase
           .from('access_keys')
           .update({ 
             used_count: (keyData.used_count || 0) + 1, 
             updated_at: now.toISOString() 
           })
           .eq('id', keyData.id);
-        console.log('[API] 密钥使用次数已更新');
-      } catch (keyUpdateError) {
-        console.error('[API] 更新密钥失败:', keyUpdateError);
+        
+        if (updateKeyError) {
+          console.error('[API] 异步更新密钥失败:', updateKeyError);
+        }
+        
+        console.log('[API] 异步初始化完成:', { 
+          userId: authData.user.id, 
+          sessionId: initialSessionId 
+        });
+      } catch (asyncError) {
+        console.error('[API] 异步初始化异常:', asyncError);
       }
     }, 0);
 
     console.log('[API] 注册成功:', { 
       userId: authData.user.id, 
       email: email.trim(),
-      expiresAt: accountExpiresAt,
-      sessionId: initialSessionId
     });
 
+<<<<<<< HEAD
     // 6. 返回成功响应
+=======
+    // 6. 快速响应，不等待异步操作
+>>>>>>> parent of a8d0af5 (登陆流程优化)
     return NextResponse.json({
       success: true,
       message: '注册成功！请使用注册的邮箱和密码登录',
@@ -135,6 +187,7 @@ export async function POST(request: NextRequest) {
         email: authData.user.email 
       },
       expires_at: accountExpiresAt,
+      // 不自动重定向，让用户自己登录
       note: '请前往登录页面使用注册的邮箱和密码登录'
     });
 
