@@ -33,13 +33,130 @@ async function requireUser() {
 
 export async function listMyThemes(): Promise<{ data: ThemeRecord[]; error?: string }> {
   const { supabase, userId } = await requireUser();
+  
+  // 1. 首先查询用户是否有主题
   const { data, error } = await supabase
     .from("themes")
     .select("id,title,description,task_count,created_at")
     .eq("creator_id", userId)
     .order("created_at", { ascending: false });
-  if (error) return { data: [], error: error.message };
-  return { data: (data ?? []) as ThemeRecord[] };
+  
+  if (error) {
+    console.error("[listMyThemes] 查询主题失败:", error.message);
+    return { data: [], error: error.message };
+  }
+  
+  // 2. 🔥 关键修复：如果用户没有主题，初始化默认主题
+  if ((data?.length || 0) === 0) {
+    console.log(`[listMyThemes] 用户 ${userId} 没有主题，开始初始化...`);
+    
+    try {
+      // 确保用户资料存在
+      const { ensureProfile } = await import("@/lib/profile");
+      await ensureProfile();
+      console.log(`[listMyThemes] 用户资料已确认`);
+      
+      // 读取默认主题模板
+      const fs = await import("node:fs/promises");
+      const path = await import("node:path");
+      const filePath = path.join(process.cwd(), "lib", "tasks.json");
+      console.log(`[listMyThemes] 尝试读取文件: ${filePath}`);
+      
+      const content = await fs.readFile(filePath, "utf-8");
+      const templates = JSON.parse(content);
+      console.log(`[listMyThemes] 读取到 ${templates.length} 个主题模板`);
+      
+      // 为每个模板创建主题
+      const createdThemes: any[] = [];
+      
+      for (const tpl of templates) {
+        try {
+          // 检查是否已存在同名主题
+          const { data: existing } = await supabase
+            .from("themes")
+            .select("id")
+            .eq("creator_id", userId)
+            .eq("title", tpl.title)
+            .maybeSingle();
+          
+          if (existing?.id) {
+            console.log(`[listMyThemes] 主题 "${tpl.title}" 已存在，跳过`);
+            continue;
+          }
+          
+          // 创建主题
+          const { data: created, error: insertError } = await supabase
+            .from("themes")
+            .insert({
+              title: tpl.title,
+              description: tpl.description || null,
+              creator_id: userId,
+              is_public: false,
+              task_count: (tpl.tasks?.length || 0),
+            })
+            .select("id, title")
+            .single();
+          
+          if (insertError) {
+            console.error(`[listMyThemes] 创建主题 "${tpl.title}" 失败:`, insertError.message);
+            continue;
+          }
+          
+          console.log(`[listMyThemes] 创建主题 "${tpl.title}" 成功，ID: ${created.id}`);
+          
+          // 为这个主题创建任务
+          if (tpl.tasks && tpl.tasks.length > 0) {
+            const rows = tpl.tasks.map((desc: string, idx: number) => ({
+              theme_id: created.id,
+              description: desc,
+              type: "interaction",
+              order_index: idx,
+              is_ai_generated: false,
+            }));
+            
+            const { error: taskError } = await supabase.from("tasks").insert(rows);
+            
+            if (taskError) {
+              console.error(`[listMyThemes] 为主题 "${tpl.title}" 创建任务失败:`, taskError.message);
+            } else {
+              console.log(`[listMyThemes] 为主题 "${tpl.title}" 创建了 ${rows.length} 个任务`);
+            }
+          }
+          
+          createdThemes.push(created);
+          
+        } catch (themeError) {
+          console.error(`[listMyThemes] 处理主题 "${tpl.title}" 时出错:`, themeError);
+        }
+      }
+      
+      // 3. 初始化完成后，重新查询主题
+      console.log(`[listMyThemes] 初始化完成，共创建 ${createdThemes.length} 个主题，重新查询...`);
+      
+      const { data: newData, error: newError } = await supabase
+        .from("themes")
+        .select("id,title,description,task_count,created_at")
+        .eq("creator_id", userId)
+        .order("created_at", { ascending: false });
+      
+      if (newError) {
+        console.error("[listMyThemes] 重新查询主题失败:", newError.message);
+        return { data: [], error: newError.message };
+      }
+      
+      console.log(`[listMyThemes] 初始化后查询到 ${newData?.length || 0} 个主题`);
+      return { data: (newData || []) as ThemeRecord[] };
+      
+    } catch (initError: any) {
+      console.error("[listMyThemes] 初始化默认主题失败:", initError.message || initError);
+      // 即使初始化失败，返回空数组（保持原有行为）
+      return { data: [] };
+    }
+  }
+  
+  // 4. 用户已有主题，直接返回
+  console.log(`[listMyThemes] 用户已有 ${data.length} 个主题`);
+  return { data: (data || []) as ThemeRecord[] };
 }
 
 export async function getThemeById(id: string): Promise<{ data: ThemeRecord | null; error?: string }> {
