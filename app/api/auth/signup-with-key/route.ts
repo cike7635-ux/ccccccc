@@ -1,5 +1,5 @@
 // /app/api/auth/signup-with-key/route.ts
-// 注册API - 简化版本（不自动登录）
+// 注册API - 修复版本（设置初始会话标识，修复setAll）
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -9,15 +9,22 @@ export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
     
-    // 🔥 简化：只创建用户，不进行任何登录操作
+    // 🔥 修复：setAll应该正常工作（API路由允许设置cookie）
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
           getAll: () => cookieStore.getAll(),
-          setAll: () => {
-            // 注册API中不设置任何Cookie，避免中间件问题
+          setAll: (cookiesToSet) => {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) => {
+                // ✅ API路由可以设置cookie
+                cookieStore.set(name, value, options);
+              });
+            } catch (error) {
+              console.error('[注册API] 设置cookie失败:', error);
+            }
           },
         },
       }
@@ -52,7 +59,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '密钥已过期' }, { status: 400 });
     }
 
-    // 3. 创建用户（只创建，不登录）
+    // 3. 创建用户（不自动登录）
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: email.trim(),
       password: password.trim(),
@@ -69,20 +76,26 @@ export async function POST(request: NextRequest) {
     expiryDate.setDate(expiryDate.getDate() + validDays);
     const accountExpiresAt = expiryDate.toISOString();
 
-    // 5. 更新用户资料（profiles 表）
+    // 5. 🔥 关键修复：设置初始会话标识
     const now = new Date();
+    const initialSessionId = `init_${authData.user.id}_${Date.now()}`;
+    
+    // 更新用户资料（profiles 表）
     const { error: profileError } = await supabase.from('profiles').upsert({
       id: authData.user.id,
       email: email.trim(),
       access_key_id: keyData.id,
       account_expires_at: accountExpiresAt,
+      // 🔥 设置关键字段
+      last_login_at: now.toISOString(),
+      last_login_session: initialSessionId,  // 初始会话标识
       created_at: now.toISOString(),
       updated_at: now.toISOString(),
     });
     
     if (profileError) {
       console.error('[API] 更新profiles失败:', profileError);
-      // 即使profiles更新失败，也继续执行（避免影响用户体验）
+      // 即使profiles更新失败，也继续执行
     }
 
     // 6. 更新密钥使用次数
@@ -101,10 +114,11 @@ export async function POST(request: NextRequest) {
     console.log('[API] 注册成功:', { 
       userId: authData.user.id, 
       email: email.trim(),
-      expiresAt: accountExpiresAt
+      expiresAt: accountExpiresAt,
+      sessionId: initialSessionId
     });
 
-    // 7. 🔥 核心变更：返回简单响应，不进行自动登录
+    // 7. 返回成功响应（不自动登录）
     return NextResponse.json({
       success: true,
       message: '注册成功！请使用刚才的邮箱和密码登录',
@@ -123,4 +137,3 @@ export async function POST(request: NextRequest) {
     }, { status: 500 });
   }
 }
-// [skip ci]
