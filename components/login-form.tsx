@@ -1,4 +1,9 @@
+<<<<<<< HEAD
 // /components/login-form.tsx - 修复版（立即更新会话）
+=======
+// /components/login-form.tsx (安全版本)
+// 确保会话更新完成再重定向
+>>>>>>> parent of a8d0af5 (登陆流程优化)
 "use client";
 
 import { cn } from "@/lib/utils";
@@ -23,6 +28,7 @@ export function LoginForm({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const searchParams = useSearchParams();
+
   const redirectTo = searchParams.get('redirect') || "/lobby";
   const emailFromUrl = searchParams.get("email");
   const fromSignup = searchParams.get("from") === "signup";
@@ -44,17 +50,14 @@ export function LoginForm({
     setSuccessMessage(null);
 
     try {
-      console.time('[登录] 总耗时');
       const supabase = createClient();
 
       console.log("[LoginForm] 尝试登录:", email.trim());
 
-      console.time('[登录] Supabase认证');
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password: password.trim(),
       });
-      console.timeEnd('[登录] Supabase认证');
 
       if (authError) {
         console.error("[LoginForm] 登录失败:", authError.message);
@@ -69,6 +72,7 @@ export function LoginForm({
 
       console.log("[LoginForm] 登录成功，更新会话标识");
 
+<<<<<<< HEAD
       // 🔥 关键：登录成功后立即更新会话信息（支持多设备检测）
       if (data?.user && data?.session) {
         console.time('[登录] 更新会话信息');
@@ -86,26 +90,58 @@ export function LoginForm({
             updated_at: new Date().toISOString()
           })
           .eq('id', data.user.id);
+=======
+      // 🔥 关键修复：同步更新会话标识
+      if (data?.user && data?.session) {
+        try {
+          const sessionFingerprint = `sess_${data.user.id}_${data.session.access_token.substring(0, 12)}`;
+>>>>>>> parent of a8d0af5 (登陆流程优化)
 
-        if (updateError) {
-          console.error('[登录] 更新会话记录失败:', updateError);
-        } else {
-          console.log('[登录] 会话信息已更新');
+          console.log("[LoginForm] 设置会话标识:", sessionFingerprint);
+
+          const { error: updateError } = await supabase
+            .from('profiles')
+            .update({
+              last_login_session: sessionFingerprint,
+              last_login_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', data.user.id);
+
+          if (updateError) {
+            console.error('[登录] 更新会话记录失败:', updateError);
+          } else {
+            console.log('[登录] 会话标识更新完成');
+          }
+        } catch (sessionErr) {
+          console.error('[登录] 处理会话时异常:', sessionErr);
         }
+<<<<<<< HEAD
         console.timeEnd('[登录] 更新会话信息');
+=======
+>>>>>>> parent of a8d0af5 (登陆流程优化)
       }
 
       // 显示成功消息
       setSuccessMessage("✅ 登录成功！");
 
+<<<<<<< HEAD
       // 🔥 立即重定向
       console.time('[登录] 重定向');
+=======
+      // 🔥 确保有足够时间让数据库更新传播
+>>>>>>> parent of a8d0af5 (登陆流程优化)
       setTimeout(() => {
+        console.log('✅ 重定向到:', redirectTo);
         window.location.href = redirectTo;
+<<<<<<< HEAD
       }, 0); // 0ms延迟，立即执行
       console.timeEnd('[登录] 重定向');
 
       console.timeEnd('[登录] 总耗时');
+=======
+      }, 500); // 500ms延迟确保状态同步
+>>>>>>> parent of a8d0af5 (登陆流程优化)
 
     } catch (error: unknown) {
       console.error("[LoginForm] 登录异常:", error);
@@ -114,6 +150,7 @@ export function LoginForm({
     }
   };
 
+  // ... UI部分保持不变
   return (
     <div className={cn("", className)} {...props}>
       <form onSubmit={handleLogin} className="space-y-4">
@@ -232,7 +269,7 @@ export function LoginForm({
               }}
             >
               联系客服
-            </Link>
+            </Link> {/* 这里改为 </Link> */}
           </p>
         </div>
       </form>

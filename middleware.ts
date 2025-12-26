@@ -1,4 +1,9 @@
+<<<<<<< HEAD
 // /middleware.ts - 终极修复版本（强制检测 + 完整日志）
+=======
+// /middleware.ts
+// 修复版本 - 添加初始会话识别，修复新用户多设备检测
+>>>>>>> parent of a8d0af5 (登陆流程优化)
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
@@ -224,6 +229,96 @@ export async function middleware(request: NextRequest) {
       },
     }
   );
+<<<<<<< HEAD
+=======
+
+  return { supabase, response };
+}
+
+/**
+ * 设置管理员验证Cookie（路径设为根目录）
+ */
+function setAdminKeyVerifiedCookie(response: NextResponse) {
+  response.cookies.set({
+    name: 'admin_key_verified',
+    value: 'true',
+    path: '/', // 🔥 关键：设置为根路径，使Cookie对所有请求有效
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 60 * 60 * 24, // 24小时
+  });
+  return response;
+}
+
+// ==================== 核心功能：获取已验证的用户 ====================
+
+/**
+ * 获取已验证的用户信息（使用安全的getUser()方法）
+ */
+async function getVerifiedUser(supabase: any) {
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    
+    if (error) {
+      console.warn('[已验证用户] 获取用户失败:', error.message);
+      return { user: null, error };
+    }
+    
+    return { user, error: null };
+  } catch (error: any) {
+    console.error('[已验证用户] 异常:', error.message);
+    return { user: null, error };
+  }
+}
+
+/**
+ * 创建带有已验证用户头信息的响应
+ */
+function createResponseWithUserHeaders(request: NextRequest, user: any, isAdmin: boolean = false) {
+  // 创建新的请求头
+  const headers = new Headers(request.headers);
+  
+  // 添加已验证的用户信息到请求头
+  headers.set('x-verified-user-id', user.id);
+  
+  if (user.email) {
+    headers.set('x-verified-user-email', user.email);
+  }
+  
+  if (user.user_metadata?.name) {
+    headers.set('x-verified-user-name', user.user_metadata.name);
+  }
+  
+  // 添加管理员标志
+  if (isAdmin) {
+    headers.set('x-admin-verified', 'true');
+  }
+  
+  // 添加一个标志，表明这个用户已经经过中间件验证
+  headers.set('x-user-verified-by-middleware', 'true');
+  
+  // 返回新的响应对象
+  const response = NextResponse.next({
+    request: {
+      headers: headers,
+    },
+  });
+  
+  return response;
+}
+
+// ==================== 中间件主函数 ====================
+
+export async function middleware(request: NextRequest) {
+  const currentPath = request.nextUrl.pathname;
+  const requestId = Math.random().toString(36).substring(7);
+  
+  // 简化日志，避免过多输出
+  if (!currentPath.startsWith('/_next') && !currentPath.startsWith('/favicon')) {
+    console.log(`[${requestId}] 中间件: ${currentPath}`);
+  }
+>>>>>>> parent of a8d0af5 (登陆流程优化)
   
   try {
     // ============ 1. 公开路径直接放行 ============
@@ -240,6 +335,7 @@ export async function middleware(request: NextRequest) {
     
     // ============ 3. 受保护的游戏路径（强制验证） ============
     if (isProtectedGamePath(currentPath)) {
+<<<<<<< HEAD
       console.log(`[${requestId}] 🛡️ 受保护路径: ${currentPath}`);
       
       // 3.1 验证用户登录状态
@@ -247,6 +343,237 @@ export async function middleware(request: NextRequest) {
       
       if (authError || !user) {
         console.log(`[${requestId}] 🔐 用户未登录，重定向到登录页`);
+=======
+      try {
+        // ============ 基础登录验证 ============
+        const { user, error: authError } = await getVerifiedUser(supabase);
+        
+        if (authError || !user) {
+          console.log(`[${requestId}] 用户未登录，重定向到登录页`);
+          const redirectUrl = new URL('/login', request.url);
+          redirectUrl.searchParams.set('redirect', currentPath);
+          return NextResponse.redirect(redirectUrl);
+        }
+        
+        console.log(`[${requestId}] 用户已登录: ${user.email} (管理员: ${isAdminEmail(user.email)})`);
+        
+        // 如果是管理员访问游戏路径，不要强制重定向到后台
+        // 让管理员可以正常玩游戏
+        if (isAdminEmail(user.email)) {
+          console.log(`[${requestId}] 管理员访问游戏路径，正常处理`);
+        }
+        
+        // ============ 获取用户资料 ============
+        let profile = null;
+        try {
+          const { data, error: profileError } = await supabase
+            .from('profiles')
+            .select('id, email, account_expires_at, last_login_at, last_login_session, created_at')
+            .eq('id', user.id)
+            .single();
+          
+          if (profileError) {
+            console.warn(`[${requestId}] 查询用户资料失败: ${profileError.message}`);
+            // 资料不存在时允许继续，避免循环重定向
+            return createResponseWithUserHeaders(request, user);
+          }
+          
+          profile = data;
+        } catch (profileError) {
+          console.error(`[${requestId}] 获取用户资料异常:`, profileError);
+          return createResponseWithUserHeaders(request, user);
+        }
+        
+        if (!profile) {
+          console.log(`[${requestId}] 用户资料不存在`);
+          return createResponseWithUserHeaders(request, user);
+        }
+        
+        // ============ 会员过期验证 ============
+        const now = new Date();
+        const isExpired = !profile.account_expires_at || new Date(profile.account_expires_at) < now;
+        
+        if (isExpired && currentPath !== '/account-expired') {
+          console.log(`[${requestId}] 会员已过期: ${profile.account_expires_at}`);
+          return NextResponse.redirect(new URL('/account-expired', request.url));
+        }
+        
+        // ============ 优化的多设备登录验证 ============
+        try {
+          // 获取当前会话信息
+          const { data: { session: currentSession } } = await supabase.auth.getSession();
+          
+          if (!currentSession) {
+            console.warn(`[${requestId}] 当前会话不存在`);
+            const redirectUrl = new URL('/login', request.url);
+            redirectUrl.searchParams.set('redirect', currentPath);
+            return NextResponse.redirect(redirectUrl);
+          }
+          
+          // 生成当前会话标识
+          const currentSessionId = `sess_${currentSession.user.id}_${currentSession.access_token.substring(0, 12)}`;
+          
+          // 🔥 关键修复1：检测并处理初始会话标识
+          if (profile.last_login_session && profile.last_login_session.startsWith('init_')) {
+            console.log(`[${requestId}] 检测到初始会话标识，更新为真实会话`);
+            
+            await supabase
+              .from('profiles')
+              .update({ 
+                last_login_session: currentSessionId,
+                last_login_at: now.toISOString(),
+                updated_at: now.toISOString()
+              })
+              .eq('id', user.id);
+            
+            console.log(`[${requestId}] 初始会话已更新，正常放行`);
+            return createResponseWithUserHeaders(request, user);
+          }
+          
+          // 🔥 关键修复2：处理空会话标识（兼容旧版本）
+          if (!profile.last_login_session) {
+            console.log(`[${requestId}] 用户会话标识为空，初始化为真实会话`);
+            
+            await supabase
+              .from('profiles')
+              .update({ 
+                last_login_session: currentSessionId,
+                last_login_at: now.toISOString(),
+                updated_at: now.toISOString()
+              })
+              .eq('id', user.id);
+            
+            console.log(`[${requestId}] 空会话已初始化，正常放行`);
+            return createResponseWithUserHeaders(request, user);
+          }
+          
+          // 🔥 关键修复3：添加登录宽限期检测
+          const lastLoginTime = profile.last_login_at ? new Date(profile.last_login_at) : null;
+          const timeSinceLastLogin = lastLoginTime ? now.getTime() - lastLoginTime.getTime() : 0;
+          
+          // 为刚登录的用户提供5分钟宽限期
+          if (timeSinceLastLogin < 300000) { // 5分钟
+            console.log(`[${requestId}] 用户刚登录（${Math.round(timeSinceLastLogin/1000)}秒前），处于宽限期内`);
+            
+            // 确保会话标识是最新的
+            await supabase
+              .from('profiles')
+              .update({ 
+                last_login_session: currentSessionId,
+                updated_at: now.toISOString()
+              })
+              .eq('id', user.id);
+              
+            console.log(`[${requestId}] 宽限期内会话标识已更新，正常放行`);
+            return createResponseWithUserHeaders(request, user);
+          }
+          
+          // 🔥 关键修复4：更智能的多设备检测逻辑
+          if (profile.last_login_session) {
+            // 情况1：会话完全匹配 - 正常访问
+            if (profile.last_login_session === currentSessionId) {
+              console.log(`[${requestId}] 会话标识匹配，正常访问`);
+              return createResponseWithUserHeaders(request, user);
+            }
+            // 情况2：会话部分匹配（同一用户但不同token）- 可能是token刷新
+            else if (profile.last_login_session.startsWith(`sess_${currentSession.user.id}_`)) {
+              console.log(`[${requestId}] 同一用户不同token，可能是token刷新`);
+              
+              // 检查用户创建时间，如果是新用户（24小时内），宽松处理
+              const userCreatedAt = profile.created_at ? new Date(profile.created_at) : null;
+              const timeSinceCreation = userCreatedAt ? now.getTime() - userCreatedAt.getTime() : 0;
+              
+              if (timeSinceCreation < 24 * 60 * 60 * 1000) { // 24小时内
+                console.log(`[${requestId}] 新用户（24小时内），更新会话标识`);
+                await supabase
+                  .from('profiles')
+                  .update({ 
+                    last_login_session: currentSessionId,
+                    updated_at: now.toISOString()
+                  })
+                  .eq('id', user.id);
+                return createResponseWithUserHeaders(request, user);
+              } else {
+                // 超过24小时，检查是否是短期内的token刷新（30秒内）
+                if (timeSinceLastLogin < 30000) { // 30秒
+                  console.log(`[${requestId}] 短时间内token刷新，更新会话标识`);
+                  await supabase
+                    .from('profiles')
+                    .update({ 
+                      last_login_session: currentSessionId,
+                      updated_at: now.toISOString()
+                    })
+                    .eq('id', user.id);
+                  return createResponseWithUserHeaders(request, user);
+                } else {
+                  // 超过30秒，认为是多设备登录
+                  console.log(`[${requestId}] 检测到多设备登录，强制退出`);
+                  
+                  const redirectUrl = new URL('/login/expired', request.url);
+                  redirectUrl.searchParams.set('email', user.email || '');
+                  redirectUrl.searchParams.set('reason', 'multi_device');
+                  redirectUrl.searchParams.set('last_session', profile.last_login_session.substring(0, 20));
+                  if (lastLoginTime) {
+                    redirectUrl.searchParams.set('last_login_time', lastLoginTime.toISOString());
+                  }
+                  
+                  return NextResponse.redirect(redirectUrl);
+                }
+              }
+            }
+            // 情况3：完全不同 - 多设备登录
+            else {
+              console.log(`[${requestId}] 检测到完全不同的会话标识，判定为多设备登录`);
+              
+              // 检查用户创建时间，如果是新用户（24小时内），宽松处理
+              const userCreatedAt = profile.created_at ? new Date(profile.created_at) : null;
+              const timeSinceCreation = userCreatedAt ? now.getTime() - userCreatedAt.getTime() : 0;
+              
+              if (timeSinceCreation < 24 * 60 * 60 * 1000) { // 24小时内
+                console.log(`[${requestId}] 新用户（24小时内），更新会话标识`);
+                await supabase
+                  .from('profiles')
+                  .update({ 
+                    last_login_session: currentSessionId,
+                    last_login_at: now.toISOString(),
+                    updated_at: now.toISOString()
+                  })
+                  .eq('id', user.id);
+                return createResponseWithUserHeaders(request, user);
+              } else {
+                console.log(`[${requestId}] 老用户多设备登录，强制退出`);
+                
+                const redirectUrl = new URL('/login/expired', request.url);
+                redirectUrl.searchParams.set('email', user.email || '');
+                redirectUrl.searchParams.set('reason', 'multi_device_different_user');
+                redirectUrl.searchParams.set('last_session', profile.last_login_session.substring(0, 20));
+                
+                return NextResponse.redirect(redirectUrl);
+              }
+            }
+          } else {
+            // 数据库中无会话标识，初始化新的会话
+            console.log(`[${requestId}] 初始化新的会话标识`);
+            await supabase
+              .from('profiles')
+              .update({ 
+                last_login_at: now.toISOString(),
+                last_login_session: currentSessionId,
+                updated_at: now.toISOString()
+              })
+              .eq('id', user.id);
+            return createResponseWithUserHeaders(request, user);
+          }
+          
+        } catch (sessionError) {
+          console.error(`[${requestId}] 会话验证错误:`, sessionError);
+          // 出错时不中断用户访问
+          return createResponseWithUserHeaders(request, user);
+        }
+        
+      } catch (gamePathError) {
+        console.error(`[${requestId}] 游戏路径验证异常:`, gamePathError);
+>>>>>>> parent of a8d0af5 (登陆流程优化)
         const redirectUrl = new URL('/login', request.url);
         redirectUrl.searchParams.set('redirect', currentPath);
         return NextResponse.redirect(redirectUrl);
@@ -342,5 +669,12 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
+<<<<<<< HEAD
   matcher: ['/((?!_next/static|_next/image|favicon.ico|public/).*)'],
 };
+=======
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|public/).*)',
+  ],
+};
+>>>>>>> parent of a8d0af5 (登陆流程优化)
