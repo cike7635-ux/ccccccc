@@ -1,11 +1,168 @@
-// /app/themes/actions.ts
-// 修复版本：确保新用户有默认主题，修复初始化逻辑
+// /app/themes/actions.ts - 完整版（包含所有缺失的函数）
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
 import { ensureProfile } from '@/lib/profile';
 import fs from 'fs/promises';
 import path from 'path';
+
+// 🔥 补充缺失的函数
+
+/**
+ * 删除主题及其关联的任务
+ */
+export async function deleteTheme(formData: FormData) {
+  try {
+    const supabase = await createClient();
+    
+    const id = formData.get('id') as string;
+    
+    console.log(`[deleteTheme] 开始删除主题 ${id}`);
+    
+    // 首先删除所有关联的任务（确保外键约束）
+    const { error: deleteTasksError } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('theme_id', id);
+    
+    if (deleteTasksError) {
+      console.error('[deleteTheme] 删除关联任务失败:', deleteTasksError);
+      return { data: null, error: '删除任务失败: ' + deleteTasksError.message };
+    }
+    
+    // 然后删除主题
+    const { error: deleteThemeError } = await supabase
+      .from('themes')
+      .delete()
+      .eq('id', id);
+    
+    if (deleteThemeError) {
+      console.error('[deleteTheme] 删除主题失败:', deleteThemeError);
+      return { data: null, error: '删除主题失败: ' + deleteThemeError.message };
+    }
+    
+    console.log(`[deleteTheme] 主题 ${id} 删除成功`);
+    return { data: { success: true }, error: null };
+    
+  } catch (error) {
+    console.error('[deleteTheme] 异常:', error);
+    return { data: null, error: '删除主题时发生错误' };
+  }
+}
+
+/**
+ * 批量插入任务（用于AI生成）
+ */
+export async function bulkInsertTasks(formData: FormData) {
+  try {
+    const supabase = await createClient();
+    
+    const theme_id = formData.get('theme_id') as string;
+    const tasksJson = formData.get('tasks') as string;
+    
+    if (!tasksJson) {
+      return { data: null, error: '没有提供任务数据' };
+    }
+    
+    let tasks;
+    try {
+      tasks = JSON.parse(tasksJson);
+    } catch (parseError) {
+      console.error('[bulkInsertTasks] 解析任务JSON失败:', parseError);
+      return { data: null, error: '任务数据格式错误' };
+    }
+    
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+      return { data: null, error: '任务数据必须是非空数组' };
+    }
+    
+    console.log(`[bulkInsertTasks] 为主题 ${theme_id} 批量插入 ${tasks.length} 个任务`);
+    
+    // 准备批量插入数据
+    const tasksToInsert = tasks.map((task, index) => ({
+      theme_id,
+      description: task.description || task.content || task.task || '未命名任务',
+      type: task.type || 'interaction',
+      order_index: task.order_index || index,
+      is_ai_generated: true,
+      ai_metadata: task.metadata || {},
+    }));
+    
+    // 批量插入
+    const { data, error } = await supabase
+      .from('tasks')
+      .insert(tasksToInsert)
+      .select();
+    
+    if (error) {
+      console.error('[bulkInsertTasks] 批量插入任务失败:', error);
+      return { data: null, error: error.message };
+    }
+    
+    // 更新主题的任务计数
+    await supabase.rpc('increment_theme_task_count_by', { 
+      theme_id, 
+      increment: tasks.length 
+    });
+    
+    console.log(`[bulkInsertTasks] 成功插入 ${data.length} 个任务`);
+    return { data, error: null };
+    
+  } catch (error) {
+    console.error('[bulkInsertTasks] 异常:', error);
+    return { data: null, error: '批量插入任务时发生错误' };
+  }
+}
+
+/**
+ * 创建新主题
+ */
+export async function createTheme(formData: FormData) {
+  try {
+    const supabase = await createClient();
+    
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return { data: null, error: '用户未登录' };
+    }
+    
+    const title = formData.get('title') as string;
+    const description = formData.get('description') as string;
+    const isPublic = formData.get('is_public') === 'true';
+    
+    if (!title || title.trim() === '') {
+      return { data: null, error: '主题标题不能为空' };
+    }
+    
+    console.log(`[createTheme] 用户 ${user.email} 创建主题: ${title}`);
+    
+    const { data, error } = await supabase
+      .from('themes')
+      .insert({
+        title: title.trim(),
+        description: (description || '').trim(),
+        creator_id: user.id,
+        is_public: isPublic,
+        task_count: 0,
+      })
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('[createTheme] 创建主题失败:', error);
+      return { data: null, error: error.message };
+    }
+    
+    console.log(`[createTheme] 主题创建成功: ${data.id}`);
+    return { data, error: null };
+    
+  } catch (error) {
+    console.error('[createTheme] 异常:', error);
+    return { data: null, error: '创建主题时发生错误' };
+  }
+}
+
+// 之前的函数保持不变...
 
 // 获取用户所有主题
 export async function listMyThemes() {
