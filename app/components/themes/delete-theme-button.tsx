@@ -1,7 +1,7 @@
-// /app/components/themes/delete-theme-button.tsx
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { Trash2, Loader2, AlertTriangle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { deleteTheme } from '@/app/themes/actions';
@@ -13,47 +13,42 @@ interface DeleteThemeButtonProps {
   onDelete?: () => void;
 }
 
-// 创建一个简单的Portal组件，直接在这个文件中定义
-function Portal({ children }: { children: React.ReactNode }) {
+// 动态导入 createPortal
+const Portal = ({ children }: { children: React.ReactNode }) => {
   const [mounted, setMounted] = useState(false);
-  const portalRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setMounted(true);
-    
-    // 创建或获取portal容器
-    let portalContainer = document.getElementById('modal-portal');
-    if (!portalContainer) {
-      portalContainer = document.createElement('div');
-      portalContainer.id = 'modal-portal';
-      portalContainer.style.position = 'fixed';
-      portalContainer.style.top = '0';
-      portalContainer.style.left = '0';
-      portalContainer.style.zIndex = '9999';
-      portalContainer.style.pointerEvents = 'none';
-      document.body.appendChild(portalContainer);
-    }
-    
-    portalRef.current = portalContainer as HTMLDivElement;
-    
-    return () => {
-      if (portalRef.current && portalRef.current.childElementCount === 0) {
-        portalRef.current.remove();
-      }
-    };
+    return () => setMounted(false);
   }, []);
 
-  if (!mounted || !portalRef.current) return null;
+  if (!mounted) return null;
 
-  // 使用React的createPortal
+  // 创建 portal 容器
+  const portalContainer = typeof document !== 'undefined' 
+    ? document.getElementById('modal-portal') || (() => {
+        const div = document.createElement('div');
+        div.id = 'modal-portal';
+        div.style.position = 'fixed';
+        div.style.top = '0';
+        div.style.left = '0';
+        div.style.zIndex = '9999';
+        div.style.pointerEvents = 'none';
+        document.body.appendChild(div);
+        return div;
+      })()
+    : null;
+
+  if (!portalContainer) return null;
+
   const { createPortal } = require('react-dom');
   return createPortal(
     <div style={{ pointerEvents: 'auto' }}>
       {children}
     </div>,
-    portalRef.current
+    portalContainer
   );
-}
+};
 
 export default function DeleteThemeButton({ themeId, themeTitle, onDelete }: DeleteThemeButtonProps) {
   const [isDeleting, setIsDeleting] = useState(false);
@@ -76,11 +71,15 @@ export default function DeleteThemeButton({ themeId, themeTitle, onDelete }: Del
   useEffect(() => {
     if (showDialog) {
       document.body.style.overflow = 'hidden';
+      document.body.style.position = 'fixed';
+      document.body.style.width = '100%';
     } else {
       document.body.style.overflow = 'auto';
+      document.body.style.position = 'static';
     }
     return () => {
       document.body.style.overflow = 'auto';
+      document.body.style.position = 'static';
     };
   }, [showDialog]);
 
@@ -106,7 +105,10 @@ export default function DeleteThemeButton({ themeId, themeTitle, onDelete }: Del
         onDelete();
       }
       
-      router.refresh();
+      // 延迟刷新，让用户看到成功状态
+      setTimeout(() => {
+        router.refresh();
+      }, 500);
       
     } catch (error: any) {
       setError(error.message || '删除失败，请重试');
@@ -136,35 +138,27 @@ export default function DeleteThemeButton({ themeId, themeTitle, onDelete }: Del
         size="icon"
         className="text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
         aria-label="删除主题"
+        title="删除主题"
       >
         <Trash2 className="w-4 h-4" />
       </Button>
 
-      {/* 使用Portal渲染弹窗 */}
+      {/* 确认对话框 */}
       {showDialog && (
         <Portal>
           <div 
-            className="fixed inset-0 flex items-center justify-center p-4"
+            className="fixed inset-0 flex items-center justify-center p-4 z-[10000]"
             style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
               backgroundColor: 'rgba(0, 0, 0, 0.7)',
               backdropFilter: 'blur(4px)',
-              zIndex: 9999,
             }}
             onClick={handleOverlayClick}
           >
-            {/* 弹窗内容 */}
             <div 
-              className="relative w-full max-w-md bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-700/50 rounded-2xl shadow-2xl overflow-hidden"
+              className="relative w-full max-w-md bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-700/50 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in duration-200"
               style={{
                 maxHeight: '90vh',
                 overflowY: 'auto',
-                margin: 'auto',
-                zIndex: 10000,
               }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -173,13 +167,14 @@ export default function DeleteThemeButton({ themeId, themeTitle, onDelete }: Del
                 onClick={handleCancel}
                 className="absolute top-4 right-4 p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors z-10"
                 aria-label="关闭"
+                disabled={isDeleting}
               >
                 <X className="w-4 h-4" />
               </button>
 
-              {/* 弹窗头部 */}
+              {/* 对话框内容 */}
               <div className="p-6 pb-4">
-                <div className="flex items-start space-x-4">
+                <div className="flex items-start space-x-4 mb-4">
                   <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500/20 to-red-600/20 flex items-center justify-center flex-shrink-0">
                     <AlertTriangle className="w-6 h-6 text-red-400" />
                   </div>
@@ -190,11 +185,9 @@ export default function DeleteThemeButton({ themeId, themeTitle, onDelete }: Del
                     </p>
                   </div>
                 </div>
-              </div>
 
-              {/* 警告信息 */}
-              <div className="px-6">
-                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+                {/* 警告信息 */}
+                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-4">
                   <div className="flex items-start space-x-2">
                     <div className="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
                       <AlertTriangle className="w-3 h-3 text-red-400" />
@@ -218,19 +211,19 @@ export default function DeleteThemeButton({ themeId, themeTitle, onDelete }: Del
                     </div>
                   </div>
                 </div>
+
+                {/* 错误提示 */}
+                {error && (
+                  <div className="mb-4 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                    <div className="flex items-center text-red-400">
+                      <AlertTriangle className="w-4 h-4 mr-2 flex-shrink-0" />
+                      <span className="text-sm">{error}</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* 错误提示 */}
-              {error && (
-                <div className="mx-6 mt-4 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-                  <div className="flex items-center text-red-400">
-                    <AlertTriangle className="w-4 h-4 mr-2 flex-shrink-0" />
-                    <span className="text-sm">{error}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* 弹窗底部 - 操作按钮 */}
+              {/* 操作按钮 */}
               <div className="p-6 pt-4 border-t border-gray-700/50 flex flex-col sm:flex-row gap-3">
                 <Button
                   onClick={handleCancel}
@@ -259,7 +252,7 @@ export default function DeleteThemeButton({ themeId, themeTitle, onDelete }: Del
                 </Button>
               </div>
 
-              {/* 键盘快捷键提示 */}
+              {/* 快捷键提示 */}
               <div className="px-6 pb-4">
                 <div className="text-center text-xs text-gray-500">
                   <p>按 <kbd className="px-2 py-1 bg-gray-800 rounded-md text-gray-300">ESC</kbd> 取消</p>
