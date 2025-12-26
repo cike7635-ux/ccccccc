@@ -1,10 +1,12 @@
-// /app/api/auth/signup-with-key/route.ts - 注册API（优化版）
+// /app/api/auth/signup-with-key/route.ts - 优化版
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
 export async function POST(request: NextRequest) {
   console.log('[API] 注册开始');
+  const startTime = Date.now();
+  
   try {
     const cookieStore = await cookies();
     
@@ -38,6 +40,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. 查询密钥
+    console.time('[API] 密钥查询');
     const { data: keyData, error: keyError } = await supabase
       .from('access_keys')
       .select('id, key_code, used_count, max_uses, key_expires_at, account_valid_for_days')
@@ -46,19 +49,24 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (keyError || !keyData) {
+      console.timeEnd('[API] 密钥查询');
       console.error('[API] 密钥查询失败:', keyError);
       return NextResponse.json({ error: '产品密钥无效' }, { status: 400 });
     }
     
     if (keyData.used_count >= keyData.max_uses) {
+      console.timeEnd('[API] 密钥查询');
       return NextResponse.json({ error: '密钥使用次数已达上限' }, { status: 400 });
     }
     
     if (keyData.key_expires_at && new Date() > new Date(keyData.key_expires_at)) {
+      console.timeEnd('[API] 密钥查询');
       return NextResponse.json({ error: '密钥已过期' }, { status: 400 });
     }
+    console.timeEnd('[API] 密钥查询');
 
-    // 3. 创建用户（不自动登录）
+    // 3. 创建用户
+    console.time('[API] 创建用户');
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: email.trim(),
       password: password.trim(),
@@ -68,67 +76,91 @@ export async function POST(request: NextRequest) {
     });
     
     if (authError || !authData.user) {
+      console.timeEnd('[API] 创建用户');
       console.error('[API] 创建用户失败:', authError);
       return NextResponse.json({ error: `注册失败: ${authError?.message}` }, { status: 400 });
     }
+    console.timeEnd('[API] 创建用户');
 
-    // 4. 计算有效期
-    const validDays = keyData.account_valid_for_days || 30;
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + validDays);
-    const accountExpiresAt = expiryDate.toISOString();
-
-    // 5. ✅ 关键修复：设置初始会话标识
+    // 4. 🔥 关键优化：同步创建用户资料
+    console.time('[API] 创建用户资料');
     const now = new Date();
+    const validDays = keyData.account_valid_for_days || 30;
+    
+    // 🔥 时间缓冲：向前调整2秒，给中间件缓冲
+    const adjustedNow = new Date(now.getTime() - 2000);
+    const accountExpiresAt = new Date(adjustedNow.getTime() + validDays * 24 * 60 * 60 * 1000).toISOString();
+    
+    // 生成初始会话标识
     const initialSessionId = `init_${authData.user.id}_${Date.now()}`;
     
-    // 异步初始化用户资料（不阻塞响应）
+    // 先尝试插入
+    const { error: profileError } = await supabase.from('profiles').insert({
+      id: authData.user.id,
+      email: email.trim(),
+      access_key_id: keyData.id,
+      account_expires_at: accountExpiresAt,
+      // 🔥 使用调整后的时间
+      last_login_at: adjustedNow.toISOString(),
+      last_login_session: initialSessionId,
+      created_at: adjustedNow.toISOString(),
+      updated_at: adjustedNow.toISOString(),
+      nickname: email.split('@')[0] || '用户',
+      membership_level: 1,
+    });
+
+    // 如果插入失败，尝试更新（可能已存在）
+    if (profileError) {
+      console.warn('[API] 插入用户资料失败，尝试更新:', profileError.message);
+      
+      const { error: upsertError } = await supabase.from('profiles').upsert({
+        id: authData.user.id,
+        email: email.trim(),
+        access_key_id: keyData.id,
+        account_expires_at: accountExpiresAt,
+        // 🔥 使用调整后的时间
+        last_login_at: adjustedNow.toISOString(),
+        last_login_session: initialSessionId,
+        updated_at: adjustedNow.toISOString(),
+        nickname: email.split('@')[0] || '用户',
+        membership_level: 1,
+      });
+
+      if (upsertError) {
+        console.error('[API] 更新用户资料失败:', upsertError);
+      } else {
+        console.log('[API] 用户资料更新成功');
+      }
+    } else {
+      console.log('[API] 用户资料插入成功');
+    }
+    console.timeEnd('[API] 创建用户资料');
+
+    // 5. 异步更新密钥使用次数（不阻塞响应）
     setTimeout(async () => {
       try {
-        // 更新用户资料（profiles 表）
-        const { error: profileError } = await supabase.from('profiles').upsert({
-          id: authData.user.id,
-          email: email.trim(),
-          access_key_id: keyData.id,
-          account_expires_at: accountExpiresAt,
-          last_login_at: now.toISOString(),
-          last_login_session: initialSessionId,  // 初始会话标识
-          created_at: now.toISOString(),
-          updated_at: now.toISOString(),
-        });
-        
-        if (profileError) {
-          console.error('[API] 异步更新profiles失败:', profileError);
-        }
-        
-        // 更新密钥使用次数
-        const { error: updateKeyError } = await supabase
+        await supabase
           .from('access_keys')
           .update({ 
             used_count: (keyData.used_count || 0) + 1, 
-            updated_at: now.toISOString() 
+            updated_at: new Date().toISOString() 
           })
           .eq('id', keyData.id);
-        
-        if (updateKeyError) {
-          console.error('[API] 异步更新密钥失败:', updateKeyError);
-        }
-        
-        console.log('[API] 异步初始化完成:', { 
-          userId: authData.user.id, 
-          sessionId: initialSessionId 
-        });
-      } catch (asyncError) {
-        console.error('[API] 异步初始化异常:', asyncError);
+        console.log('[API] 密钥使用次数已更新');
+      } catch (keyUpdateError) {
+        console.error('[API] 更新密钥失败:', keyUpdateError);
       }
     }, 0);
 
-    console.log('[API] 注册成功:', { 
+    const endTime = Date.now();
+    console.log(`[API] 注册成功 - 总耗时: ${endTime - startTime}ms`, { 
       userId: authData.user.id, 
       email: email.trim(),
+      expiresAt: accountExpiresAt,
+      sessionId: initialSessionId
     });
 
-    // 6. 快速响应，不等待异步操作
+    // 6. 快速响应
     return NextResponse.json({
       success: true,
       message: '注册成功！请检查邮箱确认注册，然后登录',
@@ -137,7 +169,6 @@ export async function POST(request: NextRequest) {
         email: authData.user.email 
       },
       expires_at: accountExpiresAt,
-      // 不自动重定向，让用户自己登录
       note: '请前往登录页面使用注册的邮箱和密码登录'
     });
 

@@ -1,5 +1,5 @@
 // /app/login/page.tsx
-// 修复版本 - 移除自动重定向逻辑，避免冲突
+// 优化版本 - 移除双重认证检查，依赖中间件验证
 'use client';
 
 import { Suspense } from 'react';
@@ -45,13 +45,11 @@ export default function LoginPage() {
 // 内容组件 - 使用 useSearchParams
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { createBrowserClient } from '@supabase/ssr';
 
 function LoginPageContent() {
   const searchParams = useSearchParams();
-  const [user, setUser] = useState<any>(null);
   const [active, setActive] = useState<'login' | 'signup'>('login');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // 🔥 改为false，因为中间件已经检查过
   
   const tabParam = searchParams.get('tab');
   const fromSignup = searchParams.get('from') === 'signup';
@@ -64,36 +62,9 @@ function LoginPageContent() {
     }
   }, [tabParam]);
 
-  // 🔥 关键修复：简化登录状态检查
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        // 创建Supabase客户端
-        const supabase = createBrowserClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-        );
-        
-        const { data: { user }, error } = await supabase.auth.getUser();
-        
-        if (error) {
-          console.log('[登录页] 未检测到登录用户');
-          return;
-        }
-        
-        if (user) {
-          console.log(`[登录页] 检测到已登录用户: ${user.email}`);
-          setUser(user);
-        }
-      } catch (error: any) {
-        console.error('[登录页] 认证检查异常:', error.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    checkAuth();
-  }, []);
+  // 🔥 关键修复：移除不必要的认证检查
+  // 中间件已经验证过用户状态，如果用户已登录会直接重定向
+  // 所以这里不需要再检查一次
 
   // 如果是注册跳转过来的，显示欢迎消息
   useEffect(() => {
@@ -102,42 +73,6 @@ function LoginPageContent() {
       // 可以在这里显示一个短暂的欢迎消息
     }
   }, [fromSignup, emailParam]);
-
-  // 加载状态
-  if (loading) {
-    return (
-      <div className="flex min-h-svh w-full items-center justify-center p-6">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-pink mx-auto mb-4"></div>
-          <p className="text-gray-400">检查登录状态...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // 用户已登录，显示重定向中状态
-  if (user) {
-    // 🔥 关键修复：简化重定向逻辑，避免循环
-    const redirectParam = searchParams.get('redirect') || '/lobby';
-    const admin = isAdminEmail(user.email);
-    let targetPath = redirectParam;
-    
-    console.log(`[登录页] 已登录用户: ${user.email}, 重定向到: ${targetPath}`);
-    
-    // 使用硬重定向，确保状态同步
-    setTimeout(() => {
-      window.location.href = targetPath;
-    }, 100);
-    
-    return (
-      <div className="flex min-h-svh w-full items-center justify-center p-6">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-pink mx-auto mb-4"></div>
-          <p className="text-gray-400">已登录，正在跳转...</p>
-        </div>
-      </div>
-    );
-  }
 
   // 用户未登录，显示登录/注册表单
   return (
