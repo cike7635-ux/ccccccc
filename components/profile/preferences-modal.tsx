@@ -11,27 +11,53 @@ import { X } from "lucide-react";
 type Gender = "male" | "female" | "non_binary";
 
 const SUGGESTED_KINKS: string[] = [
-  "施虐倾向(S)",
-  "受虐倾向(M)",
-  "支配方(D)",
-  "顺从方(s)",
-  "切换者(Switch)",
-  "捆绑",
-  "角色扮演",
-  "主奴",
-  "调教",
-  "打屁股",
-  "轻度羞辱",
+   // 身份 / 倾向
+  "施虐倾向（S）",
+  "受虐倾向（M）",
+  "支配方（D）",
+  "顺从方（s）",
+  "切换者（Switch）",
+
+  // 行为（需要区分方向）
+  "打屁股-施加方（SP）",
+  "打屁股-接受方（SP）",
+
+  "捆绑-控制方（Bondage）",
+  "捆绑-被控方（Bondage）",
+
+  "调教-引导方（Training）",
+  "调教-服从方（Training）",
+
+  "羞辱-施加方（Humiliation）",
+  "羞辱-接受方（Humiliation）",
+
+  "惩罚-制定方（Punishment）",
+  "惩罚-接受方（Punishment）",
+
+  // 关系 / 情境
+  "主奴关系（Master/Slave）",
+  "角色扮演（Roleplay）",
+  "制服诱惑（Uniform）",
+  "情趣内衣（Lingerie）",
+  "Cosplay（角色装扮）",
+  "风险暴露（Exposure）",
+
+  // 亲密 / 感官（不分方向）
   "温柔爱抚",
-  "挑逗",
-  "足控",
-  "制服诱惑",
-  "情趣内衣",
-  "Cosplay",
-  "震动玩具",
-  "肢体按摩",
+  "挑逗（Teasing）",
   "亲吻增强",
-  "触摸敏感区",
+  "敏感触碰",
+  "肢体按摩",
+  "足部偏好（Foot Fetish）",
+
+  // 控制机制 / 玩法
+  "规则控制",
+  "许可等待",
+  "拒绝与克制",
+  "节奏掌控",
+
+  // 道具
+  "震动玩具"
 ];
 
 function shouldShowByLocalStorage(): boolean {

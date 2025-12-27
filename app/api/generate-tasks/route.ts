@@ -26,19 +26,19 @@ interface ApiPayload {
 
 type ParseResult =
   | {
-      ok: true;
-      data: {
-        title: string;
-        description: string;
-        customRequirement: string;
-        gender: string;
-        kinks: string[];
-      };
-    }
-  | {
-      ok: false;
-      error: { message: string; status: number };
+    ok: true;
+    data: {
+      title: string;
+      description: string;
+      customRequirement: string;
+      gender: string;
+      kinks: string[];
     };
+  }
+  | {
+    ok: false;
+    error: { message: string; status: number };
+  };
 
 interface Task {
   description: string;
@@ -55,14 +55,14 @@ async function checkAIUsage(userId: string): Promise<{
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} } }
+    { cookies: { getAll: () => cookieStore.getAll(), setAll: () => { } } }
   );
 
   try {
     // 获取今天开始时间（UTC）
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-    
+
     // 获取本月开始时间（UTC）
     const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
 
@@ -155,7 +155,7 @@ async function recordAIUsage(
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} } }
+    { cookies: { getAll: () => cookieStore.getAll(), setAll: () => { } } }
   );
 
   const { error } = await supabase
@@ -184,8 +184,8 @@ export async function POST(req: NextRequest) {
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { 
-        cookies: { 
+      {
+        cookies: {
           getAll: () => cookieStore.getAll(),
           setAll: (cookiesToSet) => {
             try {
@@ -199,7 +199,7 @@ export async function POST(req: NextRequest) {
         }
       }
     );
-    
+
     // 2. 检查用户登录状态
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -208,7 +208,7 @@ export async function POST(req: NextRequest) {
         { status: 401 }
       );
     }
-    
+
     // 3. 获取当前会话
     const { data: { session: currentSession } } = await supabase.auth.getSession();
     if (!currentSession) {
@@ -218,31 +218,31 @@ export async function POST(req: NextRequest) {
         { status: 401 }
       );
     }
-    
+
     // 4. 获取用户资料（检查会员有效期）
     const { data: profile } = await supabase
       .from('profiles')
       .select('account_expires_at')
       .eq('id', user.id)
       .single();
-    
+
     if (!profile) {
       return NextResponse.json(
         { error: '用户资料不存在' },
         { status: 401 }
       );
     }
-    
+
     // 5. 检查会员有效期
-    const isExpired = !profile?.account_expires_at || 
-                     new Date(profile.account_expires_at) < new Date();
+    const isExpired = !profile?.account_expires_at ||
+      new Date(profile.account_expires_at) < new Date();
     if (isExpired) {
       return NextResponse.json(
         { error: '会员已过期，请续费后再使用AI功能' },
         { status: 403 }
       );
     }
-    
+
     // 6. 检查AI使用次数限制
     const usageCheck = await checkAIUsage(user.id);
     if (!usageCheck.allowed) {
@@ -254,9 +254,9 @@ export async function POST(req: NextRequest) {
         null,
         false
       );
-      
+
       return NextResponse.json(
-        { 
+        {
           error: usageCheck.reason,
           details: {
             daily: { used: usageCheck.dailyUsed, limit: 10 },
@@ -270,9 +270,9 @@ export async function POST(req: NextRequest) {
         { status: 429 } // Too Many Requests
       );
     }
-    
+
     // ============ 【原有逻辑开始】验证通过，继续处理AI生成 ============
-    
+
     if (!OPENROUTER_API_KEY) {
       return NextResponse.json(
         { error: "缺少 OPENROUTER_API_KEY 环境变量" },
@@ -311,7 +311,7 @@ export async function POST(req: NextRequest) {
           null,
           false
         );
-        
+
         return NextResponse.json(
           { error: "AI 生成失败，未返回有效任务" },
           { status: 500 }
@@ -340,7 +340,7 @@ export async function POST(req: NextRequest) {
 
     } catch (e: any) {
       console.error("生成任务时发生未捕获的错误:", e);
-      
+
       // 记录失败的使用
       try {
         const result = await parseAndValidateRequest(req).catch(() => ({ ok: false } as ParseResult));
@@ -356,16 +356,16 @@ export async function POST(req: NextRequest) {
       } catch (recordError) {
         console.error('记录失败使用失败:', recordError);
       }
-      
+
       return NextResponse.json(
         { error: e?.message || "生成任务失败" },
         { status: 500 }
       );
     }
-    
+
   } catch (error: any) {
     console.error('用户验证过程发生错误:', error);
-    
+
     // 如果是JSON解析错误
     if (error.message?.includes('JSON')) {
       return NextResponse.json(
@@ -373,7 +373,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     return NextResponse.json(
       { error: error.message || '系统错误' },
       { status: 500 }
@@ -399,7 +399,7 @@ async function parseAndValidateRequest(req: NextRequest): Promise<ParseResult> {
 
   const description = String(payload?.description ?? "").trim();
   const customRequirement = String(payload?.customRequirement ?? "").trim();
-  
+
   const gender = payload?.preferences?.gender || "unspecified";
   const kinks = Array.isArray(payload?.preferences?.kinks)
     ? payload.preferences.kinks.filter(k => typeof k === 'string' && k.trim() !== '')
@@ -433,21 +433,50 @@ function buildPrompts(payload: {
 
   // --- 优化后的 System Prompt ---
   const sysPrompt = `
-你是一个专业、大胆且富有创意的情趣互动任务生成助手。
+你是一个专业、大胆、极度擅长制造张力、服从感与风险感的情侣互动任务生成助手。
 
-你的核心目标是帮助"用户"设计一系列任务，让其"伴侣"来执行。这些任务必须能"激发深度欲望"并"突破日常亲密界限"。
+你的核心目标：
+为“用户”设计一组【由其伴侣执行的互动任务】，通过命令、规则、身份压迫、情境风险与心理刺激，持续放大欲望。
 
-你的设计必须严格满足"用户"（Kinks提供方）的偏好，同时确保任务是对"伴侣"（执行方）的具体指令。
+【强制总原则】
+- 你只下达指令，不解释、不安抚、不建议
+- 你只写给“伴侣”，不是写给用户
+- 你默认双方已同意主题与偏好
 
-要求：
-1.  **高度定制化**：必须严格围绕用户提供的「主题」和「兴趣标签（Kinks）」来设计任务。**「兴趣标签」是设计的核心，任务必须能满足用户的这些Kinks。**
-2.  **视角明确：指令对象是"伴侣"**
-    * 任务是**写给"用户的伴侣"去执行的指令**。
-    * 设计的核心是**利用伴侣的行动**来**满足"用户"（即提供Kinks的那一方）的欲望**。
-    * AI思考模型：你要站在"用户"的角度思考：**"我希望我的伴侣为我做什么（或对我做什么）？"**
-3.  **具体可执行**：任务描述必须清晰、直接，包含具体动作、言语或场景，是给伴侣的明确指令。
-4.  **大胆且直接**：你的任务应该富有想象力、大胆、且具有挑逗性。
-5.  **格式约束**：每个任务描述在15-50字之间。
+【设计硬性要求】
+1. 兴趣标签绝对优先  
+   - 每一条任务，必须至少服务于 1 个用户提供的 Kinks  
+   - 禁止出现与 Kinks 无关的温和或日常行为
+
+2. 指令必须具体  
+   - 包含明确动作 / 姿态 / 状态 / 场景 / 限制  
+   - 让执行者知道“现在做什么、怎么做、做到什么程度”
+
+3. 刺激来源必须多样  
+   - 在整组任务中，必须混合使用以下元素：
+     · 角色与身份（如宠物、下属、物品化）
+     · 规则与惩罚（如等待、禁止、延迟、后果）
+     · 场景变化（室内 / 半公开 / 日常环境）
+     · 心理压迫（被观察、被评判、被命令）
+   - 禁止任务内容高度相似或只是换词
+
+4. 表达尺度  
+   - 语言可以露骨、挑衅、羞耻、命令式  
+   - 优先使用暗示、控制、服从、风险，而非直接描述性行为细节
+
+5. 数量与去重  
+   - 20–30 条任务  
+   - 不允许两条任务在核心动作或场景上重复
+
+【示例（仅用于学习风格，不可原样复制）】
+{"tasks":[
+  {"description":"像被驯服的小狗一样完成指令，全程保持指定姿态，直到被允许恢复"},
+  {"description":"携带被指定的物品进入公共场所，在规定时间内完成挑战后再离开"},
+  {"description":"按命令更换装扮，对着镜子复述身份设定，直到语气完全服从"},
+  {"description":"在规定地点等待，不得使用手机，也不得擅自离开或调整姿势"},
+  {"description":"用指定方式表达渴望，声音必须清楚，让对方确认听见"}
+]}
+
 
 输出格式：
 严格输出 JSON 格式，包含一个 tasks 数组，每个任务对象包含 description 字段。
@@ -518,7 +547,7 @@ function parseAIResponse(content: string): Partial<Task>[] {
   // 1. 尝试按 JSON 解析 (首选)
   try {
     const parsed = JSON.parse(content);
-    
+
     // 检查常见的数组键
     if (Array.isArray(parsed?.tasks)) {
       return parsed.tasks;
