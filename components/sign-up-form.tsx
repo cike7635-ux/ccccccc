@@ -1,5 +1,3 @@
-// /components/sign-up-form.tsx
-// 注册表单 - 修改为成功后跳转到登录页
 "use client";
 
 import { cn } from "@/lib/utils";
@@ -39,6 +37,8 @@ export function SignUpForm({
     e.preventDefault();
     e.stopPropagation();
     
+    if (isLoading) return;
+    
     setIsLoading(true);
     setError(null);
     setSuccessMessage(null);
@@ -66,7 +66,11 @@ export function SignUpForm({
     }
 
     try {
-      console.log('开始注册请求...');
+      console.time('[SignUpForm] 注册总耗时');
+      console.log('开始注册请求...', { email: email.trim(), isRandom });
+      
+      // 🔥 关键优化：并行处理注册和主题初始化
+      const startTime = Date.now();
       
       const signUpResponse = await fetch('/api/auth/signup-with-key', {
         method: 'POST',
@@ -81,6 +85,7 @@ export function SignUpForm({
         }),
       });
 
+      console.log('注册API响应时间:', Date.now() - startTime, 'ms');
       console.log('注册响应状态:', signUpResponse.status);
 
       // 处理响应
@@ -99,27 +104,102 @@ export function SignUpForm({
         throw new Error(result.error || `注册失败 (${signUpResponse.status})`);
       }
 
-      // 🔥 注册成功：显示消息并跳转到登录页
+      // 🔥 注册成功
       if (result.success) {
-        console.log('注册成功，准备跳转:', result.redirect_to);
+        console.log('注册成功:', result);
         
+        // 立即显示成功消息
+        setSuccessMessage('✅ 注册成功！');
+        
+        // 如果是随机账户，尝试自动登录
+        if (isRandom) {
+          try {
+            console.log('随机账户尝试自动登录...');
+            const supabase = createClient();
+            
+            // 尝试直接登录
+            const { error: loginError, data: loginData } = await supabase.auth.signInWithPassword({
+              email: email.trim(),
+              password: password.trim(),
+            });
+            
+            if (!loginError && loginData?.user) {
+              console.log('随机账户自动登录成功');
+              
+              // 设置设备ID（与登录表单保持一致）
+              const setDeviceIdToCookie = (deviceId: string) => {
+                const cookieValue = `${encodeURIComponent(deviceId)}`;
+                document.cookie = `love_ludo_device_id=${cookieValue}; path=/; max-age=31536000; SameSite=Lax`;
+              };
+              
+              const getOrCreateDeviceId = () => {
+                const key = 'love_ludo_device_id';
+                let deviceId = localStorage.getItem(key);
+                if (!deviceId) {
+                  deviceId = `dev_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+                  localStorage.setItem(key, deviceId);
+                }
+                return deviceId;
+              };
+              
+              const deviceId = getOrCreateDeviceId();
+              setDeviceIdToCookie(deviceId);
+              
+              // 保存凭证到 localStorage（可选）
+              try {
+                localStorage.setItem(
+                  "account_credentials",
+                  JSON.stringify({ email: email.trim(), password: password.trim() })
+                );
+              } catch (storageError) {
+                console.warn('localStorage保存失败:', storageError);
+              }
+              
+              setSuccessMessage('✅ 注册成功！正在跳转到游戏大厅...');
+              
+              // 延迟跳转，让用户看到消息
+              setTimeout(() => {
+                window.location.href = "/lobby";
+              }, 800);
+              
+              setIsLoading(false);
+              return;
+            }
+          } catch (autoLoginError) {
+            console.warn('随机账户自动登录失败，跳转到登录页:', autoLoginError);
+          }
+        }
+        
+        // 普通账户或自动登录失败，跳转到登录页
         setSuccessMessage('✅ 注册成功！正在跳转到登录页面...');
-        setIsLoading(false);
         
-        // 清空表单（可选）
-        setEmail("");
-        setPassword("");
-        setLicenseKey("");
+        // 🔥 异步处理主题初始化（不阻塞跳转）
+        setTimeout(async () => {
+          try {
+            console.log('异步主题初始化...');
+            const res = await fetch("/api/seed-default-tasks", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+            });
+            if (res.ok) {
+              console.log('主题初始化成功');
+            }
+          } catch (err) {
+            console.warn('主题初始化失败（可重试）:', err);
+          }
+        }, 3000);
         
-        // 🔥 核心：硬重定向到登录页（预填邮箱）
+        // 延迟跳转，让用户看到消息
         setTimeout(() => {
           window.location.href = result.redirect_to || `/login?email=${encodeURIComponent(email.trim())}&from=signup`;
-        }, 1500);
+        }, 800);
         
       } else {
         setError(result.error || '注册失败，请重试');
-        setIsLoading(false);
       }
+      
+      console.timeEnd('[SignUpForm] 注册总耗时');
+      setIsLoading(false);
       
     } catch (error: unknown) {
       console.error('注册异常:', error);
@@ -146,7 +226,7 @@ export function SignUpForm({
               value={licenseKey}
               onChange={(e) => setLicenseKey(e.target.value)}
               className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0"
-              disabled={isLoading}
+              disabled={isLoading || !!successMessage}
             />
           </div>
           <p className="text-xs text-gray-500 mt-2 pl-1">
@@ -168,7 +248,7 @@ export function SignUpForm({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0"
-              disabled={isLoading}
+              disabled={isLoading || !!successMessage}
             />
           </div>
         </div>
@@ -187,14 +267,14 @@ export function SignUpForm({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0"
-              disabled={isLoading}
+              disabled={isLoading || !!successMessage}
               minLength={6}
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="text-gray-400 hover:text-white transition-colors"
-              disabled={isLoading}
+              className="text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+              disabled={isLoading || !!successMessage}
             >
               {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
             </button>
@@ -204,15 +284,15 @@ export function SignUpForm({
         <Button
           type="button"
           onClick={generateRandomAccount}
-          className="w-full glass py-3 rounded-xl font-medium hover:bg-white/10 transition-all flex items-center justify-center space-x-2"
-          disabled={isLoading}
+          className="w-full glass py-3 rounded-xl font-medium hover:bg-white/10 transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
+          disabled={isLoading || !!successMessage}
         >
           <Shuffle className="w-4 h-4" />
           <span>生成随机邮箱和密码</span>
         </Button>
 
         {/* 错误消息 */}
-        {error && (
+        {error && !successMessage && (
           <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
             <div className="flex items-center text-red-400">
               <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0" />
@@ -233,13 +313,18 @@ export function SignUpForm({
 
         <Button
           type="submit"
-          disabled={isLoading}
-          className="w-full gradient-primary py-3.5 rounded-xl font-semibold glow-pink transition-all hover:scale-105 active:scale-95 mt-6 text-white"
+          disabled={isLoading || !!successMessage}
+          className="w-full gradient-primary py-3.5 rounded-xl font-semibold glow-pink transition-all hover:scale-105 active:scale-95 mt-6 text-white disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:scale-100"
         >
           {isLoading ? (
             <div className="flex items-center justify-center">
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
               注册中...
+            </div>
+          ) : successMessage ? (
+            <div className="flex items-center justify-center">
+              <CheckCircle className="w-5 h-5 mr-2" />
+              注册成功
             </div>
           ) : (
             "立即注册"
