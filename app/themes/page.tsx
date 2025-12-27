@@ -1,5 +1,5 @@
 // /app/themes/page.tsx
-// 全面UI优化版本 - 现代化设计
+// 简化版 - 不包含动画
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -85,7 +85,7 @@ export default async function ThemesPage() {
         {/* 创建按钮 */}
         <Link
           href="/themes/new"
-          className="w-full mb-6"
+          className="w-full mb-6 block group"
         >
           <div className="bg-gradient-to-r from-brand-pink to-brand-purple rounded-2xl p-5 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]">
             <div className="flex items-center justify-between">
@@ -93,7 +93,7 @@ export default async function ThemesPage() {
                 <div className="text-white font-bold text-lg mb-1">创建新主题</div>
                 <div className="text-white/80 text-sm">开始设计你们的专属体验</div>
               </div>
-              <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center group-hover:bg-white/30 transition-colors">
                 <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
@@ -200,25 +200,6 @@ export default async function ThemesPage() {
           </div>
         )}
       </div>
-
-      {/* 全局样式优化 */}
-      <style jsx global>{`
-        @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        
-        .group {
-          animation: fadeInUp 0.4s ease-out forwards;
-          animation-delay: calc(var(--index, 0) * 0.05s);
-        }
-      `}</style>
     </>
   );
 }
