@@ -1,6 +1,29 @@
-// /app/api/admin/users/[id]/route.ts
-import { createAdminClient } from '@/lib/supabase/admin'
+// /app/api/admin/users/[id]/route.ts - 修复版
 import { NextRequest, NextResponse } from 'next/server'
+
+// 简化：直接创建 Supabase 客户端
+function createAdminClient() {
+  const { createClient } = require('@supabase/supabase-js')
+  
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    throw new Error('缺少 NEXT_PUBLIC_SUPABASE_URL 环境变量')
+  }
+  
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('缺少 SUPABASE_SERVICE_ROLE_KEY 环境变量')
+  }
+  
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false
+      }
+    }
+  )
+}
 
 export async function DELETE(
   request: NextRequest,

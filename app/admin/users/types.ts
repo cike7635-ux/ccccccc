@@ -1,4 +1,4 @@
-// /app/admin/users/types.ts - 精简版
+// /app/admin/users/types.ts - 修复版
 export interface User {
   id: string
   email: string
@@ -17,8 +17,6 @@ export interface User {
   createdAtRaw: string | null
   accessKeyId: number | null
   activeKey: string | null
-  activeKeyUsedAt: string | null
-  activeKeyExpires: string | null
   isActive: boolean
   gender: string
   keyStatus?: 'active' | 'expired' | 'unused' | 'inactive'
@@ -69,7 +67,7 @@ export function getGenderDisplay(preferences: any): string {
   return genderMap[genderKey] || String(preferences.gender)
 }
 
-// 检查用户是否活跃
+// 检查用户是否活跃 - 修复版
 export function isUserActive(lastLoginAt: string | null): boolean {
   if (!lastLoginAt) return false
   
@@ -106,8 +104,15 @@ export function getKeyStatus(key: any): 'active' | 'expired' | 'unused' | 'inact
   
   if (key.is_active === false) return 'inactive'
   
-  if (key.key_expires_at && new Date(key.key_expires_at) < new Date()) {
-    return 'expired'
+  if (key.key_expires_at) {
+    try {
+      const expiryDate = new Date(key.key_expires_at)
+      if (expiryDate < new Date()) {
+        return 'expired'
+      }
+    } catch {
+      // 日期解析失败，不视为过期
+    }
   }
   
   return 'active'
@@ -117,6 +122,17 @@ export function getKeyStatus(key: any): 'active' | 'expired' | 'unused' | 'inact
 export function normalizeUserDetail(data: any): UserDetail {
   if (!data) return {} as UserDetail
   
+  // 日期格式化函数
+  const formatDate = (dateString: any) => {
+    if (!dateString) return null
+    try {
+      const date = new Date(dateString)
+      return isNaN(date.getTime()) ? null : dateString
+    } catch {
+      return null
+    }
+  }
+  
   return {
     id: data.id || '',
     email: data.email || '',
@@ -125,14 +141,36 @@ export function normalizeUserDetail(data: any): UserDetail {
     avatar_url: data.avatar_url || data.avatarUrl || null,
     bio: data.bio || null,
     preferences: data.preferences || {},
-    account_expires_at: data.account_expires_at || data.accountExpiresAt || null,
-    last_login_at: data.last_login_at || data.lastLoginAt || null,
+    account_expires_at: formatDate(data.account_expires_at || data.accountExpiresAt),
+    last_login_at: formatDate(data.last_login_at || data.lastLoginAt),
     last_login_session: data.last_login_session || data.lastLoginSession || null,
     access_key_id: data.access_key_id || data.accessKeyId || null,
-    created_at: data.created_at || data.createdAt || '',
-    updated_at: data.updated_at || data.updatedAt || '',
+    created_at: formatDate(data.created_at || data.createdAt) || '',
+    updated_at: formatDate(data.updated_at || data.updatedAt) || '',
     access_keys: data.access_keys || data.accessKeys || [],
     ai_usage_records: data.ai_usage_records || data.aiUsageRecords || [],
     game_history: data.game_history || data.gameHistory || []
+  }
+}
+
+// 日期比较函数 - 新增
+export function compareDates(dateA: string | null, dateB: string | null, direction: SortDirection): number {
+  if (!dateA && !dateB) return 0
+  if (!dateA) return direction === 'asc' ? 1 : -1
+  if (!dateB) return direction === 'asc' ? -1 : 1
+  
+  try {
+    const timeA = new Date(dateA).getTime()
+    const timeB = new Date(dateB).getTime()
+    
+    if (isNaN(timeA) || isNaN(timeB)) return 0
+    
+    if (direction === 'asc') {
+      return timeA - timeB
+    } else {
+      return timeB - timeA
+    }
+  } catch {
+    return 0
   }
 }

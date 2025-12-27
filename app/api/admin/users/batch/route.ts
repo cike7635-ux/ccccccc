@@ -1,6 +1,29 @@
-// /app/api/admin/users/batch/route.ts
-import { createAdminClient } from '@/lib/supabase/admin'
+// /app/api/admin/users/batch/route.ts - 简化修复版
 import { NextRequest, NextResponse } from 'next/server'
+
+// 简化：直接创建 Supabase 客户端
+function createAdminClient() {
+  const { createClient } = require('@supabase/supabase-js')
+  
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    throw new Error('缺少 NEXT_PUBLIC_SUPABASE_URL 环境变量')
+  }
+  
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('缺少 SUPABASE_SERVICE_ROLE_KEY 环境变量')
+  }
+  
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false
+      }
+    }
+  )
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,12 +45,7 @@ export async function POST(request: NextRequest) {
       const { error, count } = await supabaseAdmin
         .from('profiles')
         .update({
-          email: supabaseAdmin.raw(`
-            CASE 
-              WHEN email LIKE 'deleted_%' THEN email
-              ELSE CONCAT('deleted_', EXTRACT(EPOCH FROM NOW()), '_', email)
-            END
-          `),
+          email: `deleted_${Date.now()}_${userIds.length}_users@example.com`,
           nickname: '已删除用户',
           avatar_url: null,
           full_name: null,
@@ -47,14 +65,16 @@ export async function POST(request: NextRequest) {
       affectedCount = count || 0
       
     } else if (action === 'disable' || action === 'enable') {
-      // 批量启用/禁用（示例逻辑，根据你的实际需求调整）
+      // 批量启用/禁用
+      const newExpiry = action === 'disable' 
+        ? new Date().toISOString() // 立即过期
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30天后
+      
       const { error, count } = await supabaseAdmin
         .from('profiles')
         .update({
-          updated_at: new Date().toISOString(),
-          account_expires_at: action === 'disable' 
-            ? new Date().toISOString() // 立即过期
-            : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30天后过期
+          account_expires_at: newExpiry,
+          updated_at: new Date().toISOString()
         })
         .in('id', userIds)
       
@@ -69,9 +89,9 @@ export async function POST(request: NextRequest) {
     await supabaseAdmin
       .from('key_usage_history')
       .insert({
-        user_id: '00000000-0000-0000-0000-000000000000', // 系统操作
+        user_id: '00000000-0000-0000-0000-000000000000',
         access_key_id: null,
-        operation_by: null, // 管理员操作，具体ID可以从请求中获取
+        operation_by: null,
         usage_type: 'admin_batch',
         notes: `批量${action} ${affectedCount} 个用户，原因: ${reason}`
       })

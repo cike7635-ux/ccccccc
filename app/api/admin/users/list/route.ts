@@ -1,6 +1,29 @@
-// /app/api/admin/users/list/route.ts
-import { createAdminClient } from '@/lib/supabase/admin'
+// /app/api/admin/users/list/route.ts - 简化修复版
 import { NextRequest, NextResponse } from 'next/server'
+
+// 简化：直接创建 Supabase 客户端
+function createAdminClient() {
+  const { createClient } = require('@supabase/supabase-js')
+  
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    throw new Error('缺少 NEXT_PUBLIC_SUPABASE_URL 环境变量')
+  }
+  
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('缺少 SUPABASE_SERVICE_ROLE_KEY 环境变量')
+  }
+  
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false
+      }
+    }
+  )
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -29,12 +52,13 @@ export async function GET(request: NextRequest) {
     }
     
     // 筛选条件
+    const now = new Date().toISOString()
     switch (filter) {
       case 'premium':
-        query = query.gt('account_expires_at', new Date().toISOString())
+        query = query.gt('account_expires_at', now)
         break
       case 'free':
-        query = query.or(`account_expires_at.is.null,account_expires_at.lt.${new Date().toISOString()}`)
+        query = query.or(`account_expires_at.is.null,account_expires_at.lt.${now}`)
         break
       case 'active24h':
         const yesterday = new Date()
@@ -42,7 +66,7 @@ export async function GET(request: NextRequest) {
         query = query.gt('last_login_at', yesterday.toISOString())
         break
       case 'expired':
-        query = query.lt('account_expires_at', new Date().toISOString())
+        query = query.lt('account_expires_at', now)
         break
       case 'active':
         const threeMinutesAgo = new Date()
@@ -52,7 +76,7 @@ export async function GET(request: NextRequest) {
       // 'all' 不添加筛选
     }
     
-    // 排序
+    // 排序字段映射
     const sortMapping: Record<string, string> = {
       'createdAt': 'created_at',
       'lastLogin': 'last_login_at',
