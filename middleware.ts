@@ -183,6 +183,53 @@ async function updateUserActivity(supabase: any, userId: string, requestId: stri
   }
 }
 
+/**
+ * 处理缺失的用户资料
+ */
+async function handleMissingProfile(
+  supabase: any, 
+  user: any, 
+  requestId: string, 
+  currentPath: string, 
+  request: NextRequest
+): Promise<NextResponse> {
+  console.log(`[${requestId}] 尝试创建用户基本资料: ${user.email}`);
+  
+  try {
+    const now = new Date().toISOString();
+    const { error: createError } = await supabase
+      .from('profiles')
+      .insert({
+        id: user.id,
+        email: user.email,
+        created_at: now,
+        updated_at: now,
+        // 不设置 account_expires_at，让用户去续费
+        avatar_url: '',
+        preferences: { theme: 'default' },
+      });
+    
+    if (createError) {
+      console.error(`[${requestId}] 创建用户资料失败:`, createError);
+      return NextResponse.redirect(new URL('/account-expired', request.url));
+    }
+    
+    console.log(`[${requestId}] 用户基本资料创建成功，重定向到续费页面`);
+    
+    // 创建成功后，重定向到续费页面（因为新用户没有会员期）
+    if (currentPath !== '/account-expired' && currentPath !== '/renew') {
+      return NextResponse.redirect(new URL('/account-expired', request.url));
+    }
+    
+    // 如果已经在续费页面，返回正常响应
+    return NextResponse.next();
+    
+  } catch (createErr) {
+    console.error(`[${requestId}] 创建资料过程异常:`, createErr);
+    return NextResponse.redirect(new URL('/account-expired', request.url));
+  }
+}
+
 // ==================== 中间件主函数 ====================
 
 export async function middleware(request: NextRequest) {
@@ -371,6 +418,9 @@ export async function middleware(request: NextRequest) {
           // 生成当前会话标识（与现有格式一致）
           const currentSessionId = `sess_${currentSession.user.id}_${currentSession.access_token.substring(0, 12)}`;
           
+          console.log(`[${requestId}] 当前会话标识: ${currentSessionId}`);
+          console.log(`[${requestId}] 存储会话标识: ${profile.last_login_session}`);
+          
           // 🔥 关键修复1：检测并处理初始会话标识
           if (profile.last_login_session && profile.last_login_session.startsWith('init_')) {
             console.log(`[${requestId}] 检测到初始会话标识，更新为真实会话`);
@@ -452,6 +502,7 @@ export async function middleware(request: NextRequest) {
             // 情况2：会话不匹配 - 多设备登录，强制退出
             else {
               console.log(`[${requestId}] 检测到多设备登录，强制退出`);
+              console.log(`[${requestId}] 存储: ${profile.last_login_session}, 当前: ${currentSessionId}`);
               
               // 记录被踢出的设备信息
               const redirectUrl = new URL('/login/expired', request.url);
@@ -512,53 +563,6 @@ export async function middleware(request: NextRequest) {
     console.error(`[中间件] 全局异常:`, globalError);
     const redirectUrl = new URL('/login', request.url);
     return NextResponse.redirect(redirectUrl);
-  }
-}
-
-/**
- * 处理缺失的用户资料
- */
-async function handleMissingProfile(
-  supabase: any, 
-  user: any, 
-  requestId: string, 
-  currentPath: string, 
-  request: NextRequest
-): Promise<NextResponse> {
-  console.log(`[${requestId}] 尝试创建用户基本资料: ${user.email}`);
-  
-  try {
-    const now = new Date().toISOString();
-    const { error: createError } = await supabase
-      .from('profiles')
-      .insert({
-        id: user.id,
-        email: user.email,
-        created_at: now,
-        updated_at: now,
-        // 不设置 account_expires_at，让用户去续费
-        avatar_url: '',
-        preferences: { theme: 'default' },
-      });
-    
-    if (createError) {
-      console.error(`[${requestId}] 创建用户资料失败:`, createError);
-      return NextResponse.redirect(new URL('/account-expired', request.url));
-    }
-    
-    console.log(`[${requestId}] 用户基本资料创建成功，重定向到续费页面`);
-    
-    // 创建成功后，重定向到续费页面（因为新用户没有会员期）
-    if (currentPath !== '/account-expired' && currentPath !== '/renew') {
-      return NextResponse.redirect(new URL('/account-expired', request.url));
-    }
-    
-    // 如果已经在续费页面，返回正常响应
-    return NextResponse.next();
-    
-  } catch (createErr) {
-    console.error(`[${requestId}] 创建资料过程异常:`, createErr);
-    return NextResponse.redirect(new URL('/account-expired', request.url));
   }
 }
 
