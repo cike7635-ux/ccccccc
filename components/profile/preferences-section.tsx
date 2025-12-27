@@ -42,7 +42,7 @@ const SUGGESTED_KINKS: string[] = [
   "制服诱惑（Uniform）",
   "情趣内衣（Lingerie）",
   "Cosplay（角色装扮）",
-  "风险暴露（Exposure）",
+  "户外露出（Exposure）",
 
   // 亲密 / 感官（不分方向）
   "温柔爱抚",
@@ -50,7 +50,7 @@ const SUGGESTED_KINKS: string[] = [
   "亲吻增强",
   "敏感触碰",
   "肢体按摩",
-  "足部偏好（Foot Fetish）",
+  "足控",
 
   // 控制机制 / 玩法
   "规则控制",
