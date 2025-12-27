@@ -28,8 +28,8 @@ const SUGGESTED_KINKS: string[] = [
   "调教-引导方（Training）",
   "调教-服从方（Training）",
 
-  "羞辱-施加方（Humiliation）",
-  "羞辱-接受方（Humiliation）",
+  "轻度羞辱-施加方（Humiliation）",
+  "轻度羞辱-接受方（Humiliation）",
 
   "惩罚-制定方（Punishment）",
   "惩罚-接受方（Punishment）",
