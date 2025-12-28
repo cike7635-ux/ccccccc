@@ -226,9 +226,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const nickname = profile?.nickname || 
-                     profile?.email?.split('@')[0] || 
-                     '用户';
+    const nickname = profile?.nickname ||
+      profile?.email?.split('@')[0] ||
+      '用户';
 
     const usageCheck = await checkAIUsage(user.id);
     if (!usageCheck.allowed) {
@@ -543,8 +543,7 @@ function buildPrompts(payload: {
 - 仅包含 tasks 数组
 - 每个对象只包含 description 字段
 - 不输出任何解释、前言或结语
-`;
-
+`;}
 
 /**
  * 调用 OpenRouter API
@@ -631,5 +630,5 @@ function formatTasks(tasks: Partial<Task>[]): Task[] {
     .map((t: Task) => ({
       description: t.description.trim(),
     }))
-    .slice(0, 12); // 增加限制到30条
+    .slice(0, 12); // 增加限制12条
 }
