@@ -1,6 +1,6 @@
 /**
  * LOVE LUDO 后台管理系统 - 用户管理类型定义
- * 完整版：修复所有类型问题，支持新API响应格式
+ * 修复版：正确映射AI记录数据库字段
  */
 
 // ============================================
@@ -128,26 +128,39 @@ export interface AccessKey {
 }
 
 /**
- * AI使用记录
+ * AI使用记录（修复版：匹配数据库字段）
  */
 export interface AIUsageRecord {
+  // 数据库实际字段
   id: number
   user_id: string
   created_at: string
-  input_text: string
-  response_text: string
-  model: string | null
-  tokens_used: number | null
-  session_id: string | null
+  feature: string                     // ✅ 数据库字段
+  request_data: any                   // ✅ 数据库字段（jsonb类型）
+  response_data: any                  // ✅ 数据库字段（jsonb类型）
+  success: boolean                    // ✅ 数据库字段
+  
+  // 🔧 兼容旧字段（废弃，但保留以兼容旧代码）
+  input_text?: string                 // ❌ 已废弃，使用 request_data
+  response_text?: string              // ❌ 已废弃，使用 response_data
+  model?: string | null               // ❌ 已废弃，使用 feature
+  tokens_used?: number | null         // ✅ 可选字段
+  session_id?: string | null          // ✅ 可选字段
   
   // 驼峰命名兼容字段
   userId?: string
   createdAt?: string
-  inputText?: string
-  responseText?: string
-  model?: string | null
-  tokensUsed?: number | null
-  sessionId?: string | null
+  feature?: string                    // ✅ 保持一致
+  requestData?: any                   // ✅ 驼峰格式
+  responseData?: any                  // ✅ 驼峰格式
+  success?: boolean                   // ✅ 保持一致
+  
+  // 🔧 前端显示字段（通过转换得到）
+  inputText?: string                  // ✅ 从 request_data 提取
+  responseText?: string               // ✅ 从 response_data 提取
+  model?: string                      // ✅ 从 feature 映射
+  tokensUsed?: number | null          // ✅ 驼峰格式
+  sessionId?: string | null           // ✅ 驼峰格式
 }
 
 /**
@@ -408,9 +421,62 @@ export function getKeyStatus(key: any): KeyStatus {
 }
 
 /**
+ * 从JSON数据中提取文本内容
+ * @param data JSON数据（可以是字符串、对象或其他）
+ * @returns 提取的文本内容
+ */
+function extractTextFromJson(data: any): string {
+  if (!data) return ''
+  
+  try {
+    // 如果已经是字符串
+    if (typeof data === 'string') {
+      // 尝试解析为JSON
+      if (data.trim().startsWith('{') || data.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(data)
+          return extractTextFromJson(parsed)
+        } catch {
+          // 解析失败，返回原始字符串
+          return data
+        }
+      }
+      return data
+    }
+    
+    // 如果是对象
+    if (typeof data === 'object' && data !== null) {
+      // 优先尝试常见的文本字段
+      const textFields = ['content', 'text', 'message', 'input', 'prompt', 'query', 'response', 'answer', 'output']
+      
+      for (const field of textFields) {
+        if (data[field] !== undefined && data[field] !== null) {
+          const extracted = extractTextFromJson(data[field])
+          if (extracted && extracted.trim()) {
+            return extracted
+          }
+        }
+      }
+      
+      // 如果没有找到常见字段，返回整个对象的JSON字符串
+      try {
+        return JSON.stringify(data, null, 2)
+      } catch {
+        return String(data)
+      }
+    }
+    
+    // 其他类型直接转为字符串
+    return String(data || '')
+  } catch (error) {
+    console.warn('提取文本失败:', error, '原始数据:', data)
+    return String(data || '')
+  }
+}
+
+/**
  * 归一化用户详情数据（处理API响应格式）
- * @param data API返回的用户详情数据
- * @returns 归一化后的用户详情
+ * 🔥 修复版：正确处理AI记录字段映射
  */
 export function normalizeUserDetail(data: any): UserDetail {
   if (!data) return {} as UserDetail
@@ -462,26 +528,50 @@ export function normalizeUserDetail(data: any): UserDetail {
     updatedAt: formatDate(key.updated_at || key.updatedAt) || new Date().toISOString()
   })
   
-  // 处理AI使用记录
-  const normalizeAIUsageRecord = (record: any): AIUsageRecord => ({
-    id: record.id || 0,
-    user_id: record.user_id || record.userId || '',
-    created_at: formatDate(record.created_at || record.createdAt) || new Date().toISOString(),
-    input_text: record.input_text || record.inputText || '',
-    response_text: record.response_text || record.responseText || '',
-    model: record.model || null,
-    tokens_used: record.tokens_used || record.tokensUsed || null,
-    session_id: record.session_id || record.sessionId || null,
+  // 🔥 修复：处理AI使用记录 - 正确映射数据库字段
+  const normalizeAIUsageRecord = (record: any): AIUsageRecord => {
+    // 从各种可能的字段中获取数据
+    const feature = record.feature || record.model || 'AI对话'
+    const requestData = record.request_data || record.requestData || record.input_text || record.inputText || {}
+    const responseData = record.response_data || record.responseData || record.response_text || record.responseText || {}
+    const success = record.success !== false
     
-    // 驼峰命名兼容字段
-    userId: record.user_id || record.userId || '',
-    createdAt: formatDate(record.created_at || record.createdAt) || new Date().toISOString(),
-    inputText: record.input_text || record.inputText || '',
-    responseText: record.response_text || record.responseText || '',
-    model: record.model || null,
-    tokensUsed: record.tokens_used || record.tokensUsed || null,
-    sessionId: record.session_id || record.sessionId || null
-  })
+    // 提取显示文本
+    const inputText = extractTextFromJson(requestData)
+    const responseText = extractTextFromJson(responseData)
+    
+    return {
+      // 数据库字段（下划线）
+      id: record.id || 0,
+      user_id: record.user_id || record.userId || '',
+      created_at: formatDate(record.created_at || record.createdAt) || new Date().toISOString(),
+      feature: feature,
+      request_data: requestData,
+      response_data: responseData,
+      success: success,
+      
+      // 兼容旧字段（废弃）
+      input_text: inputText,
+      response_text: responseText,
+      model: feature,
+      tokens_used: record.tokens_used || record.tokensUsed || null,
+      session_id: record.session_id || record.sessionId || null,
+      
+      // 驼峰命名兼容字段
+      userId: record.user_id || record.userId || '',
+      createdAt: formatDate(record.created_at || record.createdAt) || new Date().toISOString(),
+      requestData: requestData,
+      responseData: responseData,
+      success: success,
+      
+      // 前端显示字段
+      inputText: inputText,
+      responseText: responseText,
+      model: feature,
+      tokensUsed: record.tokens_used || record.tokensUsed || null,
+      sessionId: record.session_id || record.sessionId || null
+    }
+  }
   
   // 处理游戏历史记录
   const normalizeGameHistory = (history: any): GameHistory => ({
@@ -539,7 +629,7 @@ export function normalizeUserDetail(data: any): UserDetail {
     created_at: formatDate(data.created_at || data.createdAt) || new Date().toISOString(),
     updated_at: formatDate(data.updated_at || data.updatedAt) || new Date().toISOString(),
     
-    // 数组字段
+    // 数组字段 - 使用修复后的函数
     access_keys: normalizeArray(data.access_keys || data.accessKeys, normalizeAccessKey),
     ai_usage_records: normalizeArray(data.ai_usage_records || data.aiUsageRecords, normalizeAIUsageRecord),
     game_history: normalizeArray(data.game_history || data.gameHistory, normalizeGameHistory),
@@ -566,6 +656,20 @@ export function normalizeUserDetail(data: any): UserDetail {
     currentAccessKey: data.current_access_key || data.currentAccessKey 
       ? normalizeAccessKey(data.current_access_key || data.currentAccessKey)
       : undefined
+  }
+  
+  // 调试信息（开发环境）
+  if (process.env.NODE_ENV === 'development' && normalized.ai_usage_records.length > 0) {
+    console.log('🔥 AI记录归一化调试:', {
+      原始数量: (data.ai_usage_records || data.aiUsageRecords || []).length,
+      归一化数量: normalized.ai_usage_records.length,
+      第一条记录: {
+        feature: normalized.ai_usage_records[0].feature,
+        inputText: normalized.ai_usage_records[0].inputText,
+        responseText: normalized.ai_usage_records[0].responseText,
+        success: normalized.ai_usage_records[0].success
+      }
+    })
   }
   
   return normalized
