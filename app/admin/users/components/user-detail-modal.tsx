@@ -614,141 +614,378 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 </div>
               )}
 
-              {/* 密钥记录标签页 */}
-              {activeTab === 'keys' && (
-                <div className="p-4 md:p-6">
-                  <div className="mb-4 md:mb-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
-                      <p className="text-xs md:text-sm text-gray-400 mb-1">总密钥数</p>
-                      <p className="text-xl md:text-2xl font-bold text-white">{stats?.keyStats.total || 0}</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
-                      <p className="text-xs md:text-sm text-gray-400 mb-1">活跃密钥</p>
-                      <p className="text-xl md:text-2xl font-bold text-green-400">{stats?.keyStats.active || 0}</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
-                      <p className="text-xs md:text-sm text-gray-400 mb-1">已过期</p>
-                      <p className="text-xl md:text-2xl font-bold text-red-400">{stats?.keyStats.expired || 0}</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
-                      <p className="text-xs md:text-sm text-gray-400 mb-1">当前密钥</p>
-                      <p className="text-lg md:text-2xl font-bold text-blue-400 font-mono truncate" title={currentAccessKey?.key_code}>
-                        {currentAccessKey?.key_code || userDetail.access_key_id || '无'}
-                      </p>
-                    </div>
-                  </div>
+             {/* 密钥记录标签页 - 重新设计为表格式 */}
+{activeTab === 'keys' && (
+  <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+    {/* 统计卡片 */}
+    <div className="mb-4 md:mb-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
+        <p className="text-xs md:text-sm text-gray-400 mb-1">总使用密钥</p>
+        <p className="text-xl md:text-2xl font-bold text-white">
+          {(() => {
+            // 从 keyUsageHistory 中提取唯一密钥数量
+            if (!keyUsageHistory || keyUsageHistory.length === 0) return 0;
+            const uniqueKeys = new Set();
+            keyUsageHistory.forEach(record => {
+              if (record.access_key?.id) {
+                uniqueKeys.add(record.access_key.id);
+              }
+            });
+            return uniqueKeys.size;
+          })()}
+        </p>
+      </div>
+      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
+        <p className="text-xs md:text-sm text-gray-400 mb-1">当前密钥</p>
+        <p className="text-lg md:text-2xl font-bold text-blue-400 font-mono truncate" 
+           title={currentAccessKey?.key_code || currentAccessKey?.keyCode || '无'}>
+          {currentAccessKey?.key_code || currentAccessKey?.keyCode || '无'}
+        </p>
+      </div>
+      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
+        <p className="text-xs md:text-sm text-gray-400 mb-1">使用记录</p>
+        <p className="text-xl md:text-2xl font-bold text-green-400">{keyUsageHistory.length || 0}</p>
+      </div>
+      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
+        <p className="text-xs md:text-sm text-gray-400 mb-1">最近使用</p>
+        <p className="text-sm md:text-lg font-bold text-amber-400 truncate">
+          {keyUsageHistory.length > 0 
+            ? formatShortDate(keyUsageHistory[0]?.used_at || keyUsageHistory[0]?.usedAt)
+            : '无记录'
+          }
+        </p>
+      </div>
+    </div>
 
-                  {accessKeys.length === 0 ? (
-                    <div className="text-center py-8 md:py-12">
-                      <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Key className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
-                      </div>
-                      <p className="text-gray-400 text-base md:text-lg">暂无密钥记录</p>
-                      <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未激活任何密钥</p>
-                    </div>
-                  ) : (
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
-                      <div className="overflow-x-auto">
-                        <table className="w-full min-w-[640px]">
-                          <thead>
-                            <tr className="border-b border-gray-800 bg-gray-900/50">
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">密钥代码</th>
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">状态</th>
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">有效期</th>
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">使用时间</th>
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">操作</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {accessKeys.map((key, index) => {
-                              const isActive = key.is_active || key.isActive
-                              const isExpired = () => {
-                                const expiry = key.key_expires_at || key.keyExpiresAt
-                                return expiry && new Date(expiry) < new Date()
-                              }
-                              const isCurrent = key.id === (userDetail.access_key_id || userDetail.accessKeyId)
-                              const keyCode = key.key_code || key.keyCode || '未知'
+    {/* 所有使用过的密钥表格 */}
+    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
+      <div className="p-4 md:p-5 border-b border-gray-800">
+        <h3 className="text-lg font-semibold text-white flex items-center">
+          <Key className="w-5 h-5 mr-2 text-blue-400" />
+          所有使用过的密钥
+        </h3>
+        <p className="text-sm text-gray-400 mt-1">
+          用户激活和使用过的所有密钥列表
+        </p>
+      </div>
 
-                              return (
-                                <tr
-                                  key={index}
-                                  className={`border-b border-gray-800/30 transition-all hover:bg-gray-800/30 ${isCurrent ? 'bg-blue-500/5' : ''
-                                    }`}
-                                >
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <div className="flex items-center">
-                                      <code className="text-xs md:text-sm bg-gray-900 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-mono border border-gray-800 truncate max-w-[120px] md:max-w-[180px]">
-                                        {keyCode}
-                                      </code>
-                                      {isCurrent && (
-                                        <span className="ml-2 bg-gradient-to-r from-blue-500 to-blue-600 text-xs px-1.5 md:px-2 py-0.5 md:py-1 rounded-full whitespace-nowrap">
-                                          当前使用
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <div className="flex items-center space-x-1 md:space-x-2">
-                                      <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-green-500' : 'bg-red-500'
-                                        }`} />
-                                      <span className={`text-xs md:text-sm ${isActive ? 'text-green-400' : 'text-red-400'
-                                        }`}>
-                                        {isActive ? '活跃' : '禁用'}
-                                      </span>
-                                      {isExpired() && (
-                                        <span className="text-xs bg-red-500/20 text-red-400 px-1.5 md:px-2 py-0.5 rounded">
-                                          已过期
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <span className="text-gray-300 text-xs md:text-sm">
-                                      {key.key_expires_at || key.keyExpiresAt ? formatDate(key.key_expires_at || key.keyExpiresAt) : '永久有效'}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <div className="flex flex-col">
-                                      <span className="text-gray-300 text-xs md:text-sm">
-                                        {key.used_at || key.usedAt ? formatShortDate(key.used_at || key.usedAt) : '未使用'}
-                                      </span>
-                                      {(key.used_count || key.usedCount) && (key.used_count || key.usedCount) > 0 && (
-                                        <span className="text-xs text-gray-500 mt-1">
-                                          已使用 {key.used_count || key.usedCount} 次
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <div className="flex space-x-1 md:space-x-2">
-                                      <button
-                                        onClick={() => keyCode && handleCopy(keyCode, `key-${index}`)}
-                                        className="text-blue-400 hover:text-blue-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 md:py-1.5 rounded-lg transition-colors"
-                                      >
-                                        <Copy className="w-3 h-3 mr-1" />
-                                        复制
-                                      </button>
-                                      {isCurrent && (
-                                        <button
-                                          className="text-amber-400 hover:text-amber-300 text-xs md:text-sm flex items-center bg-amber-500/10 hover:bg-amber-500/20 px-2 md:px-3 py-1 md:py-1.5 rounded-lg transition-colors"
-                                        >
-                                          <Key className="w-3 h-3 mr-1" />
-                                          当前
-                                        </button>
-                                      )}
-                                    </div>
-                                  </td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+      {(() => {
+        // 从 keyUsageHistory 中提取所有使用过的密钥（去重）
+        const allUsedKeys = useMemo(() => {
+          if (!keyUsageHistory || keyUsageHistory.length === 0) return [];
+          
+          const uniqueKeys = new Map();
+          keyUsageHistory.forEach(record => {
+            if (record.access_key) {
+              const key = record.access_key;
+              const keyId = key.id;
+              
+              if (!uniqueKeys.has(keyId)) {
+                uniqueKeys.set(keyId, {
+                  id: keyId,
+                  key_code: key.key_code || key.keyCode,
+                  is_active: key.is_active || key.isActive,
+                  key_expires_at: key.key_expires_at || key.keyExpiresAt,
+                  first_used_at: record.used_at || record.usedAt,
+                  last_used_at: record.used_at || record.usedAt,
+                  usage_count: 1,
+                  usage_types: new Set([record.usage_type || 'activate'])
+                });
+              } else {
+                const existing = uniqueKeys.get(keyId);
+                existing.usage_count++;
+                if (record.usage_type) {
+                  existing.usage_types.add(record.usage_type);
+                }
+                if (new Date(record.used_at || record.usedAt) > new Date(existing.last_used_at)) {
+                  existing.last_used_at = record.used_at || record.usedAt;
+                }
+              }
+            }
+          });
+          
+          return Array.from(uniqueKeys.values())
+            .map(key => ({
+              ...key,
+              is_current: currentAccessKey ? (key.id === currentAccessKey.id) : false
+            }))
+            .sort((a, b) => new Date(b.last_used_at).getTime() - new Date(a.last_used_at).getTime());
+        }, [keyUsageHistory, currentAccessKey]);
 
+        if (allUsedKeys.length === 0) {
+          return (
+            <div className="text-center py-8 md:py-12">
+              <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Key className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
+              </div>
+              <p className="text-gray-400 text-base md:text-lg">暂无密钥记录</p>
+              <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未激活任何密钥</p>
+            </div>
+          );
+        }
+
+        return (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[768px]">
+              <thead>
+                <tr className="border-b border-gray-800 bg-gray-900/50">
+                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">密钥代码</th>
+                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">状态</th>
+                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">有效期</th>
+                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">首次使用</th>
+                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">最后使用</th>
+                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">使用次数</th>
+                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作类型</th>
+                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allUsedKeys.map((key, index) => {
+                  const isActive = key.is_active;
+                  const isCurrent = key.is_current;
+                  const keyCode = key.key_code || '未知';
+                  const isExpired = key.key_expires_at && new Date(key.key_expires_at) < new Date();
+                  
+                  return (
+                    <tr
+                      key={index}
+                      className={`border-b border-gray-800/30 transition-all hover:bg-gray-800/30 ${
+                        isCurrent ? 'bg-blue-500/5' : ''
+                      }`}
+                    >
+                      <td className="py-3 md:py-4 px-4">
+                        <div className="flex items-center">
+                          <code className="text-xs md:text-sm bg-gray-900 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-mono border border-gray-800 truncate max-w-[140px] md:max-w-[200px]">
+                            {keyCode}
+                          </code>
+                          {isCurrent && (
+                            <span className="ml-2 bg-gradient-to-r from-blue-500 to-blue-600 text-xs px-1.5 md:px-2 py-0.5 md:py-1 rounded-full whitespace-nowrap">
+                              当前使用
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3 md:py-4 px-4">
+                        <div className="flex items-center space-x-1 md:space-x-2">
+                          <div className={`w-2 h-2 rounded-full ${
+                            isExpired ? 'bg-red-500' : 
+                            isActive ? 'bg-green-500' : 'bg-red-500'
+                          }`} />
+                          <span className={`text-xs md:text-sm ${
+                            isExpired ? 'text-red-400' : 
+                            isActive ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            {isExpired ? '已过期' : isActive ? '活跃' : '禁用'}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 md:py-4 px-4">
+                        <span className="text-gray-300 text-xs md:text-sm">
+                          {key.key_expires_at ? formatDate(key.key_expires_at) : '永久有效'}
+                        </span>
+                      </td>
+                      <td className="py-3 md:py-4 px-4">
+                        <span className="text-gray-300 text-xs md:text-sm">
+                          {formatShortDate(key.first_used_at)}
+                        </span>
+                      </td>
+                      <td className="py-3 md:py-4 px-4">
+                        <span className="text-gray-300 text-xs md:text-sm">
+                          {formatShortDate(key.last_used_at)}
+                        </span>
+                      </td>
+                      <td className="py-3 md:py-4 px-4">
+                        <span className="text-gray-300 text-xs md:text-sm">
+                          {key.usage_count} 次
+                        </span>
+                      </td>
+                      <td className="py-3 md:py-4 px-4">
+                        <div className="flex flex-wrap gap-1">
+                          {Array.from(key.usage_types || new Set(['activate'])).map((type, idx) => (
+                            <span 
+                              key={idx}
+                              className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300"
+                            >
+                              {type === 'activate' ? '激活' : 
+                               type === 'renew' ? '续费' : 
+                               type === 'transfer' ? '转移' : type}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="py-3 md:py-4 px-4">
+                        <div className="flex space-x-1 md:space-x-2">
+                          <button
+                            onClick={() => keyCode && handleCopy(keyCode, `key-${key.id}`)}
+                            className="text-blue-400 hover:text-blue-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 md:py-1.5 rounded-lg transition-colors"
+                          >
+                            <Copy className="w-3 h-3 mr-1" />
+                            复制
+                          </button>
+                          {isCurrent && (
+                            <span className="text-xs text-amber-400 flex items-center bg-amber-500/10 px-2 md:px-3 py-1 md:py-1.5 rounded-lg">
+                              <Key className="w-3 h-3 mr-1" />
+                              当前
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
+    </div>
+
+    {/* 密钥使用历史表格 */}
+    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
+      <div className="p-4 md:p-5 border-b border-gray-800">
+        <h3 className="text-lg font-semibold text-white flex items-center">
+          <History className="w-5 h-5 mr-2 text-blue-400" />
+          密钥使用历史
+        </h3>
+        <p className="text-sm text-gray-400 mt-1">
+          每次密钥操作的详细记录
+        </p>
+      </div>
+
+      {keyUsageHistory.length === 0 ? (
+        <div className="text-center py-8 md:py-12">
+          <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
+            <History className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
+          </div>
+          <p className="text-gray-400 text-base md:text-lg">暂无使用历史</p>
+          <p className="text-gray-500 text-xs md:text-sm mt-2">该用户暂无密钥使用记录</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[768px]">
+            <thead>
+              <tr className="border-b border-gray-800 bg-gray-900/50">
+                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作时间</th>
+                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作类型</th>
+                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">密钥代码</th>
+                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">前一个密钥</th>
+                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">后一个密钥</th>
+                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作者</th>
+                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              {keyUsageHistory
+                .sort((a, b) => new Date(b.used_at || b.usedAt).getTime() - new Date(a.used_at || a.usedAt).getTime())
+                .map((record, index) => {
+                  const usedAt = record.used_at || record.usedAt;
+                  const usageType = record.usage_type || 'activate';
+                  const keyCode = record.access_key?.key_code || record.access_key?.keyCode || '未知';
+                  const operatorEmail = record.operator?.email || '系统';
+                  const operatorNickname = record.operator?.nickname || '';
+                  const notes = record.notes || record.note || '';
+                  
+                  // 由于数据库中没有 previous_key_id 和 next_key_id 的数据，这里显示占位符
+                  const previousKeyId = record.previous_key_id || null;
+                  const nextKeyId = record.next_key_id || null;
+
+                  return (
+                    <tr
+                      key={index}
+                      className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-all"
+                    >
+                      <td className="py-3 md:py-4 px-4">
+                        <div className="flex flex-col">
+                          <span className="text-gray-300 text-xs md:text-sm">
+                            {formatDate(usedAt)}
+                          </span>
+                          <span className="text-xs text-gray-500 mt-1">
+                            {formatShortDate(usedAt)}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 md:py-4 px-4">
+                        <span className={`text-xs md:text-sm px-2 py-1 rounded-full ${
+                          usageType === 'activate' ? 'bg-green-500/20 text-green-400' :
+                          usageType === 'renew' ? 'bg-blue-500/20 text-blue-400' :
+                          usageType === 'transfer' ? 'bg-purple-500/20 text-purple-400' :
+                          'bg-gray-500/20 text-gray-400'
+                        }`}>
+                          {usageType === 'activate' ? '激活' :
+                           usageType === 'renew' ? '续费' :
+                           usageType === 'transfer' ? '转移' : usageType}
+                        </span>
+                      </td>
+                      <td className="py-3 md:py-4 px-4">
+                        <code className="text-xs md:text-sm bg-gray-900 px-2 py-1 rounded-lg font-mono border border-gray-800">
+                          {keyCode}
+                        </code>
+                      </td>
+                      <td className="py-3 md:py-4 px-4">
+                        <span className="text-gray-300 text-xs md:text-sm">
+                          {previousKeyId ? `密钥ID: ${previousKeyId}` : '无'}
+                        </span>
+                      </td>
+                      <td className="py-3 md:py-4 px-4">
+                        <span className="text-gray-300 text-xs md:text-sm">
+                          {nextKeyId ? `密钥ID: ${nextKeyId}` : '无'}
+                        </span>
+                      </td>
+                      <td className="py-3 md:py-4 px-4">
+                        <div className="flex flex-col">
+                          <span className="text-gray-300 text-xs md:text-sm">
+                            {operatorNickname || operatorEmail}
+                          </span>
+                          {operatorNickname && (
+                            <span className="text-xs text-gray-500 mt-1">
+                              {operatorEmail}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3 md:py-4 px-4">
+                        <span className="text-gray-300 text-xs md:text-sm truncate max-w-[120px]" title={notes}>
+                          {notes || '无备注'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+
+    {/* 数据说明 */}
+    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
+      <h4 className="text-sm font-medium text-white mb-2">数据说明</h4>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-400">
+        <div className="flex items-start">
+          <div className="w-2 h-2 bg-blue-500 rounded-full mt-1 mr-2"></div>
+          <div>
+            <span className="font-medium">当前密钥</span>
+            <p className="mt-1">用户当前正在使用的密钥，在表格中标记为"当前使用"</p>
+          </div>
+        </div>
+        <div className="flex items-start">
+          <div className="w-2 h-2 bg-green-500 rounded-full mt-1 mr-2"></div>
+          <div>
+            <span className="font-medium">使用历史</span>
+            <p className="mt-1">用户每次激活、续费或转移密钥的记录</p>
+          </div>
+        </div>
+        <div className="flex items-start">
+          <div className="w-2 h-2 bg-amber-500 rounded-full mt-1 mr-2"></div>
+          <div>
+            <span className="font-medium">操作类型</span>
+            <p className="mt-1">激活: 首次使用密钥<br/>续费: 延长密钥有效期<br/>转移: 更换到新密钥</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
               {/* AI使用记录标签页 */}
               {activeTab === 'ai' && (
                 <div className="p-4 md:p-6">
