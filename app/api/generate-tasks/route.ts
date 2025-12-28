@@ -4,12 +4,9 @@ import { cookies } from 'next/headers';
 
 // --- Configuration ---
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-// 如果环境变量 OPENROUTER_URL 没有定义或为空，则使用默认值
-const DEFAULT_URL = "https://api.deepseek.com/chat/completions"; // 1. 修改这里：改为 DeepSeek 的API地址
+const DEFAULT_URL = "https://api.deepseek.com/chat/completions";
 const OPENROUTER_URL = process.env.OPENROUTER_URL || DEFAULT_URL;
-const MODEL_NAME = process.env.MODEL_NAME || "deepseek-chat"; // 2. 修改这里：设置 DeepSeek 的模型为默认值
-// const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-// const MODEL_NAME = "google/gemini-2.5-flash-lite"; // 你可以换成其他模型
+const MODEL_NAME = process.env.MODEL_NAME || "deepseek-chat";
 
 // --- Type Definitions ---
 interface Preferences {
@@ -20,7 +17,7 @@ interface Preferences {
 interface ApiPayload {
   title: string;
   description?: string;
-  preferences?: Partial<Preferences>; // 偏好是可选的
+  preferences?: Partial<Preferences>;
   customRequirement?: string;
 }
 
@@ -44,7 +41,7 @@ interface Task {
   description: string;
 }
 
-// ============ 【新增】AI使用次数验证函数 ============
+// ============ AI使用次数验证函数 ============
 async function checkAIUsage(userId: string): Promise<{
   allowed: boolean;
   dailyUsed: number;
@@ -59,14 +56,10 @@ async function checkAIUsage(userId: string): Promise<{
   );
 
   try {
-    // 获取今天开始时间（UTC）
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-
-    // 获取本月开始时间（UTC）
     const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
 
-    // 查询今日使用次数
     const { count: dailyCount, error: dailyError } = await supabase
       .from('ai_usage_records')
       .select('*', { count: 'exact', head: true })
@@ -77,7 +70,6 @@ async function checkAIUsage(userId: string): Promise<{
 
     if (dailyError) {
       console.error('查询每日使用次数失败:', dailyError);
-      // 查询失败时保守允许使用
       return {
         allowed: true,
         dailyUsed: 0,
@@ -85,7 +77,6 @@ async function checkAIUsage(userId: string): Promise<{
       };
     }
 
-    // 查询本月使用次数
     const { count: monthlyCount, error: monthlyError } = await supabase
       .from('ai_usage_records')
       .select('*', { count: 'exact', head: true })
@@ -96,7 +87,6 @@ async function checkAIUsage(userId: string): Promise<{
 
     if (monthlyError) {
       console.error('查询每月使用次数失败:', monthlyError);
-      // 查询失败时保守允许使用
       return {
         allowed: true,
         dailyUsed: dailyCount || 0,
@@ -107,7 +97,6 @@ async function checkAIUsage(userId: string): Promise<{
     const dailyUsed = dailyCount || 0;
     const monthlyUsed = monthlyCount || 0;
 
-    // 检查限制
     if (dailyUsed >= 10) {
       return {
         allowed: false,
@@ -134,7 +123,6 @@ async function checkAIUsage(userId: string): Promise<{
 
   } catch (error) {
     console.error('检查AI使用次数失败:', error);
-    // 查询失败时保守允许使用
     return {
       allowed: true,
       dailyUsed: 0,
@@ -143,7 +131,7 @@ async function checkAIUsage(userId: string): Promise<{
   }
 }
 
-// ============ 【新增】记录AI使用函数 ============
+// ============ 记录AI使用函数 ============
 async function recordAIUsage(
   userId: string,
   feature: string,
@@ -177,9 +165,8 @@ async function recordAIUsage(
  * 主 API 路由处理函数
  */
 export async function POST(req: NextRequest) {
-  // ============ 【新增】第一步：用户验证 ============
+  // ============ 第一步：用户验证 ============
   try {
-    // 1. 创建Supabase客户端
     const cookieStore = await cookies();
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -200,7 +187,6 @@ export async function POST(req: NextRequest) {
       }
     );
 
-    // 2. 检查用户登录状态
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json(
@@ -209,7 +195,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. 获取当前会话
     const { data: { session: currentSession } } = await supabase.auth.getSession();
     if (!currentSession) {
       await supabase.auth.signOut();
@@ -219,10 +204,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4. 获取用户资料（检查会员有效期）
     const { data: profile } = await supabase
       .from('profiles')
-      .select('account_expires_at')
+      .select('account_expires_at, nickname, email')
       .eq('id', user.id)
       .single();
 
@@ -233,7 +217,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 5. 检查会员有效期
     const isExpired = !profile?.account_expires_at ||
       new Date(profile.account_expires_at) < new Date();
     if (isExpired) {
@@ -243,10 +226,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 6. 检查AI使用次数限制
+    const nickname = profile?.nickname || 
+                     profile?.email?.split('@')[0] || 
+                     '用户';
+
     const usageCheck = await checkAIUsage(user.id);
     if (!usageCheck.allowed) {
-      // 记录一次失败的使用尝试（可选）
       await recordAIUsage(
         user.id,
         'generate_tasks',
@@ -267,11 +252,11 @@ export async function POST(req: NextRequest) {
             }
           }
         },
-        { status: 429 } // Too Many Requests
+        { status: 429 }
       );
     }
 
-    // ============ 【原有逻辑开始】验证通过，继续处理AI生成 ============
+    // ============ 验证通过，继续处理AI生成 ============
 
     if (!OPENROUTER_API_KEY) {
       return NextResponse.json(
@@ -281,7 +266,6 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      // 1. 解析和验证请求体
       const result = await parseAndValidateRequest(req);
       if (!result.ok) {
         return NextResponse.json(
@@ -290,24 +274,19 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // 2. 构建 Prompt
-      const { sysPrompt, userPrompt } = buildPrompts(result.data);
+      const { sysPrompt, userPrompt } = buildPrompts(result.data, nickname);
 
-      // 3. 调用 AI
       const aiContent = await callOpenRouter(sysPrompt, userPrompt);
 
-      // 4. 解析 AI 的响应
       const tasks = parseAIResponse(aiContent);
 
-      // 5. 格式化并验证最终任务列表
       const formattedTasks = formatTasks(tasks);
 
       if (formattedTasks.length === 0) {
-        // 记录失败的使用
         await recordAIUsage(
           user.id,
           'generate_tasks',
-          result.data,
+          { ...result.data, nickname },
           null,
           false
         );
@@ -318,16 +297,14 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // 6. ============ 【新增】记录成功的使用 ============
       await recordAIUsage(
         user.id,
         'generate_tasks',
-        result.data,
+        { ...result.data, nickname },
         { tasks: formattedTasks },
         true
       );
 
-      // 7. 成功返回，包含使用次数信息
       return NextResponse.json({
         tasks: formattedTasks,
         usage: {
@@ -341,14 +318,13 @@ export async function POST(req: NextRequest) {
     } catch (e: any) {
       console.error("生成任务时发生未捕获的错误:", e);
 
-      // 记录失败的使用
       try {
         const result = await parseAndValidateRequest(req).catch(() => ({ ok: false } as ParseResult));
         if (result.ok) {
           await recordAIUsage(
             user.id,
             'generate_tasks',
-            result.data,
+            { ...result.data, nickname },
             null,
             false
           );
@@ -366,7 +342,6 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error('用户验证过程发生错误:', error);
 
-    // 如果是JSON解析错误
     if (error.message?.includes('JSON')) {
       return NextResponse.json(
         { error: '请求数据格式不正确' },
@@ -420,7 +395,7 @@ function buildPrompts(payload: {
   customRequirement: string;
   gender: string;
   kinks: string[];
-}) {
+}, nickname: string) {
   const { title, description, customRequirement, gender, kinks } = payload;
 
   const genderMap: Record<string, string> = {
@@ -431,18 +406,34 @@ function buildPrompts(payload: {
   const genderText = genderMap[gender] || "未指定";
   const kinksText = kinks.length > 0 ? kinks.join("、") : "未指定";
 
-  // --- 优化后的 System Prompt ---
-  const sysPrompt = `
-你是一个专业、大胆、极度擅长制造控制感、服从感、羞耻感与风险张力的情侣互动任务生成助手。
+  // --- 专业系统提示词 ---
+  const sysPrompt = `你是一名专业、大胆、擅长制造控制感、服从感、羞耻感与风险张力的【情侣互动任务生成器】。
 
-你的核心目标：
-为“用户”设计一组【由其伴侣执行的互动任务】，通过命令、规则、身份关系与情境压力，持续放大刺激体验。
-所有任务的满足对象始终是“用户”。
+你的任务：
+为情侣互动游戏（如飞行棋）生成【由对方执行的任务指令】。
+任务作为游戏格子事件出现，抽到的人必须照做。
 
-【基本前提（不可违背）】
-- 默认双方已自愿同意主题与兴趣偏好
-- 所有任务均为成年人之间的自愿互动
-- 你只下达指令，不解释、不安抚、不劝导
+- 这是【游戏任务指令】，不是剧情、不是小说
+- 每一条都是直接给"执行者（对方 / 伴侣 / TA）"的命令
+- ${nickname} 只是玩家在游戏中的昵称变量，用于被指向、被服务、被取悦
+
+- ${nickname} 是字符串占位符，不代表执行者
+- 昵称只能作为：
+  · 被服务对象
+  · 被取悦对象
+  · 被评判 / 被注视对象
+- 严禁因昵称使用导致"好像是用户在执行动作"的歧义句式
+
+✅ 正确结构示例（示意）：
+- "为 ${nickname} 做……"
+- "在 ${nickname} 面前……"
+- "让 ${nickname} 清楚看到……"
+
+
+- 每条任务的执行者永远是：对方 / 伴侣 / TA
+- 禁止要求用户本人设置、等待、配合、执行任何动作
+- 禁止双人协作式、模糊主语式任务
+- 所有动作必须单向、明确、可执行
 
 【角色与执行者锁定】
 - 任务的执行者永远是“用户的伴侣”
@@ -486,61 +477,67 @@ function buildPrompts(payload: {
 - 重度羞辱 → 明确贬低、物品化、人格压制
 - 禁止任何方向与偏好含义相反的行为
 
-【设计硬性要求】
+
 1. 偏好绝对优先  
-   - 每条任务必须至少服务于 1 个用户选择的兴趣偏好  
-   - 禁止生成与偏好无关的温和、日常或中性行为
+- 每条任务必须至少命中 1 个用户兴趣偏好
+- 禁止生成温和、日常、中性互动
 
 2. 指令必须具体  
-   - 必须包含明确的动作 / 姿态 / 状态 / 场景 / 限制  
-   - 让执行者清楚：现在做什么、如何做、做到什么程度
+- 必须包含：动作 / 姿态 / 状态 / 场景 / 限制
+- 执行者必须一看就知道：
+  "现在做什么、怎么做、做到什么程度"
 
 3. 刺激来源必须多样  
-   - 在整组任务中，需混合使用：
-     · 身份与关系（主奴、宠物、下属、物品化）
-     · 规则与后果（等待、禁止、许可、失败惩罚）
-     · 场景变化（私密空间、日常环境、半公开）
-     · 心理张力（被观察、被评判、被命令）
-   - 禁止仅通过换词重复同一行为或情境
+- 整组任务需混合使用：
+  · 身份与关系（主从、宠物、下属、物品化）
+  · 规则与后果（等待、禁止、许可、失败惩罚）
+  · 场景变化（私密空间 / 日常环境 / 半公开）
+  · 心理张力（被观察、被评判、被命令）
+- 禁止仅通过换词重复同一行为或情境
 
 4. 表达尺度  
-   - 语言可大胆、挑衅、羞耻、命令式
-   - 优先使用控制、服从、风险与心理压迫
-   - 避免直接描写露骨的性行为细节
+- 语言可命令式、挑衅、羞耻、压迫
+- 侧重心理刺激与控制感
+- 避免直接描写露骨性行为细节
 
 5. 数量与去重  
-   - 生成 20–30 条任务
-   - 不允许两条任务在核心动作或场景上高度相似
+- 生成 15–17条任务
+- 不允许核心动作或场景高度重复
 
-【示例（仅用于学习风格，不可原样复制）】
-{"tasks":[
-  {"description":"进入小狗身份状态，保持狗趴姿态，未经允许不得自行解除"},
-  {"description":"在指定环境中等待命令，禁止分散注意力，直到被允许结束"},
-  {"description":"按要求调整外在形象，对镜复述身份定位，直到语气完全服从"},
-  {"description":"携带被指定的物品完成挑战，在条件达成前不得离开现场"},
-  {"description":"用被命令的方式表达渴望，确保对方能够清楚感知"}
-]}
-【输出规则】
+
 - 只输出 JSON
 - 只包含 tasks 数组
 - 每个对象只包含 description 字段
 - 不输出任何解释、前言或结语
 `;
-  // --- 优化后的 User Prompt ---
+
+  // --- 用户提示词 ---
   const userPrompt = `
-我需要你为我的伴侣设计一个情侣互动任务列表，这些任务由TA来执行。
+我需要为情侣互动游戏生成任务指令。
 
-我的个人情况（任务要满足我）：
-- 我的性别：${genderText}
-- 我的兴趣标签 (Kinks)：${kinksText}
+玩家信息：
+- 玩家昵称：${nickname}
+- 玩家性别：${genderText}
+- 玩家兴趣标签：${kinksText}
 
-我们的互动主题：
+游戏主题：
 - 主题：「${title}」
-${description ? `- 补充描述：${description}` : ""}
+${description ? `- 主题描述：${description}` : ""}
+${customRequirement ? `- 特别要求：${customRequirement}` : ""}
 
-${customRequirement ? `我的特别要求：${customRequirement}` : ""}
+生成要求：
+1. 所有任务都是给"对方"（执行者）的命令，
+2. 每条任务必须基于兴趣标签（${kinksText}），方向为基于玩家兴趣标签"
+3. 任务描述要具体、可执行、有压迫感
+4. 使用命令式语气，禁止协商、请求语气
+5. 可以使用 ${nickname} 作为被服务/被取悦对象
 
-请严格根据我的「兴趣标签」和「主题」，为我**的伴侣**生成 20~30 条大胆、具体且可执行的互动任务。严格按照 JSON 格式输出。`;
+示例格式（仅供理解）：
+- "在 ${nickname} 面前跪下，保持狗趴姿势三分钟"
+- "用嘴为 ${nickname} 脱掉一只袜子，全程只能用嘴"
+- "被 ${nickname} 绑住双手，背靠墙站立五分钟"
+
+生成 15-17 条任务，只输出 JSON 格式。`;
 
   return { sysPrompt, userPrompt };
 }
@@ -561,9 +558,9 @@ async function callOpenRouter(sysPrompt: string, userPrompt: string): Promise<st
         { role: "system", content: sysPrompt },
         { role: "user", content: userPrompt },
       ],
-      response_format: { type: "json_object" }, // 请求 JSON 输出
-      temperature: 1,
-      max_tokens: 8000,
+      response_format: { type: "json_object" },
+      temperature: 0.9,
+      max_tokens: 6000,
     }),
   });
 
@@ -587,11 +584,9 @@ async function callOpenRouter(sysPrompt: string, userPrompt: string): Promise<st
  * 解析 AI 返回的（可能是 JSON 或纯文本）内容
  */
 function parseAIResponse(content: string): Partial<Task>[] {
-  // 1. 尝试按 JSON 解析 (首选)
   try {
     const parsed = JSON.parse(content);
 
-    // 检查常见的数组键
     if (Array.isArray(parsed?.tasks)) {
       return parsed.tasks;
     }
@@ -607,13 +602,11 @@ function parseAIResponse(content: string): Partial<Task>[] {
     console.warn("AI 未返回标准 JSON，降级到纯文本列表解析");
   }
 
-  // 2. 降级：按行解析纯文本列表
   return content
     .split("\n")
     .map((l: string) => l.trim())
     .filter(Boolean)
     .map((l: string) => {
-      // 去除列表标记 (如 1., -, *)
       const cleaned = l.replace(/^[-*\d]+[.、:：)]\s*/, "");
       return { description: cleaned };
     });
@@ -628,11 +621,11 @@ function formatTasks(tasks: Partial<Task>[]): Task[] {
   }
 
   return tasks
-    .filter((t): t is Task => // 类型守卫，确保 t 和 t.description 都是有效的
+    .filter((t): t is Task =>
       typeof t?.description === "string" && t.description.trim().length > 0
     )
     .map((t: Task) => ({
       description: t.description.trim(),
     }))
-    .slice(0, 12); // 限制最多12个任务
+    .slice(0, 12); // 增加限制到30条
 }
