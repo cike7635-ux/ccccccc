@@ -86,11 +86,11 @@ export async function GET(request: NextRequest) {
     })
 
     // 🔧 构建基础查询 - 排除已删除用户并添加性别虚拟列
+    // ✅ 修复：移除查询字符串中的注释，只保留有效的Supabase查询语法
     let query = supabaseAdmin
       .from('profiles')
       .select(`
         *,
-        gender_display:preferences->>gender,  // ✅ 添加性别显示列
         current_key:access_keys!profiles_access_key_id_fkey (
           id,
           key_code,
@@ -153,17 +153,16 @@ export async function GET(request: NextRequest) {
       'email': 'email',
       'nickname': 'nickname',
       'id': 'id',
-      'gender': 'preferences->>gender'  // ✅ 修复：添加性别排序支持
+      'gender': 'preferences->>gender'  // ✅ 添加性别排序支持
     }
     
     const dbSortField = sortMapping[sortField] || sortField
     
-    // 特殊处理：如果按性别排序，但字段是虚拟列，需要额外处理
+    // 执行排序查询
     if (sortField === 'gender') {
-      // 对于性别排序，我们需要先提取性别值再排序
-      // 使用原始字段排序，返回后在内存中排序
+      // 对于性别排序，需要特殊处理
       console.log('🔧 性别排序请求，字段映射为:', dbSortField)
-      query = query.order('email', { ascending: true }) // 先用邮箱排序保证一致性
+      query = query.order('created_at', { ascending: sortDirection === 'asc' })
     } else {
       query = query.order(dbSortField, { ascending: sortDirection === 'asc' })
     }
@@ -186,8 +185,8 @@ export async function GET(request: NextRequest) {
     
     console.log(`✅ 查询成功: 获取到 ${users?.length || 0} 条用户数据`)
     
-    // 处理数据：添加性别显示值和排序处理
-    let processedUsers = (users || []).map(user => {
+    // 处理数据：添加性别显示值
+    const processedUsers = (users || []).map(user => {
       // 提取性别显示值
       const genderDisplay = extractGenderDisplay(user.preferences)
       
@@ -219,6 +218,25 @@ export async function GET(request: NextRequest) {
         }
       }
       
+      // 日期格式化函数
+      const formatDate = (dateString: string | null) => {
+        if (!dateString) return '无记录'
+        try {
+          const date = new Date(dateString)
+          if (isNaN(date.getTime())) return '无效日期'
+          
+          const year = date.getFullYear()
+          const month = String(date.getMonth() + 1).padStart(2, '0')
+          const day = String(date.getDate()).padStart(2, '0')
+          const hours = String(date.getHours()).padStart(2, '0')
+          const minutes = String(date.getMinutes()).padStart(2, '0')
+          
+          return `${year}年${month}月${day}日 ${hours}:${minutes}`
+        } catch {
+          return '无效日期'
+        }
+      }
+      
       return {
         ...user,
         gender_display: genderDisplay,
@@ -226,14 +244,16 @@ export async function GET(request: NextRequest) {
         is_active_now: isActiveNow,
         key_status: keyStatus,
         // 为了方便前端，添加格式化字段
-        formatted_created_at: user.created_at ? new Date(user.created_at).toLocaleString('zh-CN') : '无',
-        formatted_last_login: user.last_login_at ? new Date(user.last_login_at).toLocaleString('zh-CN') : '从未登录'
+        formatted_created_at: formatDate(user.created_at),
+        formatted_last_login: formatDate(user.last_login_at),
+        formatted_account_expires: formatDate(user.account_expires_at)
       }
     })
     
     // 🔧 如果按性别排序，进行内存排序
+    let finalUsers = processedUsers
     if (sortField === 'gender') {
-      processedUsers.sort((a, b) => {
+      finalUsers.sort((a, b) => {
         const genderA = a.gender_display || '未设置'
         const genderB = b.gender_display || '未设置'
         
@@ -259,7 +279,7 @@ export async function GET(request: NextRequest) {
     
     return NextResponse.json({
       success: true,
-      data: processedUsers,
+      data: finalUsers,
       pagination: {
         page,
         limit,
