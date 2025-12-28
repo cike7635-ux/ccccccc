@@ -1,4 +1,4 @@
-// /app/api/admin/users/list/route.ts - 修复JOIN问题版本
+// /app/api/admin/users/list/route.ts - 排除已删除用户版本
 import { NextRequest, NextResponse } from 'next/server'
 
 // 简化：直接创建 Supabase 客户端
@@ -38,9 +38,7 @@ export async function GET(request: NextRequest) {
     const sortField = searchParams.get('sortField') || 'created_at'
     const sortDirection = searchParams.get('sortDirection') || 'desc'
     
-    // 🔧 修复：使用正确的JOIN语法，明确指定外键关系
-    // 修改前：access_keys (*) - 这个导致500错误，因为有两个外键关系
-    // 修改后：current_key:access_keys!profiles_access_key_id_fkey - 明确使用 profiles.access_key_id 关系
+    // 🔧 构建基础查询 - 排除已删除用户
     let query = supabaseAdmin
       .from('profiles')
       .select(`
@@ -59,6 +57,9 @@ export async function GET(request: NextRequest) {
           updated_at
         )
       `, { count: 'exact' })
+    
+    // 🔧 排除已删除用户：邮箱不以 'deleted_' 开头
+    query = query.not('email', 'like', 'deleted_%')
     
     // 搜索条件
     if (search) {
@@ -81,11 +82,6 @@ export async function GET(request: NextRequest) {
         break
       case 'expired':
         query = query.lt('account_expires_at', now)
-        break
-      case 'active':
-        const threeMinutesAgo = new Date()
-        threeMinutesAgo.setMinutes(threeMinutesAgo.getMinutes() - 3)
-        query = query.gt('last_login_at', threeMinutesAgo.toISOString())
         break
       // 'all' 不添加筛选
     }
