@@ -1,4 +1,4 @@
-// /app/admin/users/page.tsx - 完整修复版本
+// /app/admin/users/page.tsx - 修复版本，适配新的API数据结构
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -50,7 +50,7 @@ export default function UsersPage() {
 
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE)
 
-  // 获取用户数据 - 使用新的API
+  // 获取用户数据 - 使用修复后的API
   const fetchUsers = useCallback(async (forceRefresh = false) => {
     if (forceRefresh) {
       setLoading(true)
@@ -73,6 +73,8 @@ export default function UsersPage() {
       }
 
       const apiUrl = `/api/admin/users/list?${params.toString()}`
+      console.log('📡 请求用户列表API:', apiUrl)
+      
       const response = await fetch(apiUrl, {
         credentials: 'include',
         cache: forceRefresh ? 'no-cache' : 'default'
@@ -88,7 +90,16 @@ export default function UsersPage() {
         throw new Error(result.error || 'API返回未知错误')
       }
 
-      // 转换用户数据
+      console.log('✅ API返回数据:', { 
+        用户数: result.data?.length,
+        分页信息: result.pagination,
+        第一条数据: result.data?.[0] ? {
+          邮箱: result.data[0].email,
+          当前密钥: result.data[0].current_key ? '有' : '无'
+        } : '无数据'
+      })
+
+      // 🔧 修复：适配新的API数据结构，从 profile.current_key 而不是 profile.access_keys
       const formattedUsers: UserType[] = (result.data || []).map((profile: any) => {
         // 统一日期格式化函数
         const formatDate = (dateString: string | null) => {
@@ -117,14 +128,18 @@ export default function UsersPage() {
           ? new Date(profile.account_expires_at) > new Date()
           : false
 
-        // 获取密钥信息
+        // 🔧 关键修复：从 profile.current_key 获取密钥信息
+        // 修改前：profile.access_keys (数组)
+        // 修改后：profile.current_key (单个对象或null)
         let keyCode = null
         let keyStatus: 'active' | 'expired' | 'unused' | 'inactive' = 'unused'
+        let accessKeyId = null
 
-        if (profile.access_keys && Array.isArray(profile.access_keys) && profile.access_keys.length > 0) {
-          const currentKey = profile.access_keys[0]
+        if (profile.current_key) {
+          const currentKey = profile.current_key
           keyCode = currentKey.key_code || `ID: ${currentKey.id}`
           keyStatus = getKeyStatus(currentKey)
+          accessKeyId = currentKey.id
         }
 
         // 获取性别
@@ -149,7 +164,7 @@ export default function UsersPage() {
           accountExpiresRaw: profile.account_expires_at,
           createdAt: createdAt,
           createdAtRaw: profile.created_at,
-          accessKeyId: profile.access_key_id,
+          accessKeyId: accessKeyId, // 使用current_key的id
           activeKey: keyCode,
           isActive: true,
           gender: gender,
@@ -158,6 +173,8 @@ export default function UsersPage() {
         }
       })
 
+      console.log(`✅ 格式化后用户数据: ${formattedUsers.length} 条`)
+      
       setUsers(formattedUsers)
       setTotalCount(result.pagination?.total || 0)
 

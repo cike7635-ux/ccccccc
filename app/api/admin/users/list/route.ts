@@ -1,4 +1,4 @@
-// /app/api/admin/users/list/route.ts - 简化修复版
+// /app/api/admin/users/list/route.ts - 修复JOIN问题版本
 import { NextRequest, NextResponse } from 'next/server'
 
 // 简化：直接创建 Supabase 客户端
@@ -38,12 +38,26 @@ export async function GET(request: NextRequest) {
     const sortField = searchParams.get('sortField') || 'created_at'
     const sortDirection = searchParams.get('sortDirection') || 'desc'
     
-    // 构建基础查询
+    // 🔧 修复：使用正确的JOIN语法，明确指定外键关系
+    // 修改前：access_keys (*) - 这个导致500错误，因为有两个外键关系
+    // 修改后：current_key:access_keys!profiles_access_key_id_fkey - 明确使用 profiles.access_key_id 关系
     let query = supabaseAdmin
       .from('profiles')
       .select(`
         *,
-        access_keys (*)
+        current_key:access_keys!profiles_access_key_id_fkey (
+          id,
+          key_code,
+          is_active,
+          used_count,
+          max_uses,
+          key_expires_at,
+          account_valid_for_days,
+          user_id,
+          used_at,
+          created_at,
+          updated_at
+        )
       `, { count: 'exact' })
     
     // 搜索条件
