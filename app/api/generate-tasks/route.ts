@@ -226,9 +226,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const nickname = profile?.nickname ||
-      profile?.email?.split('@')[0] ||
-      '用户';
+    const nickname = profile?.nickname || 
+                     profile?.email?.split('@')[0] || 
+                     '用户';
 
     const usageCheck = await checkAIUsage(user.id);
     if (!usageCheck.allowed) {
@@ -406,6 +406,7 @@ function buildPrompts(payload: {
   const genderText = genderMap[gender] || "未指定";
   const kinksText = kinks.length > 0 ? kinks.join("、") : "未指定";
 
+  // --- 专业系统提示词 ---
   const sysPrompt = `你是一名专业、大胆、擅长制造控制感、服从感、羞耻感与心理张力的【情侣互动任务生成器】。
 
 你的任务：
@@ -543,7 +544,26 @@ function buildPrompts(payload: {
 - 仅包含 tasks 数组
 - 每个对象只包含 description 字段
 - 不输出任何解释、前言或结语
-`;}
+`;
+
+  // --- 用户提示词 ---
+  const userPrompt = `
+我需要为情侣互动游戏生成任务指令。
+
+玩家信息：
+- 玩家昵称：${nickname}
+- 玩家性别：${genderText}
+- 玩家兴趣标签：${kinksText}
+
+游戏主题：
+- 主题：「${title}」
+${description ? `- 主题描述：${description}` : ""}
+${customRequirement ? `- 特别要求：${customRequirement}` : ""}
+
+生成 15-17 条任务，只输出 JSON 格式。`;
+
+  return { sysPrompt, userPrompt };
+}
 
 /**
  * 调用 OpenRouter API
@@ -630,5 +650,5 @@ function formatTasks(tasks: Partial<Task>[]): Task[] {
     .map((t: Task) => ({
       description: t.description.trim(),
     }))
-    .slice(0, 12); // 增加限制12条
+    .slice(0, 12); // 增加限制到12条
 }
