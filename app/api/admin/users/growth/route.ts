@@ -1,12 +1,54 @@
-// app/api/admin/users/growth/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+
+// 创建管理员客户端
+function createAdminClient() {
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: { 
+        persistSession: false,
+        autoRefreshToken: false
+      }
+    }
+  )
+  return supabaseAdmin
+}
+
+// 验证管理员权限 - 与列表API保持一致
+function validateAdmin(request: NextRequest): boolean {
+  const adminKeyVerified = request.cookies.get('admin_key_verified')?.value
+  const referer = request.headers.get('referer') || ''
+  const userAgent = request.headers.get('user-agent') || ''
+  
+  console.log('🔐 增长API验证信息:', {
+    hasCookie: !!adminKeyVerified,
+    cookieValue: adminKeyVerified,
+    referer: referer,
+    userAgent: !!userAgent
+  })
+  
+  // 双重验证：Cookie 或 Referer + User-Agent
+  if (adminKeyVerified === 'true') {
+    console.log('✅ 通过Cookie验证')
+    return true
+  }
+  
+  if (referer.includes('/admin/') && userAgent) {
+    console.log('✅ 通过Referer+UserAgent验证')
+    return true
+  }
+  
+  console.warn('❌ 未通过验证')
+  return false
+}
 
 export async function GET(request: NextRequest) {
   try {
     // 验证管理员权限
-    const adminKeyVerified = request.cookies.get('admin_key_verified')
-    if (!adminKeyVerified) {
+    if (!validateAdmin(request)) {
+      console.warn('🚫 未授权访问增长数据API')
       return NextResponse.json(
         { success: false, error: '未授权访问' },
         { status: 401 }
@@ -20,16 +62,7 @@ export async function GET(request: NextRequest) {
     if (range === '30d') days = 30
     if (range === '90d') days = 90
 
-    // 创建Supabase客户端
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          persistSession: false
-        }
-      }
-    )
+    const supabaseAdmin = createAdminClient()
 
     // 🔥 修复：计算开始日期
     const endDate = new Date()
@@ -40,10 +73,10 @@ export async function GET(request: NextRequest) {
     startDate.setHours(0, 0, 0, 0)  // 那一天的开始时刻
 
     console.log('📊 增长数据查询范围:', {
-      范围: range,
-      天数: days,
-      开始时间: startDate.toISOString(),
-      结束时间: endDate.toISOString()
+      range: range,
+      days: days,
+      startTime: startDate.toISOString(),
+      endTime: endDate.toISOString()
     })
 
     // 查询每日新增用户
@@ -109,9 +142,9 @@ export async function GET(request: NextRequest) {
     })
 
     console.log('📊 返回给前端的数据:', {
-      数据条数: result.length,
-      总增长数: cumulative,
-      最后一天数据: result[result.length - 1]
+      dataLength: result.length,
+      totalGrowth: cumulative,
+      lastDayData: result[result.length - 1]
     })
 
     return NextResponse.json({

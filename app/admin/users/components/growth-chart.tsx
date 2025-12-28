@@ -37,14 +37,19 @@ export default function GrowthChart() {
       
       const response = await fetch(`/api/admin/users/growth?range=${timeRange}`, {
         credentials: 'include',
-        cache: 'no-store', // 不缓存，获取最新数据
+        cache: 'no-store',
         headers: {
           'Cache-Control': 'no-cache',
           'Pragma': 'no-cache'
         }
       })
       
-      console.log('📊 图表API响应状态:', response.status)
+      console.log('📊 图表API响应状态:', response.status, response.statusText)
+      
+      // 处理401错误
+      if (response.status === 401) {
+        throw new Error('未授权访问，请重新登录管理员')
+      }
       
       const result: ApiResponse = await response.json()
       console.log('📊 图表API返回数据:', result)
@@ -83,6 +88,12 @@ export default function GrowthChart() {
       
     } catch (error: any) {
       console.error('❌ 获取增长数据失败:', error)
+      
+      // 处理401错误 - 尝试重定向到登录
+      if (error.message.includes('未授权')) {
+        setError('未授权访问，请刷新页面或重新登录管理员')
+        // 显示登录提示按钮
+      }
       
       // 只有在没有重试过的情况下才显示错误
       if (retryCount < 2 && !forceRetry) {
@@ -124,6 +135,12 @@ export default function GrowthChart() {
     }
     
     return fallbackData
+  }
+
+  // 处理重新登录
+  const handleReLogin = () => {
+    // 重新加载页面，触发管理员验证
+    window.location.reload()
   }
 
   // 初始化加载和监听timeRange变化
@@ -207,13 +224,23 @@ export default function GrowthChart() {
         <div className="h-40 flex flex-col items-center justify-center border border-red-500/30 rounded-lg bg-red-500/10 p-4">
           <AlertCircle className="w-8 h-8 text-red-400 mb-2" />
           <p className="text-red-400 text-sm text-center mb-2">{error}</p>
-          <button
-            onClick={handleRefresh}
-            className="px-3 py-1 bg-red-500/20 text-red-400 rounded text-sm hover:bg-red-500/30 transition-colors flex items-center"
-          >
-            <RefreshCw className="w-3 h-3 mr-1" />
-            重试
-          </button>
+          <div className="flex space-x-2">
+            <button
+              onClick={handleRefresh}
+              className="px-3 py-1 bg-red-500/20 text-red-400 rounded text-sm hover:bg-red-500/30 transition-colors flex items-center"
+            >
+              <RefreshCw className="w-3 h-3 mr-1" />
+              重试
+            </button>
+            {error.includes('未授权') && (
+              <button
+                onClick={handleReLogin}
+                className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded text-sm hover:bg-blue-500/30 transition-colors flex items-center"
+              >
+                重新登录
+              </button>
+            )}
+          </div>
         </div>
       </div>
     )
