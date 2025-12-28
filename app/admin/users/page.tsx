@@ -217,37 +217,67 @@ export default function UsersPage() {
   }
 
   // 获取用户详情
-  const fetchUserDetail = async (userId: string) => {
-    setDetailLoading(true)
-    setSelectedUserDetail(null)
+ // 找到第152行附近的 fetchUserDetail 函数，修改如下：
+const fetchUserDetail = async (userId: string) => {
+  setDetailLoading(true)
+  setSelectedUserDetail(null)
 
-    try {
-      const response = await fetch(`/api/admin/data?table=profiles&detailId=${userId}`, {
-        credentials: 'include',
-        cache: 'no-cache'
-      })
-
-      if (!response.ok) {
-        throw new Error(`获取详情失败: ${response.status}`)
+  try {
+    // 🔧 修复：使用正确的API端点
+    const response = await fetch(`/api/admin/data?table=profiles&detailId=${userId}`, {
+      credentials: 'include',
+      cache: 'no-cache',
+      headers: {
+        'Content-Type': 'application/json'
       }
+    })
 
-      const result = await response.json()
+    console.log('🔍 获取用户详情API响应:', {
+      status: response.status,
+      ok: response.ok,
+      url: response.url
+    })
 
-      if (!result.success) {
-        throw new Error(result.error || '未找到用户详情')
-      }
-
-      const userDetail = normalizeUserDetail(result.data)
-      setSelectedUserDetail(userDetail)
-
-    } catch (error: any) {
-      console.error('获取用户详情失败:', error)
-      setSelectedUserDetail(null)
-      showMessage('error', `获取用户详情失败: ${error.message}`)
-    } finally {
-      setDetailLoading(false)
+    if (!response.ok) {
+      throw new Error(`获取详情失败: ${response.status}`)
     }
+
+    const result = await response.json()
+    console.log('📊 用户详情API返回数据:', {
+      success: result.success,
+      hasData: !!result.data,
+      dataKeys: result.data ? Object.keys(result.data) : [],
+      aiRecordsCount: result.data?.ai_usage_records?.length || 0
+    })
+
+    if (!result.success) {
+      throw new Error(result.error || '未找到用户详情')
+    }
+
+    if (!result.data) {
+      throw new Error('API返回数据为空')
+    }
+
+    // 🔥 关键修复：确保数据格式正确
+    const userDetail = normalizeUserDetail(result.data)
+    
+    console.log('✅ 归一化后的用户详情:', {
+      id: userDetail.id,
+      email: userDetail.email,
+      aiRecords: userDetail.ai_usage_records?.length || 0,
+      accessKeys: userDetail.access_keys?.length || 0
+    })
+    
+    setSelectedUserDetail(userDetail)
+
+  } catch (error: any) {
+    console.error('❌ 获取用户详情失败:', error)
+    setSelectedUserDetail(null)
+    showMessage('error', `获取用户详情失败: ${error.message}`)
+  } finally {
+    setDetailLoading(false)
   }
+}
 
   // 显示操作消息
   const showMessage = useCallback((type: 'success' | 'error', message: string) => {
