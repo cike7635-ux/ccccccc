@@ -1,8 +1,11 @@
-// /app/admin/users/components/user-detail-modal.tsx - 完整修复版
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { X, RefreshCw, Copy, Check, Calendar, Key, Brain, Gamepad2, Mail, User, Clock, Shield, ExternalLink, Tag, History, Activity } from 'lucide-react'
+import { 
+  X, RefreshCw, Copy, Check, Calendar, Key, Brain, Gamepad2, Mail, 
+  User, Clock, Shield, ExternalLink, Tag, History, Activity, 
+  Venus, Mars, Users, Wifi, WifiOff, AlertCircle, Download
+} from 'lucide-react'
 import { UserDetail } from '../types'
 
 interface UserDetailModalProps {
@@ -13,20 +16,16 @@ interface UserDetailModalProps {
   onRefresh?: () => void
 }
 
-// 性别显示函数
+// 性别显示函数 - 与types.ts保持一致
 const getGenderDisplay = (preferences: any): string => {
   if (!preferences || !preferences.gender) return '未设置';
 
   const genderMap: Record<string, string> = {
-    'male': '男',
-    'female': '女',
-    'other': '其他',
-    'non_binary': '非二元',
-    'M': '男',
-    'F': '女',
-    '男': '男',
-    '女': '女',
-    '未知': '未设置'
+    'male': '男', 'female': '女', 'other': '其他',
+    'non_binary': '非二元', 'M': '男', 'F': '女',
+    '男': '男', '女': '女', '未知': '未设置',
+    '未设置': '未设置', '': '未设置',
+    null: '未设置', undefined: '未设置'
   };
 
   const genderKey = String(preferences.gender).toLowerCase();
@@ -36,10 +35,38 @@ const getGenderDisplay = (preferences: any): string => {
 export default function UserDetailModal({ isOpen, onClose, userDetail, loading, onRefresh }: UserDetailModalProps) {
   const [activeTab, setActiveTab] = useState<'basic' | 'keys' | 'ai' | 'games'>('basic')
   const [copiedField, setCopiedField] = useState<string | null>(null)
+  const [expandedAIRecord, setExpandedAIRecord] = useState<number | null>(null)
 
-  const accessKeys = userDetail?.access_keys || []
-  const aiUsageRecords = userDetail?.ai_usage_records || []
-  const gameHistory = userDetail?.game_history || []
+  // 🔧 修复：兼容两种命名格式的数据获取
+  const accessKeys = useMemo(() => {
+    if (!userDetail) return []
+    // 优先使用下划线格式，兼容驼峰格式
+    return userDetail.access_keys || userDetail.accessKeys || []
+  }, [userDetail])
+
+  const aiUsageRecords = useMemo(() => {
+    if (!userDetail) return []
+    // 优先使用下划线格式，兼容驼峰格式
+    return userDetail.ai_usage_records || userDetail.aiUsageRecords || []
+  }, [userDetail])
+
+  const gameHistory = useMemo(() => {
+    if (!userDetail) return []
+    // 优先使用下划线格式，兼容驼峰格式
+    return userDetail.game_history || userDetail.gameHistory || []
+  }, [userDetail])
+
+  const keyUsageHistory = useMemo(() => {
+    if (!userDetail) return []
+    // 优先使用下划线格式，兼容驼峰格式
+    return userDetail.key_usage_history || userDetail.keyUsageHistory || []
+  }, [userDetail])
+
+  const currentAccessKey = useMemo(() => {
+    if (!userDetail) return null
+    // 优先使用下划线格式，兼容驼峰格式
+    return userDetail.current_access_key || userDetail.currentAccessKey || null
+  }, [userDetail])
 
   const stats = useMemo(() => {
     if (!userDetail) return null
@@ -47,47 +74,75 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     // 计算密钥统计
     const keyStats = {
       total: accessKeys.length,
-      active: accessKeys.filter(k => k.is_active).length,
-      expired: accessKeys.filter(k =>
-        k.key_expires_at && new Date(k.key_expires_at) < new Date()
-      ).length,
-      unused: accessKeys.filter(k => !k.used_at).length,
-      currentId: userDetail.access_key_id
+      active: accessKeys.filter(k => k.is_active || k.isActive).length,
+      expired: accessKeys.filter(k => {
+        const expiry = k.key_expires_at || k.keyExpiresAt
+        return expiry && new Date(expiry) < new Date()
+      }).length,
+      unused: accessKeys.filter(k => !(k.used_at || k.usedAt)).length,
+      currentId: userDetail.access_key_id || userDetail.accessKeyId
     }
 
     // 计算AI统计
     const aiStats = {
       total: aiUsageRecords.length,
       success: aiUsageRecords.filter(r => r.success).length,
-      recent: aiUsageRecords.filter(r =>
-        r.created_at && new Date(r.created_at) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-      ).length
+      recent: aiUsageRecords.filter(r => {
+        const created = r.created_at || r.createdAt
+        return created && new Date(created) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+      }).length,
+      totalTokens: aiUsageRecords.reduce((sum, r) => sum + (r.tokens_used || r.tokensUsed || 0), 0)
     }
 
     // 计算游戏统计
     const gameStats = {
       total: gameHistory.length,
       wins: gameHistory.filter(g => g.winner_id === userDetail.id).length,
-      recent: gameHistory.filter(g =>
-        g.started_at && new Date(g.started_at) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-      ).length
+      recent: gameHistory.filter(g => {
+        const started = g.started_at
+        return started && new Date(started) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+      }).length
     }
 
     return { keyStats, aiStats, gameStats }
   }, [userDetail, accessKeys, aiUsageRecords, gameHistory])
 
-  const handleCopy = (text: string, field: string) => {
-    navigator.clipboard.writeText(text)
-    setCopiedField(field)
-    setTimeout(() => setCopiedField(null), 2000)
+  const handleCopy = async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedField(field)
+      setTimeout(() => setCopiedField(null), 2000)
+    } catch (error) {
+      console.error('复制失败:', error)
+    }
   }
 
-  const formatDate = (dateString: string | null) => {
+  const formatDate = (dateString: string | null | undefined): string => {
     if (!dateString) return '无记录'
     try {
-      return new Date(dateString).toLocaleString('zh-CN', {
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) return '无效日期'
+      
+      return date.toLocaleString('zh-CN', {
         year: 'numeric',
         month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    } catch {
+      return '无效日期'
+    }
+  }
+
+  const formatShortDate = (dateString: string | null | undefined): string => {
+    if (!dateString) return '无记录'
+    try {
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) return '无效日期'
+      
+      return date.toLocaleString('zh-CN', {
+        month: 'short',
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit'
@@ -97,58 +152,147 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     }
   }
 
-  const formatShortDate = (dateString: string | null) => {
-    if (!dateString) return '无记录'
-    try {
-      return new Date(dateString).toLocaleString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    } catch {
-      return dateString
-    }
-  }
-
-  const formatDuration = (start: string | null, end: string | null) => {
+  const formatDuration = (start: string | null | undefined, end: string | null | undefined) => {
     if (!start || !end) return '未知'
     try {
       const startDate = new Date(start)
       const endDate = new Date(end)
       const diffMs = endDate.getTime() - startDate.getTime()
-      const diffMins = Math.floor(diffMs / 60000)
-      return diffMins < 60 ? `${diffMins}分钟` : `${Math.floor(diffMins / 60)}小时${diffMins % 60}分钟`
+      
+      if (diffMs < 0) return '时间错误'
+      
+      const diffSeconds = Math.floor(diffMs / 1000)
+      const diffMinutes = Math.floor(diffMs / 60000)
+      const diffHours = Math.floor(diffMs / 3600000)
+      
+      if (diffHours > 0) {
+        return `${diffHours}小时${Math.floor((diffMs % 3600000) / 60000)}分钟`
+      } else if (diffMinutes > 0) {
+        return `${diffMinutes}分钟${Math.floor((diffMs % 60000) / 1000)}秒`
+      } else {
+        return `${diffSeconds}秒`
+      }
     } catch {
       return '未知'
     }
   }
 
   const getAccountStatus = () => {
-    if (!userDetail?.account_expires_at) return { status: '免费用户', color: 'text-gray-400', bgColor: 'bg-gray-500/10' }
-    const isExpired = new Date(userDetail.account_expires_at) < new Date()
-    return isExpired
-      ? { status: '已过期', color: 'text-red-400', bgColor: 'bg-red-500/10' }
-      : { status: '会员中', color: 'text-green-400', bgColor: 'bg-green-500/10' }
+    if (!userDetail?.account_expires_at) {
+      return { status: '免费用户', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: '🟡' }
+    }
+    
+    try {
+      const expiryDate = new Date(userDetail.account_expires_at)
+      const isExpired = expiryDate < new Date()
+      
+      if (isExpired) {
+        return { status: '已过期', color: 'text-red-400', bgColor: 'bg-red-500/10', icon: '🔴' }
+      }
+      
+      // 如果7天内过期，显示即将过期
+      const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      if (expiryDate < sevenDaysFromNow) {
+        return { status: '即将过期', color: 'text-yellow-400', bgColor: 'bg-yellow-500/10', icon: '🟡' }
+      }
+      
+      return { status: '会员中', color: 'text-green-400', bgColor: 'bg-green-500/10', icon: '🟢' }
+    } catch {
+      return { status: '状态未知', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: '⚫' }
+    }
+  }
+
+  const getGenderIcon = (gender: string) => {
+    switch (gender) {
+      case '男': return <Mars className="w-4 h-4 text-blue-400" />
+      case '女': return <Venus className="w-4 h-4 text-pink-400" />
+      case '其他': return <Users className="w-4 h-4 text-purple-400" />
+      case '非二元': return <Users className="w-4 h-4 text-purple-400" />
+      default: return <User className="w-4 h-4 text-gray-400" />
+    }
+  }
+
+  const getActiveStatus = () => {
+    if (!userDetail?.last_login_at) {
+      return { status: '从未登录', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: <WifiOff className="w-4 h-4" /> }
+    }
+    
+    try {
+      const lastLogin = new Date(userDetail.last_login_at)
+      const now = new Date()
+      const threeMinutesAgo = new Date(now.getTime() - 3 * 60 * 1000)
+      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+      
+      if (lastLogin > threeMinutesAgo) {
+        return { status: '在线', color: 'text-green-400', bgColor: 'bg-green-500/10', icon: <Wifi className="w-4 h-4" /> }
+      } else if (lastLogin > twentyFourHoursAgo) {
+        return { status: '今日活跃', color: 'text-blue-400', bgColor: 'bg-blue-500/10', icon: <Activity className="w-4 h-4" /> }
+      } else {
+        return { status: '离线', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: <WifiOff className="w-4 h-4" /> }
+      }
+    } catch {
+      return { status: '状态未知', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: <AlertCircle className="w-4 h-4" /> }
+    }
+  }
+
+  const handleExportAI = (record: any) => {
+    try {
+      const data = {
+        id: record.id,
+        userId: record.user_id || record.userId,
+        feature: record.feature,
+        createdAt: record.created_at || record.createdAt,
+        requestData: record.request_data || record.requestData,
+        responseData: record.response_data || record.responseData,
+        success: record.success,
+        model: record.model,
+        tokensUsed: record.tokens_used || record.tokensUsed
+      }
+      
+      const json = JSON.stringify(data, null, 2)
+      const blob = new Blob([json], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `ai-record-${record.id}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('导出失败:', error)
+    }
+  }
+
+  const toggleAIExpanded = (index: number) => {
+    setExpandedAIRecord(expandedAIRecord === index ? null : index)
   }
 
   if (!isOpen) return null
 
   const accountStatus = getAccountStatus()
+  const activeStatus = getActiveStatus()
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 md:p-6">
-      <div className="bg-gradient-to-br from-gray-900 via-gray-900 to-gray-950 rounded-2xl border border-gray-800 w-full max-w-6xl max-h-[90vh] overflow-hidden shadow-2xl">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 md:p-6 overflow-y-auto">
+      <div className="bg-gradient-to-br from-gray-900 via-gray-900 to-gray-950 rounded-2xl border border-gray-800 w-full max-w-6xl max-h-[90vh] overflow-hidden shadow-2xl my-auto">
         {/* 弹窗头部 */}
-        <div className="p-6 border-b border-gray-800 flex items-center justify-between bg-gradient-to-r from-gray-900/50 to-transparent">
+        <div className="p-4 md:p-6 border-b border-gray-800 flex flex-col md:flex-row md:items-center justify-between bg-gradient-to-r from-gray-900/50 to-transparent gap-3">
           <div className="flex items-center space-x-4">
             <div className="relative">
               {userDetail?.avatar_url ? (
                 <img
                   src={userDetail.avatar_url}
                   alt={userDetail.nickname || userDetail.email}
-                  className="w-12 h-12 rounded-full ring-2 ring-gray-700"
+                  className="w-12 h-12 rounded-full ring-2 ring-gray-700 object-cover"
+                  onError={(e) => {
+                    e.currentTarget.src = ''
+                    e.currentTarget.className = 'w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center ring-2 ring-gray-700'
+                    const span = document.createElement('span')
+                    span.className = 'text-white font-bold text-lg'
+                    span.textContent = (userDetail?.nickname || userDetail?.email || 'U').charAt(0).toUpperCase()
+                    e.currentTarget.appendChild(span)
+                  }}
                 />
               ) : (
                 <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center ring-2 ring-gray-700">
@@ -157,36 +301,44 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                   </span>
                 </div>
               )}
+              
               <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full ring-2 ring-gray-900 ${accountStatus.bgColor} flex items-center justify-center`}>
                 <div className={`w-2 h-2 rounded-full ${accountStatus.color.replace('text-', 'bg-')}`} />
               </div>
             </div>
 
-            <div>
-              <h2 className="text-xl font-bold text-white flex items-center">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl font-bold text-white flex items-center truncate">
                 {userDetail?.nickname || '无昵称'}
                 {userDetail?.email === '2200691917@qq.com' && (
-                  <span className="ml-2 bg-gradient-to-r from-amber-500 to-orange-500 text-xs px-2 py-1 rounded-full">
+                  <span className="ml-2 bg-gradient-to-r from-amber-500 to-orange-500 text-xs px-2 py-1 rounded-full whitespace-nowrap">
                     管理员
                   </span>
                 )}
               </h2>
-              <p className="text-gray-400 text-sm flex items-center mt-1">
-                <Mail className="w-3 h-3 mr-1" />
-                {userDetail?.email}
+              <p className="text-gray-400 text-sm flex items-center mt-1 truncate">
+                <Mail className="w-3 h-3 mr-1 flex-shrink-0" />
+                <span className="truncate">{userDetail?.email}</span>
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className={`px-3 py-1 rounded-full text-sm font-medium ${accountStatus.bgColor} ${accountStatus.color}`}>
-              {accountStatus.status}
+            <div className="hidden md:flex items-center gap-2">
+              <div className={`px-3 py-1 rounded-full text-sm font-medium ${activeStatus.bgColor} ${activeStatus.color} flex items-center`}>
+                {activeStatus.icon}
+                <span className="ml-1">{activeStatus.status}</span>
+              </div>
+              
+              <div className={`px-3 py-1 rounded-full text-sm font-medium ${accountStatus.bgColor} ${accountStatus.color}`}>
+                {accountStatus.status}
+              </div>
             </div>
 
             {onRefresh && (
               <button
                 onClick={onRefresh}
-                className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors hover:scale-105"
+                className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors hover:scale-105 disabled:opacity-50"
                 disabled={loading}
                 title="刷新数据"
               >
@@ -203,40 +355,60 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
           </div>
         </div>
 
+        {/* 移动端状态显示 */}
+        <div className="md:hidden px-4 py-2 border-b border-gray-800">
+          <div className="flex items-center justify-between">
+            <div className={`px-3 py-1 rounded-full text-sm font-medium ${activeStatus.bgColor} ${activeStatus.color} flex items-center`}>
+              {activeStatus.icon}
+              <span className="ml-1">{activeStatus.status}</span>
+            </div>
+            
+            <div className={`px-3 py-1 rounded-full text-sm font-medium ${accountStatus.bgColor} ${accountStatus.color}`}>
+              {accountStatus.status}
+            </div>
+          </div>
+        </div>
+
         {/* 加载状态 */}
         {loading ? (
-          <div className="p-12 text-center">
-            <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-            <p className="text-gray-400 mt-4 text-lg">加载用户详情中...</p>
+          <div className="p-8 md:p-12 text-center">
+            <div className="w-12 h-12 md:w-16 md:h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+            <p className="text-gray-400 mt-4 text-base md:text-lg">加载用户详情中...</p>
           </div>
         ) : !userDetail ? (
-          <div className="p-12 text-center">
-            <User className="w-20 h-20 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400 text-lg">未找到用户信息</p>
+          <div className="p-8 md:p-12 text-center">
+            <User className="w-16 h-16 md:w-20 md:h-20 text-gray-600 mx-auto mb-4" />
+            <p className="text-gray-400 text-base md:text-lg">未找到用户信息</p>
+            <button
+              onClick={onClose}
+              className="mt-4 px-4 py-2 bg-gray-800 text-gray-300 rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              关闭
+            </button>
           </div>
         ) : (
           <>
             {/* 标签页导航 */}
             <div className="border-b border-gray-800 bg-gray-900/30">
-              <div className="flex">
+              <div className="flex overflow-x-auto">
                 {[
-                  { id: 'basic', label: '基本信息', icon: User, count: null },
-                  { id: 'keys', label: '密钥记录', icon: Key, count: accessKeys.length },
-                  { id: 'ai', label: 'AI使用', icon: Brain, count: aiUsageRecords.length },
-                  { id: 'games', label: '游戏记录', icon: Gamepad2, count: gameHistory.length }
+                  { id: 'basic' as const, label: '基本信息', icon: User, count: null },
+                  { id: 'keys' as const, label: '密钥记录', icon: Key, count: accessKeys.length },
+                  { id: 'ai' as const, label: 'AI使用', icon: Brain, count: aiUsageRecords.length },
+                  { id: 'games' as const, label: '游戏记录', icon: Gamepad2, count: gameHistory.length }
                 ].map((tab) => (
                   <button
                     key={tab.id}
-                    className={`flex-1 flex items-center justify-center px-6 py-3 text-sm font-medium transition-all relative ${activeTab === tab.id
+                    className={`flex-1 min-w-[120px] flex items-center justify-center px-4 py-3 text-sm font-medium transition-all relative whitespace-nowrap ${activeTab === tab.id
                       ? 'text-blue-400 border-b-2 border-blue-500 bg-gradient-to-t from-blue-500/5 to-transparent'
                       : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/30'
                       }`}
-                    onClick={() => setActiveTab(tab.id as any)}
+                    onClick={() => setActiveTab(tab.id)}
                   >
-                    <tab.icon className="w-4 h-4 mr-2" />
-                    {tab.label}
+                    <tab.icon className="w-4 h-4 mr-2 flex-shrink-0" />
+                    <span className="truncate">{tab.label}</span>
                     {tab.count !== null && (
-                      <span className={`ml-2 px-1.5 py-0.5 text-xs rounded-full ${activeTab === tab.id
+                      <span className={`ml-2 px-1.5 py-0.5 text-xs rounded-full flex-shrink-0 ${activeTab === tab.id
                         ? 'bg-blue-500/20 text-blue-400'
                         : 'bg-gray-700 text-gray-400'
                         }`}>
@@ -249,38 +421,38 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
             </div>
 
             {/* 标签页内容 */}
-            <div className="overflow-auto max-h-[calc(90vh-180px)]">
+            <div className="overflow-auto max-h-[calc(90vh-200px)] md:max-h-[calc(90vh-180px)]">
               {/* 基本信息标签页 */}
               {activeTab === 'basic' && (
-                <div className="p-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="p-4 md:p-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
                     {/* 用户基本信息 */}
-                    <div className="lg:col-span-2 space-y-6">
-                      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
+                    <div className="lg:col-span-2 space-y-4 md:space-y-6">
+                      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
                         <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
                           <User className="w-5 h-5 mr-2 text-blue-400" />
                           用户信息
                         </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
                           <div className="space-y-3">
                             <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
                               <div className="flex items-center">
-                                <Tag className="w-4 h-4 mr-2 text-gray-400" />
-                                <span className="text-gray-400">用户ID:</span>
+                                <Tag className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
+                                <span className="text-gray-400 text-sm">用户ID:</span>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <code className="text-sm font-mono text-gray-300 truncate max-w-[200px]">
+                              <div className="flex items-center gap-2 ml-2">
+                                <code className="text-xs md:text-sm font-mono text-gray-300 truncate max-w-[120px] md:max-w-[200px]">
                                   {userDetail.id}
                                 </code>
                                 <button
                                   onClick={() => handleCopy(userDetail.id, 'id')}
-                                  className="p-1.5 hover:bg-gray-700 rounded-lg transition-colors"
+                                  className="p-1.5 hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
                                   title="复制ID"
                                 >
                                   {copiedField === 'id' ? (
-                                    <Check className="w-4 h-4 text-green-400" />
+                                    <Check className="w-3 h-3 md:w-4 md:h-4 text-green-400" />
                                   ) : (
-                                    <Copy className="w-4 h-4 text-gray-400" />
+                                    <Copy className="w-3 h-3 md:w-4 md:h-4 text-gray-400" />
                                   )}
                                 </button>
                               </div>
@@ -288,39 +460,55 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
 
                             <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
                               <div className="flex items-center">
-                                <Mail className="w-4 h-4 mr-2 text-gray-400" />
-                                <span className="text-gray-400">邮箱:</span>
+                                <Mail className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
+                                <span className="text-gray-400 text-sm">邮箱:</span>
                               </div>
-                              <span className="text-white truncate">{userDetail.email}</span>
+                              <div className="flex items-center ml-2">
+                                <span className="text-white text-sm truncate max-w-[160px] md:max-w-[240px]">
+                                  {userDetail.email}
+                                </span>
+                                <button
+                                  onClick={() => handleCopy(userDetail.email, 'email')}
+                                  className="p-1.5 hover:bg-gray-700 rounded-lg transition-colors ml-2 flex-shrink-0"
+                                  title="复制邮箱"
+                                >
+                                  {copiedField === 'email' ? (
+                                    <Check className="w-3 h-3 md:w-4 md:h-4 text-green-400" />
+                                  ) : (
+                                    <Copy className="w-3 h-3 md:w-4 md:h-4 text-gray-400" />
+                                  )}
+                                </button>
+                              </div>
                             </div>
                           </div>
 
                           <div className="space-y-3">
                             <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
                               <div className="flex items-center">
-                                <User className="w-4 h-4 mr-2 text-gray-400" />
-                                <span className="text-gray-400">昵称:</span>
+                                <User className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
+                                <span className="text-gray-400 text-sm">昵称:</span>
                               </div>
-                              <span className="text-white">{userDetail.nickname || '未设置'}</span>
-                            </div>
-
-                            {/* 新增：性别显示 */}
-                            <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
-                              <div className="flex items-center">
-                                <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                </svg>
-                                <span className="text-gray-400">性别:</span>
-                              </div>
-                              <span className="text-white">{getGenderDisplay(userDetail.preferences)}</span>
+                              <span className="text-white text-sm">{userDetail.nickname || '未设置'}</span>
                             </div>
 
                             <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
                               <div className="flex items-center">
-                                <Activity className="w-4 h-4 mr-2 text-gray-400" />
-                                <span className="text-gray-400">简介:</span>
+                                {getGenderIcon(getGenderDisplay(userDetail.preferences))}
+                                <span className="text-gray-400 text-sm ml-2">性别:</span>
                               </div>
-                              <span className="text-gray-300 text-right">{userDetail.bio || '未设置'}</span>
+                              <div className="flex items-center">
+                                <span className="text-white text-sm">{getGenderDisplay(userDetail.preferences)}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
+                              <div className="flex items-center">
+                                <Activity className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
+                                <span className="text-gray-400 text-sm">简介:</span>
+                              </div>
+                              <span className="text-gray-300 text-sm text-right truncate max-w-[160px]">
+                                {userDetail.bio || '未设置'}
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -328,13 +516,13 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
 
                       {/* 偏好设置 */}
                       {userDetail.preferences && Object.keys(userDetail.preferences).length > 0 && (
-                        <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
+                        <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
                           <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
                             <Activity className="w-5 h-5 mr-2 text-blue-400" />
                             偏好设置
                           </h3>
-                          <div className="bg-gray-900/50 p-4 rounded-lg overflow-auto">
-                            <pre className="text-sm text-gray-300 whitespace-pre-wrap">
+                          <div className="bg-gray-900/50 p-3 md:p-4 rounded-lg overflow-auto">
+                            <pre className="text-xs md:text-sm text-gray-300 whitespace-pre-wrap">
                               {JSON.stringify(userDetail.preferences, null, 2)}
                             </pre>
                           </div>
@@ -343,69 +531,76 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                     </div>
 
                     {/* 账户状态 */}
-                    <div className="space-y-6">
-                      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
+                    <div className="space-y-4 md:space-y-6">
+                      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
                         <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
                           <Shield className="w-5 h-5 mr-2 text-blue-400" />
                           账户状态
                         </h3>
-                        <div className="space-y-4">
+                        <div className="space-y-3 md:space-y-4">
                           <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
                             <div className="flex items-center">
                               <Shield className="w-4 h-4 mr-2 text-gray-400" />
-                              <span className="text-gray-400">会员状态:</span>
+                              <span className="text-gray-400 text-sm">会员状态:</span>
                             </div>
-                            <span className={`font-medium ${accountStatus.color}`}>
+                            <span className={`font-medium text-sm ${accountStatus.color}`}>
                               {accountStatus.status}
                             </span>
                           </div>
 
-                          {/* 🔥 修改：会员到期时间使用formatDate，与注册时间格式一致 */}
                           <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
                             <div className="flex items-center">
                               <Calendar className="w-4 h-4 mr-2 text-gray-400" />
-                              <span className="text-gray-400">会员到期:</span>
+                              <span className="text-gray-400 text-sm">会员到期:</span>
                             </div>
-                            <span className="text-white">{formatDate(userDetail.account_expires_at)}</span>
+                            <span className="text-white text-sm">{formatDate(userDetail.account_expires_at)}</span>
                           </div>
 
                           <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
                             <div className="flex items-center">
                               <Clock className="w-4 h-4 mr-2 text-gray-400" />
-                              <span className="text-gray-400">最后登录:</span>
+                              <span className="text-gray-400 text-sm">最后登录:</span>
                             </div>
-                            <span className="text-white">{formatDate(userDetail.last_login_at)}</span>
+                            <span className="text-white text-sm">{formatDate(userDetail.last_login_at)}</span>
                           </div>
 
                           <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
                             <div className="flex items-center">
                               <History className="w-4 h-4 mr-2 text-gray-400" />
-                              <span className="text-gray-400">注册时间:</span>
+                              <span className="text-gray-400 text-sm">注册时间:</span>
                             </div>
-                            <span className="text-white">{formatDate(userDetail.created_at)}</span>
+                            <span className="text-white text-sm">{formatDate(userDetail.created_at)}</span>
+                          </div>
+
+                          <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
+                            <div className="flex items-center">
+                              <Activity className="w-4 h-4 mr-2 text-gray-400" />
+                              <span className="text-gray-400 text-sm">最后活跃:</span>
+                            </div>
+                            <span className="text-white text-sm">{activeStatus.status}</span>
                           </div>
                         </div>
                       </div>
 
                       {/* 统计概览 */}
-                      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
+                      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
                         <h3 className="text-lg font-semibold text-white mb-4">统计概览</h3>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="bg-gray-800/30 p-3 rounded-lg">
                             <p className="text-xs text-gray-400">密钥总数</p>
-                            <p className="text-xl font-bold text-white">{stats?.keyStats.total || 0}</p>
+                            <p className="text-lg md:text-xl font-bold text-white">{stats?.keyStats.total || 0}</p>
                           </div>
                           <div className="bg-gray-800/30 p-3 rounded-lg">
                             <p className="text-xs text-gray-400">AI请求</p>
-                            <p className="text-xl font-bold text-blue-400">{stats?.aiStats.total || 0}</p>
+                            <p className="text-lg md:text-xl font-bold text-blue-400">{stats?.aiStats.total || 0}</p>
                           </div>
                           <div className="bg-gray-800/30 p-3 rounded-lg">
                             <p className="text-xs text-gray-400">游戏场次</p>
-                            <p className="text-xl font-bold text-green-400">{stats?.gameStats.total || 0}</p>
+                            <p className="text-lg md:text-xl font-bold text-green-400">{stats?.gameStats.total || 0}</p>
                           </div>
                           <div className="bg-gray-800/30 p-3 rounded-lg">
                             <p className="text-xs text-gray-400">胜率</p>
-                            <p className="text-xl font-bold text-amber-400">
+                            <p className="text-lg md:text-xl font-bold text-amber-400">
                               {stats?.gameStats.total
                                 ? `${((stats.gameStats.wins / stats.gameStats.total) * 100).toFixed(1)}%`
                                 : '0%'
@@ -421,54 +616,58 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
 
               {/* 密钥记录标签页 */}
               {activeTab === 'keys' && (
-                <div className="p-6">
-                  <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4">
-                      <p className="text-sm text-gray-400 mb-1">总密钥数</p>
-                      <p className="text-2xl font-bold text-white">{stats?.keyStats.total || 0}</p>
+                <div className="p-4 md:p-6">
+                  <div className="mb-4 md:mb-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
+                      <p className="text-xs md:text-sm text-gray-400 mb-1">总密钥数</p>
+                      <p className="text-xl md:text-2xl font-bold text-white">{stats?.keyStats.total || 0}</p>
                     </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4">
-                      <p className="text-sm text-gray-400 mb-1">活跃密钥</p>
-                      <p className="text-2xl font-bold text-green-400">{stats?.keyStats.active || 0}</p>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
+                      <p className="text-xs md:text-sm text-gray-400 mb-1">活跃密钥</p>
+                      <p className="text-xl md:text-2xl font-bold text-green-400">{stats?.keyStats.active || 0}</p>
                     </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4">
-                      <p className="text-sm text-gray-400 mb-1">已过期</p>
-                      <p className="text-2xl font-bold text-red-400">{stats?.keyStats.expired || 0}</p>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
+                      <p className="text-xs md:text-sm text-gray-400 mb-1">已过期</p>
+                      <p className="text-xl md:text-2xl font-bold text-red-400">{stats?.keyStats.expired || 0}</p>
                     </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4">
-                      <p className="text-sm text-gray-400 mb-1">当前密钥代码</p>
-                      <p className="text-2xl font-bold text-blue-400 font-mono truncate">
-                        {userDetail.current_access_key?.key_code || userDetail.access_key_id || '无'}
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
+                      <p className="text-xs md:text-sm text-gray-400 mb-1">当前密钥</p>
+                      <p className="text-lg md:text-2xl font-bold text-blue-400 font-mono truncate" title={currentAccessKey?.key_code}>
+                        {currentAccessKey?.key_code || userDetail.access_key_id || '无'}
                       </p>
                     </div>
                   </div>
 
                   {accessKeys.length === 0 ? (
-                    <div className="text-center py-12">
-                      <div className="w-20 h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Key className="w-10 h-10 text-gray-600" />
+                    <div className="text-center py-8 md:py-12">
+                      <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Key className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
                       </div>
-                      <p className="text-gray-400 text-lg">暂无密钥记录</p>
-                      <p className="text-gray-500 text-sm mt-2">该用户尚未激活任何密钥</p>
+                      <p className="text-gray-400 text-base md:text-lg">暂无密钥记录</p>
+                      <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未激活任何密钥</p>
                     </div>
                   ) : (
                     <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
                       <div className="overflow-x-auto">
-                        <table className="w-full">
+                        <table className="w-full min-w-[640px]">
                           <thead>
                             <tr className="border-b border-gray-800 bg-gray-900/50">
-                              <th className="text-left py-4 px-6 text-gray-400 font-medium">密钥代码</th>
-                              <th className="text-left py-4 px-6 text-gray-400 font-medium">状态</th>
-                              <th className="text-left py-4 px-6 text-gray-400 font-medium">有效期</th>
-                              <th className="text-left py-4 px-6 text-gray-400 font-medium">使用时间</th>
-                              <th className="text-left py-4 px-6 text-gray-400 font-medium">操作</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">密钥代码</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">状态</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">有效期</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">使用时间</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">操作</th>
                             </tr>
                           </thead>
                           <tbody>
                             {accessKeys.map((key, index) => {
-                              const isActive = key.is_active
-                              const isExpired = key.key_expires_at && new Date(key.key_expires_at) < new Date()
-                              const isCurrent = key.id === userDetail.access_key_id
+                              const isActive = key.is_active || key.isActive
+                              const isExpired = () => {
+                                const expiry = key.key_expires_at || key.keyExpiresAt
+                                return expiry && new Date(expiry) < new Date()
+                              }
+                              const isCurrent = key.id === (userDetail.access_key_id || userDetail.accessKeyId)
+                              const keyCode = key.key_code || key.keyCode || '未知'
 
                               return (
                                 <tr
@@ -476,60 +675,62 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                                   className={`border-b border-gray-800/30 transition-all hover:bg-gray-800/30 ${isCurrent ? 'bg-blue-500/5' : ''
                                     }`}
                                 >
-                                  <td className="py-4 px-6">
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
                                     <div className="flex items-center">
-                                      <code className="text-sm bg-gray-900 px-3 py-1.5 rounded-lg font-mono border border-gray-800">
-                                        {key.key_code || key.keyCode || '未知'}
+                                      <code className="text-xs md:text-sm bg-gray-900 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-mono border border-gray-800 truncate max-w-[120px] md:max-w-[180px]">
+                                        {keyCode}
                                       </code>
                                       {isCurrent && (
-                                        <span className="ml-2 bg-gradient-to-r from-blue-500 to-blue-600 text-xs px-2 py-1 rounded-full">
+                                        <span className="ml-2 bg-gradient-to-r from-blue-500 to-blue-600 text-xs px-1.5 md:px-2 py-0.5 md:py-1 rounded-full whitespace-nowrap">
                                           当前使用
                                         </span>
                                       )}
                                     </div>
                                   </td>
-                                  <td className="py-4 px-6">
-                                    <div className="flex items-center space-x-2">
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <div className="flex items-center space-x-1 md:space-x-2">
                                       <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-green-500' : 'bg-red-500'
                                         }`} />
-                                      <span className={`text-sm ${isActive ? 'text-green-400' : 'text-red-400'
+                                      <span className={`text-xs md:text-sm ${isActive ? 'text-green-400' : 'text-red-400'
                                         }`}>
                                         {isActive ? '活跃' : '禁用'}
                                       </span>
-                                      {isExpired && (
-                                        <span className="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded">
+                                      {isExpired() && (
+                                        <span className="text-xs bg-red-500/20 text-red-400 px-1.5 md:px-2 py-0.5 rounded">
                                           已过期
                                         </span>
                                       )}
                                     </div>
                                   </td>
-                                  <td className="py-4 px-6 text-gray-300">
-                                    {key.key_expires_at ? formatDate(key.key_expires_at) : '永久有效'}
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <span className="text-gray-300 text-xs md:text-sm">
+                                      {key.key_expires_at || key.keyExpiresAt ? formatDate(key.key_expires_at || key.keyExpiresAt) : '永久有效'}
+                                    </span>
                                   </td>
-                                  <td className="py-4 px-6">
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
                                     <div className="flex flex-col">
-                                      <span className="text-gray-300">
-                                        {key.used_at ? formatDate(key.used_at) : '未使用'}
+                                      <span className="text-gray-300 text-xs md:text-sm">
+                                        {key.used_at || key.usedAt ? formatShortDate(key.used_at || key.usedAt) : '未使用'}
                                       </span>
-                                      {key.used_count !== undefined && key.used_count > 0 && (
+                                      {(key.used_count || key.usedCount) && (key.used_count || key.usedCount) > 0 && (
                                         <span className="text-xs text-gray-500 mt-1">
-                                          已使用 {key.used_count} 次
+                                          已使用 {key.used_count || key.usedCount} 次
                                         </span>
                                       )}
                                     </div>
                                   </td>
-                                  <td className="py-4 px-6">
-                                    <div className="flex space-x-2">
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <div className="flex space-x-1 md:space-x-2">
                                       <button
-                                        onClick={() => key.key_code && handleCopy(key.key_code, `key-${index}`)}
-                                        className="text-blue-400 hover:text-blue-300 text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg transition-colors"
+                                        onClick={() => keyCode && handleCopy(keyCode, `key-${index}`)}
+                                        className="text-blue-400 hover:text-blue-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 md:py-1.5 rounded-lg transition-colors"
                                       >
                                         <Copy className="w-3 h-3 mr-1" />
                                         复制
                                       </button>
                                       {isCurrent && (
                                         <button
-                                          className="text-amber-400 hover:text-amber-300 text-sm flex items-center bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-lg transition-colors"
+                                          className="text-amber-400 hover:text-amber-300 text-xs md:text-sm flex items-center bg-amber-500/10 hover:bg-amber-500/20 px-2 md:px-3 py-1 md:py-1.5 rounded-lg transition-colors"
                                         >
                                           <Key className="w-3 h-3 mr-1" />
                                           当前
@@ -550,18 +751,18 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
 
               {/* AI使用记录标签页 */}
               {activeTab === 'ai' && (
-                <div className="p-6">
-                  <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
-                      <p className="text-sm text-gray-400 mb-2">总请求数</p>
-                      <p className="text-2xl font-bold text-white">{stats?.aiStats.total || 0}</p>
+                <div className="p-4 md:p-6">
+                  <div className="mb-4 md:mb-6 grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">总请求数</p>
+                      <p className="text-xl md:text-2xl font-bold text-white">{stats?.aiStats.total || 0}</p>
                       <p className="text-xs text-gray-500 mt-1">
                         7天内请求: {stats?.aiStats.recent || 0}
                       </p>
                     </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
-                      <p className="text-sm text-gray-400 mb-2">成功请求</p>
-                      <p className="text-2xl font-bold text-green-400">{stats?.aiStats.success || 0}</p>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">成功请求</p>
+                      <p className="text-xl md:text-2xl font-bold text-green-400">{stats?.aiStats.success || 0}</p>
                       <p className="text-xs text-gray-500 mt-1">
                         成功率: {stats?.aiStats.total
                           ? `${((stats.aiStats.success / stats.aiStats.total) * 100).toFixed(1)}%`
@@ -569,74 +770,136 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                         }
                       </p>
                     </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
-                      <p className="text-sm text-gray-400 mb-2">最近使用</p>
-                      <p className="text-2xl font-bold text-blue-400">
-                        {aiUsageRecords.length > 0
-                          ? formatDate(aiUsageRecords[aiUsageRecords.length - 1]?.created_at)
-                          : '从未使用'
-                        }
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">令牌使用</p>
+                      <p className="text-xl md:text-2xl font-bold text-blue-400">{stats?.aiStats.totalTokens || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        平均: {stats?.aiStats.total
+                          ? Math.round((stats.aiStats.totalTokens || 0) / stats.aiStats.total)
+                          : 0
+                        }/请求
                       </p>
                     </div>
                   </div>
 
                   {aiUsageRecords.length === 0 ? (
-                    <div className="text-center py-12">
-                      <div className="w-20 h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Brain className="w-10 h-10 text-gray-600" />
+                    <div className="text-center py-8 md:py-12">
+                      <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Brain className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
                       </div>
-                      <p className="text-gray-400 text-lg">暂无AI使用记录</p>
-                      <p className="text-gray-500 text-sm mt-2">该用户尚未使用过AI功能</p>
+                      <p className="text-gray-400 text-base md:text-lg">暂无AI使用记录</p>
+                      <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未使用过AI功能</p>
                     </div>
                   ) : (
-                    <div className="space-y-4">
-                      {aiUsageRecords.slice(0, 10).map((record, index) => (
-                        <div
-                          key={index}
-                          className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5 hover:border-gray-600/50 transition-all"
-                        >
-                          <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center">
-                              <Brain className="w-5 h-5 mr-3 text-blue-400" />
-                              <div>
-                                <span className="text-white font-medium">{record.feature || '未知功能'}</span>
-                                <span className={`ml-3 px-2 py-1 rounded text-xs ${record.success
-                                  ? 'bg-green-500/20 text-green-400'
-                                  : 'bg-red-500/20 text-red-400'
-                                  }`}>
-                                  {record.success ? '成功' : '失败'}
-                                </span>
+                    <div className="space-y-3 md:space-y-4">
+                      {aiUsageRecords.slice(0, 10).map((record, index) => {
+                        const feature = record.feature || '未知功能'
+                        const createdAt = record.created_at || record.createdAt
+                        const success = record.success
+                        const isExpanded = expandedAIRecord === index
+                        
+                        return (
+                          <div
+                            key={index}
+                            className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5 hover:border-gray-600/50 transition-all"
+                          >
+                            <div className="flex items-center justify-between mb-3 md:mb-4">
+                              <div className="flex items-center">
+                                <Brain className="w-4 h-4 md:w-5 md:h-5 mr-2 md:mr-3 text-blue-400 flex-shrink-0" />
+                                <div className="min-w-0">
+                                  <span className="text-white text-sm md:text-base font-medium truncate block">
+                                    {feature}
+                                  </span>
+                                  <div className="flex items-center mt-1">
+                                    <span className={`px-2 py-0.5 rounded text-xs ${success
+                                      ? 'bg-green-500/20 text-green-400'
+                                      : 'bg-red-500/20 text-red-400'
+                                      }`}>
+                                      {success ? '成功' : '失败'}
+                                    </span>
+                                    <span className="text-gray-500 text-xs ml-2">
+                                      {record.model || '未知模型'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-2 ml-2">
+                                <button
+                                  onClick={() => toggleAIExpanded(index)}
+                                  className="text-gray-400 hover:text-gray-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 rounded-lg transition-colors"
+                                >
+                                  {isExpanded ? '收起' : '详情'}
+                                </button>
+                                <button
+                                  onClick={() => handleExportAI(record)}
+                                  className="text-gray-400 hover:text-gray-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 rounded-lg transition-colors"
+                                  title="导出JSON"
+                                >
+                                  <Download className="w-3 h-3 md:w-4 md:h-4" />
+                                </button>
                               </div>
                             </div>
-                            <span className="text-gray-400 text-sm">
-                              {formatDate(record.created_at || record.createdAt)}
-                            </span>
-                          </div>
 
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            <div>
-                              <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">请求数据</p>
-                              <div className="bg-gray-900/50 p-3 rounded-lg overflow-auto max-h-48">
-                                <pre className="text-xs text-gray-300 whitespace-pre-wrap">
-                                  {JSON.stringify(record.request_data || record.requestData || {}, null, 2)}
-                                </pre>
-                              </div>
+                            <div className="text-xs text-gray-400 mb-2">
+                              创建时间: {formatDate(createdAt)}
+                              {(record.tokens_used || record.tokensUsed) && (
+                                <span className="ml-2">
+                                  令牌: {record.tokens_used || record.tokensUsed}
+                                </span>
+                              )}
                             </div>
-                            <div>
-                              <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">响应数据</p>
-                              <div className="bg-gray-900/50 p-3 rounded-lg overflow-auto max-h-48">
-                                <pre className="text-xs text-gray-300 whitespace-pre-wrap">
-                                  {JSON.stringify(record.response_data || record.responseData || {}, null, 2)}
-                                </pre>
+
+                            {isExpanded && (
+                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 mt-3 pt-3 border-t border-gray-800/30">
+                                <div>
+                                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">请求数据</p>
+                                  <div className="bg-gray-900/50 p-2 md:p-3 rounded-lg overflow-auto max-h-48">
+                                    <pre className="text-xs text-gray-300 whitespace-pre-wrap">
+                                      {(() => {
+                                        const requestData = record.request_data || record.requestData
+                                        try {
+                                          if (typeof requestData === 'string') {
+                                            return JSON.stringify(JSON.parse(requestData), null, 2)
+                                          } else if (typeof requestData === 'object') {
+                                            return JSON.stringify(requestData, null, 2)
+                                          }
+                                          return String(requestData || '无数据')
+                                        } catch {
+                                          return String(requestData || '无数据')
+                                        }
+                                      })()}
+                                    </pre>
+                                  </div>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">响应数据</p>
+                                  <div className="bg-gray-900/50 p-2 md:p-3 rounded-lg overflow-auto max-h-48">
+                                    <pre className="text-xs text-gray-300 whitespace-pre-wrap">
+                                      {(() => {
+                                        const responseData = record.response_data || record.responseData
+                                        try {
+                                          if (typeof responseData === 'string') {
+                                            return JSON.stringify(JSON.parse(responseData), null, 2)
+                                          } else if (typeof responseData === 'object') {
+                                            return JSON.stringify(responseData, null, 2)
+                                          }
+                                          return String(responseData || '无数据')
+                                        } catch {
+                                          return String(responseData || '无数据')
+                                        }
+                                      })()}
+                                    </pre>
+                                  </div>
+                                </div>
                               </div>
-                            </div>
+                            )}
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
 
                       {aiUsageRecords.length > 10 && (
-                        <div className="text-center pt-6">
-                          <p className="text-gray-400 text-sm">
+                        <div className="text-center pt-4">
+                          <p className="text-gray-400 text-xs md:text-sm">
                             显示最近10条记录，共{aiUsageRecords.length}条
                           </p>
                         </div>
@@ -648,28 +911,28 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
 
               {/* 游戏记录标签页 */}
               {activeTab === 'games' && (
-                <div className="p-6">
-                  <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
-                      <p className="text-sm text-gray-400 mb-2">总场次</p>
-                      <p className="text-2xl font-bold text-white">{stats?.gameStats.total || 0}</p>
+                <div className="p-4 md:p-6">
+                  <div className="mb-4 md:mb-6 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">总场次</p>
+                      <p className="text-xl md:text-2xl font-bold text-white">{stats?.gameStats.total || 0}</p>
                       <p className="text-xs text-gray-500 mt-1">
                         7天内场次: {stats?.gameStats.recent || 0}
                       </p>
                     </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
-                      <p className="text-sm text-gray-400 mb-2">胜场</p>
-                      <p className="text-2xl font-bold text-green-400">{stats?.gameStats.wins || 0}</p>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">胜场</p>
+                      <p className="text-xl md:text-2xl font-bold text-green-400">{stats?.gameStats.wins || 0}</p>
                     </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
-                      <p className="text-sm text-gray-400 mb-2">负场</p>
-                      <p className="text-2xl font-bold text-red-400">
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">负场</p>
+                      <p className="text-xl md:text-2xl font-bold text-red-400">
                         {stats ? stats.gameStats.total - stats.gameStats.wins : 0}
                       </p>
                     </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-5">
-                      <p className="text-sm text-gray-400 mb-2">胜率</p>
-                      <p className="text-2xl font-bold text-blue-400">
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">胜率</p>
+                      <p className="text-xl md:text-2xl font-bold text-blue-400">
                         {stats?.gameStats.total
                           ? `${((stats.gameStats.wins / stats.gameStats.total) * 100).toFixed(1)}%`
                           : '0%'
@@ -679,44 +942,46 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                   </div>
 
                   {gameHistory.length === 0 ? (
-                    <div className="text-center py-12">
-                      <div className="w-20 h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Gamepad2 className="w-10 h-10 text-gray-600" />
+                    <div className="text-center py-8 md:py-12">
+                      <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Gamepad2 className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
                       </div>
-                      <p className="text-gray-400 text-lg">暂无游戏记录</p>
-                      <p className="text-gray-500 text-sm mt-2">该用户尚未参与过游戏</p>
+                      <p className="text-gray-400 text-base md:text-lg">暂无游戏记录</p>
+                      <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未参与过游戏</p>
                     </div>
                   ) : (
                     <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
                       <div className="overflow-x-auto">
-                        <table className="w-full">
+                        <table className="w-full min-w-[640px]">
                           <thead>
                             <tr className="border-b border-gray-800 bg-gray-900/50">
-                              <th className="text-left py-4 px-6 text-gray-400 font-medium">对局ID</th>
-                              <th className="text-left py-4 px-6 text-gray-400 font-medium">对手</th>
-                              <th className="text-left py-4 px-6 text-gray-400 font-medium">结果</th>
-                              <th className="text-left py-4 px-6 text-gray-400 font-medium">时长</th>
-                              <th className="text-left py-4 px-6 text-gray-400 font-medium">开始时间</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">对局ID</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">对手</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">结果</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">时长</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">开始时间</th>
                             </tr>
                           </thead>
                           <tbody>
                             {gameHistory.map((game, index) => {
                               const isWin = game.winner_id === userDetail.id
                               const isDraw = !game.winner_id
+                              const startedAt = game.started_at
+                              const endedAt = game.ended_at
 
                               return (
                                 <tr
                                   key={index}
                                   className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-all"
                                 >
-                                  <td className="py-4 px-6">
-                                    <code className="text-xs bg-gray-900 px-3 py-1.5 rounded-lg font-mono border border-gray-800">
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <code className="text-xs bg-gray-900 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-mono border border-gray-800">
                                       {game.id?.substring(0, 8) || '未知'}
                                     </code>
                                   </td>
-                                  <td className="py-4 px-6">
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
                                     <div className="flex flex-col">
-                                      <span className="text-gray-300">
+                                      <span className="text-gray-300 text-xs md:text-sm">
                                         玩家{game.player1_id === userDetail.id ? '2' : '1'}
                                       </span>
                                       <span className="text-xs text-gray-500 mt-1">
@@ -724,24 +989,24 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                                       </span>
                                     </div>
                                   </td>
-                                  <td className="py-4 px-6">
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
                                     <div className="flex items-center">
-                                      <div className={`w-3 h-3 rounded-full mr-2 ${isWin ? 'bg-green-500' : isDraw ? 'bg-yellow-500' : 'bg-red-500'
+                                      <div className={`w-2 h-2 rounded-full mr-1 md:mr-2 ${isWin ? 'bg-green-500' : isDraw ? 'bg-yellow-500' : 'bg-red-500'
                                         }`} />
-                                      <span className={`text-sm ${isWin ? 'text-green-400' : isDraw ? 'text-yellow-400' : 'text-red-400'
+                                      <span className={`text-xs md:text-sm ${isWin ? 'text-green-400' : isDraw ? 'text-yellow-400' : 'text-red-400'
                                         }`}>
                                         {isWin ? '胜利' : isDraw ? '平局' : '失败'}
                                       </span>
                                     </div>
                                   </td>
-                                  <td className="py-4 px-6">
-                                    <span className="text-gray-300">
-                                      {formatDuration(game.started_at, game.ended_at)}
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <span className="text-gray-300 text-xs md:text-sm">
+                                      {formatDuration(startedAt, endedAt)}
                                     </span>
                                   </td>
-                                  <td className="py-4 px-6">
-                                    <span className="text-gray-300">
-                                      {formatDate(game.started_at)}
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <span className="text-gray-300 text-xs md:text-sm">
+                                      {formatDate(startedAt)}
                                     </span>
                                   </td>
                                 </tr>
@@ -756,6 +1021,21 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
               )}
             </div>
           </>
+        )}
+
+        {/* 调试信息（仅在开发环境显示） */}
+        {process.env.NODE_ENV === 'development' && userDetail && (
+          <div className="hidden">
+            <pre>{JSON.stringify({
+              userDetailKeys: Object.keys(userDetail),
+              aiRecordsCount: aiUsageRecords.length,
+              firstAIRecord: aiUsageRecords[0],
+              accessKeysCount: accessKeys.length,
+              firstAccessKey: accessKeys[0],
+              gameHistoryCount: gameHistory.length,
+              currentAccessKey: currentAccessKey
+            }, null, 2)}</pre>
+          </div>
         )}
       </div>
     </div>
