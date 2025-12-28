@@ -53,9 +53,9 @@ export async function GET(request: NextRequest) {
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
     
     console.log('📊 统计API开始计算...', {
-      当前时间: now,
-      24小时前: twentyFourHoursAgo,
-      3分钟前: threeMinutesAgo
+      currentTime: now, // ✅ 修复：改为有效的标识符
+      twentyFourHoursAgo: twentyFourHoursAgo, // ✅ 修复：改为有效的标识符
+      threeMinutesAgo: threeMinutesAgo // ✅ 修复：改为有效的标识符
     })
 
     // 🔧 并行执行所有统计查询，提升性能
@@ -197,8 +197,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: stats,
-      timestamp: new Date().toISOString(),
-      queryTime: `${Date.now() - request.headers.get('x-request-start') || Date.now()}ms`
+      timestamp: new Date().toISOString()
     })
 
   } catch (error: any) {
