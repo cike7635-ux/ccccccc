@@ -1,8 +1,7 @@
-// /app/admin/users/components/growth-chart.tsx - 像素高度修复版
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { TrendingUp, Calendar, Users } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { TrendingUp, Calendar, Users, RefreshCw, AlertCircle } from 'lucide-react'
 
 interface GrowthData {
   date: string
@@ -10,89 +9,131 @@ interface GrowthData {
   cumulative: number
 }
 
+interface ApiResponse {
+  success: boolean
+  data?: GrowthData[]
+  totalGrowth?: number
+  error?: string
+}
+
 export default function GrowthChart() {
   const [growthData, setGrowthData] = useState<GrowthData[]>([])
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d'>('7d')
-  const [useMockData, setUseMockData] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
   const chartContainerRef = useRef<HTMLDivElement>(null)
 
-  // 获取增长数据
-  const fetchGrowthData = async () => {
-    setLoading(true)
+  // 获取增长数据 - 改进版本
+  const fetchGrowthData = useCallback(async (forceRetry = false) => {
+    if (!forceRetry) {
+      setLoading(true)
+    }
+    setError(null)
+    
     try {
+      console.log(`📊 请求增长数据，范围: ${timeRange}，重试次数: ${retryCount}`)
+      
       const response = await fetch(`/api/admin/users/growth?range=${timeRange}`, {
         credentials: 'include',
+        cache: 'no-store', // 不缓存，获取最新数据
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
       })
       
       console.log('📊 图表API响应状态:', response.status)
       
-      if (response.ok) {
-        const result = await response.json()
-        console.log('📊 图表API返回数据详情:', {
-          success: result.success,
-          数据长度: result.data?.length,
-          总增长: result.totalGrowth,
-          第一条数据: result.data?.[0]
-        })
-        
-        if (result.success && result.data && Array.isArray(result.data)) {
-          setGrowthData(result.data)
-          setUseMockData(false)
-        } else {
-          console.warn('图表API返回数据格式不正确，使用模拟数据')
-          setUseMockData(true)
-          generateMockData()
-        }
-      } else {
-        console.warn('图表API调用失败，使用模拟数据')
-        setUseMockData(true)
-        generateMockData()
+      const result: ApiResponse = await response.json()
+      console.log('📊 图表API返回数据:', result)
+      
+      if (!response.ok) {
+        throw new Error(`API请求失败 (${response.status}): ${result.error || '未知错误'}`)
       }
-    } catch (error) {
-      console.error('获取增长数据失败:', error)
-      setUseMockData(true)
-      generateMockData()
+      
+      if (!result.success) {
+        throw new Error(result.error || 'API返回未知错误')
+      }
+      
+      if (!result.data || !Array.isArray(result.data)) {
+        throw new Error('API返回数据格式不正确')
+      }
+      
+      if (result.data.length === 0) {
+        console.warn('图表API返回空数据，可能没有用户数据')
+      }
+      
+      // 验证数据格式
+      const validData = result.data.filter(item => 
+        item && 
+        typeof item.date === 'string' && 
+        typeof item.count === 'number' && 
+        typeof item.cumulative === 'number'
+      )
+      
+      if (validData.length === 0 && result.data.length > 0) {
+        throw new Error('数据格式验证失败')
+      }
+      
+      setGrowthData(validData)
+      setLastUpdated(new Date())
+      setRetryCount(0) // 重置重试计数
+      
+    } catch (error: any) {
+      console.error('❌ 获取增长数据失败:', error)
+      
+      // 只有在没有重试过的情况下才显示错误
+      if (retryCount < 2 && !forceRetry) {
+        console.log(`🔄 第 ${retryCount + 1} 次重试...`)
+        setRetryCount(prev => prev + 1)
+        // 2秒后重试
+        setTimeout(() => {
+          fetchGrowthData(true)
+        }, 2000)
+      } else {
+        setError(error.message || '获取增长数据失败')
+        // 生成降级数据，而不是模拟数据
+        setGrowthData(generateFallbackData())
+      }
     } finally {
-      setLoading(false)
+      if (!forceRetry) {
+        setLoading(false)
+      }
     }
-  }
+  }, [timeRange, retryCount])
 
-  // 模拟数据（如果API未实现）
-  const generateMockData = () => {
-    const mockData: GrowthData[] = []
+  // 生成降级数据（零数据，而不是模拟数据）
+  const generateFallbackData = (): GrowthData[] => {
     const days = timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 90
+    const fallbackData: GrowthData[] = []
     
-    // 创建日期范围
     for (let i = 0; i < days; i++) {
       const date = new Date()
       date.setDate(date.getDate() - (days - 1 - i))
       
-      // 生成递增的新增用户数（模拟增长趋势）
-      const baseCount = Math.floor(Math.random() * 3) + 1
-      const trendFactor = 1 + (i * 0.1) // 模拟增长趋势
-      const newUsers = Math.floor(baseCount * trendFactor)
-      
-      // 计算累计用户数（从30开始）
-      const cumulative = 30 + mockData.reduce((sum, day) => sum + day.count, 0) + newUsers
-      
-      mockData.push({
-        date: date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }),
-        count: newUsers,
-        cumulative: cumulative
+      fallbackData.push({
+        date: date.toLocaleDateString('zh-CN', { 
+          month: 'short', 
+          day: 'numeric' 
+        }),
+        count: 0,
+        cumulative: 0
       })
     }
     
-    setGrowthData(mockData)
+    return fallbackData
   }
 
+  // 初始化加载和监听timeRange变化
   useEffect(() => {
     fetchGrowthData()
-  }, [timeRange])
+  }, [timeRange, fetchGrowthData])
 
   // 计算统计
   const totalGrowth = growthData.reduce((sum, day) => sum + day.count, 0)
-  const maxCount = Math.max(...growthData.map(d => d.count), 1)
+  const maxCount = Math.max(...growthData.map(d => d.count), 1) // 至少为1，避免除零
 
   // 获取柱子颜色 - 根据数据量使用不同颜色
   const getBarColor = (count: number) => {
@@ -103,15 +144,79 @@ export default function GrowthChart() {
     return 'from-blue-700 to-blue-600'
   }
 
-  // 获取柱子高度 - 使用像素单位避免百分比问题
-  const getBarHeight = (count: number, maxCount: number) => {
-    const MAX_PIXEL_HEIGHT = 80; // 最大80px高度（容器h-32约128px）
+  // 获取柱子高度 - 使用像素单位
+  const getBarHeight = (count: number): string => {
+    const MAX_PIXEL_HEIGHT = 80
+    const MIN_PIXEL_HEIGHT = 12
     
-    if (count === 0) return '12px'; // 0数据固定12px高度，比10px稍微明显一点
+    if (count === 0) return `${MIN_PIXEL_HEIGHT}px`
     
-    // 使用像素单位，避免百分比计算问题
-    const pixelHeight = (count / maxCount) * MAX_PIXEL_HEIGHT;
-    return `${Math.max(pixelHeight, 12)}px`; // 最小12px
+    const pixelHeight = (count / maxCount) * MAX_PIXEL_HEIGHT
+    return `${Math.max(pixelHeight, MIN_PIXEL_HEIGHT)}px`
+  }
+
+  // 手动刷新
+  const handleRefresh = () => {
+    setRetryCount(0)
+    fetchGrowthData()
+  }
+
+  // 计算增长趋势
+  const calculateGrowthTrend = () => {
+    if (growthData.length < 2) return 0
+    
+    const firstDay = growthData[0].count
+    const lastDay = growthData[growthData.length - 1].count
+    
+    if (firstDay === 0) return lastDay > 0 ? 100 : 0
+    
+    return ((lastDay - firstDay) / firstDay) * 100
+  }
+
+  // 渲染错误状态
+  if (error) {
+    return (
+      <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 h-full">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-sm text-gray-400 flex items-center">
+              <Users className="w-4 h-4 mr-1" />
+              用户增长趋势
+            </p>
+          </div>
+          <div className="flex space-x-1">
+            {(['7d', '30d', '90d'] as const).map((range) => (
+              <button
+                key={range}
+                className={`px-2 py-1 text-xs rounded transition-colors ${
+                  timeRange === range
+                    ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-300'
+                }`}
+                onClick={() => {
+                  setTimeRange(range)
+                  setError(null)
+                }}
+              >
+                {range}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        <div className="h-40 flex flex-col items-center justify-center border border-red-500/30 rounded-lg bg-red-500/10 p-4">
+          <AlertCircle className="w-8 h-8 text-red-400 mb-2" />
+          <p className="text-red-400 text-sm text-center mb-2">{error}</p>
+          <button
+            onClick={handleRefresh}
+            className="px-3 py-1 bg-red-500/20 text-red-400 rounded text-sm hover:bg-red-500/30 transition-colors flex items-center"
+          >
+            <RefreshCw className="w-3 h-3 mr-1" />
+            重试
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -121,9 +226,9 @@ export default function GrowthChart() {
           <p className="text-sm text-gray-400 flex items-center">
             <Users className="w-4 h-4 mr-1" />
             用户增长趋势
-            {useMockData && (
-              <span className="ml-2 text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded">
-                模拟数据
+            {lastUpdated && (
+              <span className="ml-2 text-xs text-gray-500">
+                更新于 {lastUpdated.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
           </p>
@@ -141,6 +246,7 @@ export default function GrowthChart() {
                   : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-300'
               }`}
               onClick={() => setTimeRange(range)}
+              disabled={loading}
             >
               {range}
             </button>
@@ -151,24 +257,18 @@ export default function GrowthChart() {
       {loading ? (
         <div className="h-40 flex flex-col items-center justify-center">
           <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-          <p className="text-gray-400 text-sm">加载增长数据...</p>
+          <p className="text-gray-400 text-sm">
+            加载增长数据{retryCount > 0 ? ` (重试 ${retryCount})` : ''}...
+          </p>
         </div>
       ) : (
         <>
-          {/* 柱状图 - 使用像素单位修复 */}
+          {/* 柱状图 */}
           <div className="relative">
             <div className="flex items-end h-32 gap-1 mb-2">
               {growthData.map((day, index) => {
-                const height = getBarHeight(day.count, maxCount)
+                const height = getBarHeight(day.count)
                 const color = getBarColor(day.count)
-                
-                console.log(`📊 渲染柱子 ${index}:`, {
-                  日期: day.date,
-                  新增: day.count,
-                  高度: height,
-                  颜色: color,
-                  最大count: maxCount
-                })
                 
                 return (
                   <div key={index} className="flex-1 flex flex-col items-center group">
@@ -177,13 +277,10 @@ export default function GrowthChart() {
                     </div>
                     <div
                       className={`w-3/4 bg-gradient-to-t ${color} rounded-t-sm transition-all duration-300 hover:opacity-80 cursor-pointer group-hover:shadow-lg group-hover:shadow-blue-500/20`}
-                      style={{ 
-                        height: height,
-                        // 不再使用minHeight，因为getBarHeight已经返回了具体的像素值
-                      }}
+                      style={{ height }}
                       title={`${day.date}: 新增 ${day.count} 人，累计 ${day.cumulative} 人`}
                     />
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-xs text-gray-500 mt-1 truncate w-full text-center">
                       {day.date.split('/')[1]}
                     </div>
                   </div>
@@ -208,7 +305,7 @@ export default function GrowthChart() {
             <div className="text-center">
               <p className="text-sm text-gray-400 mb-1">今日新增</p>
               <p className="text-lg font-bold text-white">
-                {growthData[growthData.length - 1]?.count || 0}
+                {growthData.length > 0 ? growthData[growthData.length - 1]?.count || 0 : 0}
               </p>
             </div>
             <div className="text-center">
@@ -219,12 +316,12 @@ export default function GrowthChart() {
             </div>
             <div className="text-center">
               <p className="text-sm text-gray-400 mb-1">增长率</p>
-              <p className="text-lg font-bold text-green-400 flex items-center justify-center">
+              <p className="text-lg font-bold flex items-center justify-center">
                 <TrendingUp className="w-4 h-4 mr-1" />
-                {totalGrowth > 0 ? '+' : ''}
-                {growthData.length > 1 
-                  ? ((totalGrowth / (growthData[0]?.cumulative || 1)) * 100).toFixed(1)
-                  : '0.0'}%
+                <span className={calculateGrowthTrend() >= 0 ? 'text-green-400' : 'text-red-400'}>
+                  {calculateGrowthTrend() >= 0 ? '+' : ''}
+                  {calculateGrowthTrend().toFixed(1)}%
+                </span>
               </p>
             </div>
           </div>
@@ -232,14 +329,11 @@ export default function GrowthChart() {
           {/* 刷新按钮 */}
           <div className="mt-3 text-center">
             <button
-              onClick={fetchGrowthData}
-              className="text-xs text-blue-400 hover:text-blue-300 flex items-center justify-center mx-auto"
+              onClick={handleRefresh}
+              className="text-xs text-blue-400 hover:text-blue-300 flex items-center justify-center mx-auto px-3 py-1 rounded hover:bg-gray-800/50 transition-colors"
               disabled={loading}
             >
-              <svg className={`w-3 h-3 mr-1 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-              </svg>
+              <RefreshCw className={`w-3 h-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
               刷新数据
             </button>
           </div>
