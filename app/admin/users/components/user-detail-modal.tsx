@@ -154,15 +154,36 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   });
   const [loadingMoreAI, setLoadingMoreAI] = useState(false);
 
-  // 🔧 修复：获取API返回的总记录数
+  // 🔧 修复：获取API返回的总记录数 - 增强版
   const getTotalRecords = () => {
     if (!userDetail) return { keyTotal: 0, aiTotal: 0, gameTotal: 0 };
     
+    // 🔧 修复：添加详细的调试信息
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 获取总记录数，userDetail结构:', {
+        userDetailKeys: Object.keys(userDetail),
+        key_usage_history_total: userDetail.key_usage_history_total,
+        ai_usage_records_total: userDetail.ai_usage_records_total,
+        game_history_total: userDetail.game_history_total,
+        keyUsageHistoryTotal: userDetail.keyUsageHistoryTotal,
+        aiUsageRecordsTotal: userDetail.aiUsageRecordsTotal,
+        gameHistoryTotal: userDetail.gameHistoryTotal,
+        key_usage_history_length: userDetail.key_usage_history?.length,
+        ai_usage_records_length: userDetail.ai_usage_records?.length,
+        game_history_length: userDetail.game_history?.length
+      });
+    }
+    
+    // 🔧 修复：优先使用下划线格式，然后驼峰格式
+    const keyTotal = userDetail.key_usage_history_total || userDetail.keyUsageHistoryTotal || 0;
+    const aiTotal = userDetail.ai_usage_records_total || userDetail.aiUsageRecordsTotal || 0;
+    const gameTotal = userDetail.game_history_total || userDetail.gameHistoryTotal || 0;
+    
+    // 🔧 修复：如果总数为0，但数组有数据，使用数组长度（后备方案）
     return {
-      // 🔧 修复：从API返回的总数中获取
-      keyTotal: userDetail.key_usage_history_total || userDetail.keyUsageHistoryTotal || 0,
-      aiTotal: userDetail.ai_usage_records_total || userDetail.aiUsageRecordsTotal || 0,
-      gameTotal: userDetail.game_history_total || userDetail.gameHistoryTotal || 0
+      keyTotal: keyTotal > 0 ? keyTotal : (userDetail.key_usage_history?.length || 0),
+      aiTotal: aiTotal > 0 ? aiTotal : (userDetail.ai_usage_records?.length || 0),
+      gameTotal: gameTotal > 0 ? gameTotal : (userDetail.game_history?.length || 0)
     };
   };
 
@@ -188,6 +209,10 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
         const testCode = getKeyCode(userDetail.key_usage_history[0]);
         console.log('🔍 getKeyCode测试结果:', testCode);
       }
+      
+      // 调试标签页计数
+      const totals = getTotalRecords();
+      console.log('🔍 标签页计数计算结果:', totals);
     }
   }, [userDetail, isOpen]);
 
@@ -1711,10 +1736,15 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                     总页数: aiPagination.totalPages,
                     是否还有更多: aiPagination.hasMore
                   },
-                  '密钥记录总数': totals.keyTotal,
-                  'AI记录总数': totals.aiTotal,
-                  '游戏记录总数': totals.gameTotal,
+                  '标签页计数': totals,
+                  'API返回总数': {
+                    key_usage_history_total: userDetail.key_usage_history_total,
+                    ai_usage_records_total: userDetail.ai_usage_records_total,
+                    game_history_total: userDetail.game_history_total
+                  },
                   '密钥历史数量': keyUsageHistory.length,
+                  'AI记录数量': userDetail.ai_usage_records?.length,
+                  '游戏记录数量': userDetail.game_history?.length,
                   '第一条密钥历史': keyUsageHistory[0],
                   '第一条密钥代码': getKeyCode(keyUsageHistory[0]),
                   '当前密钥': currentAccessKey,
