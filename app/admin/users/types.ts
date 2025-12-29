@@ -76,6 +76,11 @@ export interface UserDetail {
   key_usage_history?: KeyUsageHistory[]
   current_access_key?: AccessKey
   
+  // 新增：标签页计数字段
+  key_usage_history_total?: number
+  ai_usage_records_total?: number
+  game_history_total?: number
+  
   // 驼峰命名兼容字段
   fullName?: string | null
   avatarUrl?: string | null
@@ -90,6 +95,11 @@ export interface UserDetail {
   gameHistory?: GameHistory[]
   keyUsageHistory?: KeyUsageHistory[]
   currentAccessKey?: AccessKey
+  
+  // 驼峰格式的计数字段
+  keyUsageHistoryTotal?: number
+  aiUsageRecordsTotal?: number
+  gameHistoryTotal?: number
 }
 
 // ============================================
@@ -151,15 +161,12 @@ export interface AIUsageRecord {
   // 驼峰命名兼容字段
   userId?: string
   createdAt?: string
-  feature?: string                    // ✅ 保持一致
   requestData?: any                   // ✅ 驼峰格式
   responseData?: any                  // ✅ 驼峰格式
-  success?: boolean                   // ✅ 保持一致
   
   // 🔧 前端显示字段（通过转换得到）
   inputText?: string                  // ✅ 从 request_data 提取
   responseText?: string               // ✅ 从 response_data 提取
-  model?: string                      // ✅ 从 feature 映射
   tokensUsed?: number | null          // ✅ 驼峰格式
   sessionId?: string | null           // ✅ 驼峰格式
 }
@@ -563,12 +570,10 @@ export function normalizeUserDetail(data: any): UserDetail {
       createdAt: formatDate(record.created_at || record.createdAt) || new Date().toISOString(),
       requestData: requestData,
       responseData: responseData,
-      success: success,
       
       // 前端显示字段
       inputText: inputText,
       responseText: responseText,
-      model: feature,
       tokensUsed: record.tokens_used || record.tokensUsed || null,
       sessionId: record.session_id || record.sessionId || null
     }
@@ -636,6 +641,11 @@ export function normalizeUserDetail(data: any): UserDetail {
     game_history: normalizeArray(data.game_history || data.gameHistory, normalizeGameHistory),
     key_usage_history: normalizeArray(data.key_usage_history || data.keyUsageHistory, normalizeKeyUsageHistory),
     
+    // 🔧 新增：标签页计数字段
+    key_usage_history_total: data.key_usage_history_total || data.keyUsageHistoryTotal || 0,
+    ai_usage_records_total: data.ai_usage_records_total || data.aiUsageRecordsTotal || 0,
+    game_history_total: data.game_history_total || data.gameHistoryTotal || 0,
+    
     // 当前访问密钥
     current_access_key: data.current_access_key || data.currentAccessKey 
       ? normalizeAccessKey(data.current_access_key || data.currentAccessKey)
@@ -656,7 +666,12 @@ export function normalizeUserDetail(data: any): UserDetail {
     keyUsageHistory: normalizeArray(data.key_usage_history || data.keyUsageHistory, normalizeKeyUsageHistory),
     currentAccessKey: data.current_access_key || data.currentAccessKey 
       ? normalizeAccessKey(data.current_access_key || data.currentAccessKey)
-      : undefined
+      : undefined,
+    
+    // 驼峰格式的计数字段
+    keyUsageHistoryTotal: data.key_usage_history_total || data.keyUsageHistoryTotal || 0,
+    aiUsageRecordsTotal: data.ai_usage_records_total || data.aiUsageRecordsTotal || 0,
+    gameHistoryTotal: data.game_history_total || data.gameHistoryTotal || 0
   }
   
   // 调试信息（开发环境）
