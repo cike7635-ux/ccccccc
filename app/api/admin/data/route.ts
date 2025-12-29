@@ -1,3 +1,4 @@
+// /app/api/admin/data/route.ts - 修复密钥查询版本
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -67,84 +68,15 @@ export async function GET(request: NextRequest) {
       console.log(`🔍 查询用户详情: ${detailId}`)
 
       try {
-        // 🔧 修复：并行查询所有相关数据（修复密钥查询关联）
-        const [profileResult, keyUsageHistoryResult, currentKeyResult, aiUsageResult, gameHistoriesResult] =
-          await Promise.allSettled([
-            // 用户基本信息
-            supabaseAdmin
-              .from('profiles')
-              .select('*')
-              .eq('id', detailId)
-              .single(),
+        // 🔧 修复：简化查询，避免复杂的关联关系
+        // 先查询用户基本信息
+        const { data: profileData, error: profileError } = await supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .eq('id', detailId)
+          .single()
 
-            // 🔥 关键修复：密钥使用历史查询 - 使用正确的关联关系
-            supabaseAdmin
-              .from('key_usage_history')
-              .select(`
-                *,
-                access_key:access_keys!key_usage_history_access_key_id_fkey (
-                  id,
-                  key_code,
-                  is_active,
-                  used_count,
-                  max_uses,
-                  key_expires_at,
-                  account_valid_for_days,
-                  user_id,
-                  used_at,
-                  created_at,
-                  updated_at
-                ),
-                operator:profiles!key_usage_history_operation_by_fkey (
-                  id,
-                  email,
-                  nickname
-                )
-              `)
-              .eq('user_id', detailId)
-              .order('used_at', { ascending: false })
-              .limit(20),
-
-            // 查询当前使用的密钥
-            supabaseAdmin
-              .from('profiles')
-              .select('access_key_id')
-              .eq('id', detailId)
-              .single()
-              .then(async (profile) => {
-                if (profile.data?.access_key_id) {
-                  return supabaseAdmin
-                    .from('access_keys')
-                    .select('*')
-                    .eq('id', profile.data.access_key_id)
-                    .single()
-                }
-                return { data: null, error: null }
-              }),
-
-            // AI使用记录
-            supabaseAdmin
-              .from('ai_usage_records')
-              .select('*')
-              .eq('user_id', detailId)
-              .order('created_at', { ascending: false })
-              .limit(20),
-
-            // 游戏历史记录
-            supabaseAdmin
-              .from('game_history')
-              .select('*')
-              .or(`player1_id.eq.${detailId},player2_id.eq.${detailId}`)
-              .order('started_at', { ascending: false })
-              .limit(10)
-          ])
-
-        // 处理查询结果
-        const profileData = profileResult.status === 'fulfilled' && profileResult.value.data
-          ? profileResult.value.data
-          : null
-
-        if (!profileData) {
+        if (profileError || !profileData) {
           console.error('❌ 用户不存在:', detailId)
           return NextResponse.json(
             { success: false, error: '用户不存在' },
@@ -152,178 +84,144 @@ export async function GET(request: NextRequest) {
           )
         }
 
-        // 处理密钥使用历史
-        const keyUsageHistory = keyUsageHistoryResult.status === 'fulfilled' && keyUsageHistoryResult.value.data
-          ? keyUsageHistoryResult.value.data
-          : []
+        // 🔧 修复：单独查询密钥使用历史
+        const { data: keyUsageHistory, error: keyUsageHistoryError } = await supabaseAdmin
+          .from('key_usage_history')
+          .select('*')
+          .eq('user_id', detailId)
+          .order('used_at', { ascending: false })
+          .limit(20)
 
-        console.log('🗝️ 密钥使用历史查询结果:', { 记录数量: keyUsageHistory.length })
+        console.log('🗝️ 密钥使用历史查询结果:', { 
+          记录数量: keyUsageHistory?.length || 0,
+          错误: keyUsageHistoryError?.message 
+        })
 
-        // 从使用历史中提取所有唯一密钥
-        const uniqueKeysMap = new Map<number, any>()
-        if (keyUsageHistory.length > 0) {
+        // 🔧 修复：单独查询当前使用的密钥
+        let currentKey = null
+        if (profileData.access_key_id) {
+          const { data: keyData, error: keyError } = await supabaseAdmin
+            .from('access_keys')
+            .select('*')
+            .eq('id', profileData.access_key_id)
+            .single()
+
+          if (!keyError && keyData) {
+            currentKey = keyData
+          }
+        }
+
+        // 🔧 修复：获取所有相关的密钥ID
+        const keyIds = new Set<number>()
+        if (keyUsageHistory && keyUsageHistory.length > 0) {
           keyUsageHistory.forEach(record => {
-            if (record.access_key && !uniqueKeysMap.has(record.access_key.id)) {
-              uniqueKeysMap.set(record.access_key.id, record.access_key)
-            }
+            if (record.access_key_id) keyIds.add(record.access_key_id)
+            if (record.previous_key_id) keyIds.add(record.previous_key_id)
+            if (record.next_key_id) keyIds.add(record.next_key_id)
           })
         }
+        if (currentKey?.id) keyIds.add(currentKey.id)
 
-        // 当前使用的密钥
-        let currentKey = null
-        if (currentKeyResult.status === 'fulfilled' && currentKeyResult.value.data) {
-          currentKey = currentKeyResult.value.data
-          if (currentKey && !uniqueKeysMap.has(currentKey.id)) {
-            uniqueKeysMap.set(currentKey.id, currentKey)
-          }
-        }
-
-        const allKeys = Array.from(uniqueKeysMap.values())
-
-        // AI记录
-        let aiUsageRecords = aiUsageResult.status === 'fulfilled' && aiUsageResult.value.data
-          ? aiUsageResult.value.data
-          : []
-
-        console.log('🤖 AI记录查询结果:', { 记录数量: aiUsageRecords.length })
-
-        // 如果AI记录查询异常，尝试直接查询
-        if (aiUsageRecords.length === 0) {
-          console.log('🔄 尝试直接查询AI记录...')
-          const { data: directAiRecords } = await supabaseAdmin
-            .from('ai_usage_records')
+        // 查询所有相关的密钥信息
+        let allKeys = []
+        if (keyIds.size > 0) {
+          const { data: keysData, error: keysError } = await supabaseAdmin
+            .from('access_keys')
             .select('*')
-            .eq('user_id', detailId)
-            .order('created_at', { ascending: false })
-            .limit(10)
+            .in('id', Array.from(keyIds))
 
-          if (directAiRecords && directAiRecords.length > 0) {
-            console.log('✅ 直接查询成功，获取到AI记录:', directAiRecords.length)
-            aiUsageRecords = directAiRecords
+          if (!keysError && keysData) {
+            allKeys = keysData
           }
         }
 
-        // 游戏记录
-        const gameHistory = gameHistoriesResult.status === 'fulfilled' && gameHistoriesResult.value.data
-          ? gameHistoriesResult.value.data
-          : []
+        // 创建密钥ID到密钥对象的映射
+        const keyMap = new Map<number, any>()
+        allKeys.forEach(key => {
+          keyMap.set(key.id, key)
+        })
+
+        // 🔧 修复：AI使用记录查询
+        const { data: aiUsageRecords, error: aiUsageError } = await supabaseAdmin
+          .from('ai_usage_records')
+          .select('*')
+          .eq('user_id', detailId)
+          .order('created_at', { ascending: false })
+          .limit(10) // 初始只查询10条，用于分页
+
+        console.log('🤖 AI记录查询结果:', { 
+          记录数量: aiUsageRecords?.length || 0,
+          错误: aiUsageError?.message 
+        })
+
+        // 游戏历史记录
+        const { data: gameHistory, error: gameHistoryError } = await supabaseAdmin
+          .from('game_history')
+          .select('*')
+          .or(`player1_id.eq.${detailId},player2_id.eq.${detailId}`)
+          .order('started_at', { ascending: false })
+          .limit(10)
 
         console.log('✅ 用户详情查询成功:', {
           用户: profileData.email,
-          唯一密钥数: allKeys.length,
-          AI记录数: aiUsageRecords.length,
-          游戏记录数: gameHistory.length,
+          密钥记录数: keyUsageHistory?.length || 0,
+          AI记录数: aiUsageRecords?.length || 0,
+          游戏记录数: gameHistory?.length || 0,
           当前密钥: currentKey ? currentKey.key_code : '无'
         })
 
-        // 统一使用下划线命名
+        // 构建响应数据
+        const responseData = {
+          id: profileData.id,
+          email: profileData.email,
+          nickname: profileData.nickname,
+          full_name: profileData.full_name,
+          avatar_url: profileData.avatar_url,
+          bio: profileData.bio,
+          preferences: profileData.preferences,
+          account_expires_at: profileData.account_expires_at,
+          last_login_at: profileData.last_login_at,
+          last_login_session: profileData.last_login_session,
+          access_key_id: profileData.access_key_id,
+          created_at: profileData.created_at,
+          updated_at: profileData.updated_at,
+
+          // 密钥使用历史，包含密钥信息
+          key_usage_history: (keyUsageHistory || []).map(record => ({
+            id: record.id,
+            user_id: record.user_id,
+            access_key_id: record.access_key_id,
+            used_at: record.used_at,
+            usage_type: record.usage_type || 'activate',
+            previous_key_id: record.previous_key_id,
+            next_key_id: record.next_key_id,
+            operation_by: record.operation_by,
+            notes: record.notes,
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+
+            // 关联的密钥信息
+            access_key: record.access_key_id ? keyMap.get(record.access_key_id) : null,
+            previous_key: record.previous_key_id ? keyMap.get(record.previous_key_id) : null,
+            next_key: record.next_key_id ? keyMap.get(record.next_key_id) : null
+          })),
+
+          // 当前使用的密钥
+          current_access_key: currentKey,
+
+          // 所有相关的密钥
+          access_keys: allKeys,
+
+          // AI使用记录
+          ai_usage_records: aiUsageRecords || [],
+
+          // 游戏历史记录
+          game_history: gameHistory || []
+        }
+
         return NextResponse.json({
           success: true,
-          data: {
-            // 基本字段（下划线命名）
-            id: profileData.id,
-            email: profileData.email,
-            nickname: profileData.nickname,
-            full_name: profileData.full_name,
-            avatar_url: profileData.avatar_url,
-            bio: profileData.bio,
-            preferences: profileData.preferences,
-            account_expires_at: profileData.account_expires_at,
-            last_login_at: profileData.last_login_at,
-            last_login_session: profileData.last_login_session,
-            access_key_id: profileData.access_key_id,
-            created_at: profileData.created_at,
-            updated_at: profileData.updated_at,
-
-            // 密钥使用历史（下划线命名）
-            key_usage_history: keyUsageHistory.map(record => ({
-              id: record.id,
-              user_id: record.user_id,
-              access_key_id: record.access_key_id,
-              used_at: record.used_at,
-              usage_type: record.usage_type || 'activate',
-              previous_key_id: record.previous_key_id,
-              next_key_id: record.next_key_id,
-              operation_by: record.operation_by,
-              notes: record.notes,
-              created_at: record.created_at,
-              updated_at: record.updated_at,
-
-              access_key: record.access_key ? {
-                id: record.access_key.id,
-                key_code: record.access_key.key_code,
-                is_active: record.access_key.is_active,
-                used_count: record.access_key.used_count,
-                max_uses: record.access_key.max_uses,
-                key_expires_at: record.access_key.key_expires_at,
-                account_valid_for_days: record.access_key.account_valid_for_days,
-                user_id: record.access_key.user_id,
-                used_at: record.access_key.used_at,
-                created_at: record.access_key.created_at,
-                updated_at: record.access_key.updated_at
-              } : null,
-
-              operator: record.operator ? {
-                id: record.operator.id,
-                email: record.operator.email,
-                nickname: record.operator.nickname
-              } : null
-            })),
-
-            // 当前使用的密钥（下划线命名）
-            current_access_key: currentKey ? {
-              id: currentKey.id,
-              key_code: currentKey.key_code,
-              is_active: currentKey.is_active,
-              used_count: currentKey.used_count,
-              max_uses: currentKey.max_uses,
-              key_expires_at: currentKey.key_expires_at,
-              account_valid_for_days: currentKey.account_valid_for_days,
-              user_id: currentKey.user_id,
-              used_at: currentKey.used_at,
-              created_at: currentKey.created_at,
-              updated_at: currentKey.updated_at
-            } : null,
-
-            // 所有密钥（下划线命名）
-            access_keys: allKeys.map(key => ({
-              id: key.id,
-              key_code: key.key_code,
-              is_active: key.is_active,
-              used_count: key.used_count,
-              max_uses: key.max_uses,
-              key_expires_at: key.key_expires_at,
-              account_valid_for_days: key.account_valid_for_days,
-              user_id: key.user_id,
-              used_at: key.used_at,
-              created_at: key.created_at,
-              updated_at: key.updated_at
-            })),
-
-            // AI使用记录（下划线命名）
-            ai_usage_records: aiUsageRecords.map(record => ({
-              id: record.id,
-              user_id: record.user_id,
-              feature: record.feature,
-              created_at: record.created_at,
-              request_data: record.request_data,
-              response_data: record.response_data,
-              success: record.success
-            })),
-
-            // 游戏历史记录（下划线命名）
-            game_history: gameHistory.map(game => ({
-              id: game.id,
-              room_id: game.room_id,
-              session_id: game.session_id,
-              player1_id: game.player1_id,
-              player2_id: game.player2_id,
-              winner_id: game.winner_id,
-              started_at: game.started_at,
-              ended_at: game.ended_at,
-              task_results: game.task_results || []
-            }))
-          }
+          data: responseData
         })
 
       } catch (error: any) {
@@ -414,92 +312,24 @@ export async function GET(request: NextRequest) {
           })
         }
 
-        // 收集所有用户ID
-        const userIds = result.data.map((profile: any) => profile.id)
-
-        console.log(`🔑 为 ${userIds.length} 个用户查询密钥信息...`)
-
-        // 通过profiles.access_key_id关联查询密钥
+        // 收集所有需要查询的access_key_id
         const accessKeyIds = result.data
           .map((profile: any) => profile.access_key_id)
           .filter((id): id is number => id !== null && id !== undefined)
 
-        let accessKeysData = []
-        let accessKeysError = null
-
+        let keyMap = new Map()
         if (accessKeyIds.length > 0) {
-          // 方法1：直接通过access_key_id查询密钥表
-          const { data: keysById, error: error1 } = await supabaseAdmin
+          // 查询所有相关的密钥
+          const { data: keysData } = await supabaseAdmin
             .from('access_keys')
             .select('*')
             .in('id', accessKeyIds)
 
-          if (!error1 && keysById) {
-            accessKeysData = keysById
-            console.log(`✅ 通过access_key_id查询到 ${accessKeysData.length} 条密钥记录`)
-          } else {
-            console.warn('通过access_key_id查询密钥失败，尝试备用方案:', error1)
-
-            // 方法2（备用）：通过key_usage_history表关联查询
-            const { data: keyUsageData, error: error2 } = await supabaseAdmin
-              .from('key_usage_history')
-              .select(`
-                access_key:access_keys (
-                  id,
-                  key_code,
-                  is_active,
-                  used_count,
-                  max_uses,
-                  key_expires_at,
-                  account_valid_for_days,
-                  user_id,
-                  used_at,
-                  created_at,
-                  updated_at
-                )
-              `)
-              .in('user_id', userIds)
-              .order('used_at', { ascending: false })
-
-            if (!error2 && keyUsageData) {
-              // 从key_usage_history中提取唯一的密钥
-              const uniqueKeys = new Map()
-              keyUsageData.forEach(record => {
-                if (record.access_key && !uniqueKeys.has(record.access_key.id)) {
-                  uniqueKeys.set(record.access_key.id, record.access_key)
-                }
-              })
-              accessKeysData = Array.from(uniqueKeys.values())
-              console.log(`✅ 通过key_usage_history查询到 ${accessKeysData.length} 条密钥记录`)
-            } else {
-              accessKeysError = error2
-            }
+          if (keysData) {
+            keysData.forEach(key => {
+              keyMap.set(key.id, key)
+            })
           }
-        }
-
-        if (accessKeysError) {
-          console.error('❌ 查询用户密钥失败:', accessKeysError)
-          // 即使密钥查询失败，也返回用户数据（只是没有密钥信息）
-          return NextResponse.json({
-            success: true,
-            data: result.data,
-            pagination: {
-              total: result.count || 0,
-              page,
-              limit,
-              totalPages: Math.ceil((result.count || 0) / limit)
-            }
-          })
-        }
-
-        console.log(`✅ 获取到 ${accessKeysData?.length || 0} 条密钥记录`)
-
-        // 建立 access_key_id 到密钥对象的映射
-        const keyMap = new Map()
-        if (accessKeysData && accessKeysData.length > 0) {
-          accessKeysData.forEach((key: any) => {
-            keyMap.set(key.id, key)
-          })
         }
 
         // 为每个用户添加密钥信息
@@ -509,13 +339,6 @@ export async function GET(request: NextRequest) {
           if (profile.access_key_id && keyMap.has(profile.access_key_id)) {
             currentAccessKey = keyMap.get(profile.access_key_id)
           }
-
-          console.log(`用户 ${profile.email} 的密钥查找:`, {
-            access_key_id: profile.access_key_id,
-            是否找到: !!currentAccessKey,
-            密钥代码: currentAccessKey?.key_code,
-            密钥ID: currentAccessKey?.id
-          })
 
           return {
             ...profile,
