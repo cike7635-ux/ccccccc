@@ -78,66 +78,66 @@ export async function GET(request: NextRequest) {
               .eq('id', detailId)
               .single(),
 
-            // 查询密钥使用历史
-            supabaseAdmin
-              .from('key_usage_history')
-              .select(`
-                *,
-                access_key:access_keys (
-                  id,
-                  key_code,
-                  is_active,
-                  used_count,
-                  max_uses,
-                  key_expires_at,
-                  account_valid_for_days,
-                  user_id,
-                  used_at,
-                  created_at,
-                  updated_at
-                ),
-                operator:profiles!key_usage_history_operation_by_fkey (
-                  id,
-                  email,
-                  nickname
-                )
-              `)
-              .eq('user_id', detailId)
-              .order('used_at', { ascending: false })
-              .limit(20),
+          
+        // 修复第76行左右的查询
+// 查询密钥使用历史
+const { data: keyUsageHistory, error: keyUsageHistoryError } = await supabaseAdmin
+  .from('key_usage_history')
+  .select(`
+    *,
+    access_key:access_keys!key_usage_history_access_key_id_fkey (*),
+    next_key:access_keys!key_usage_history_next_key_id_fkey (
+      id,
+      key_code,
+      is_active
+    ),
+    previous_key:access_keys!key_usage_history_previous_key_id_fkey (
+      id,
+      key_code,
+      is_active
+    ),
+    operator:profiles!key_usage_history_operation_by_fkey (
+      id,
+      email,
+      nickname
+    )
+  `)
+  .eq('user_id', detailId)
+  .order('used_at', { ascending: false })
+  .limit(20);
 
-            // 查询当前使用的密钥
-            supabaseAdmin
-              .from('profiles')
-              .select('access_key_id')
-              .eq('id', detailId)
-              .single()
-              .then(async (profile) => {
-                if (profile.data?.access_key_id) {
-                  return supabaseAdmin
-                    .from('access_keys')
-                    .select('*')
-                    .eq('id', profile.data.access_key_id)
-                    .single()
-                }
-                return { data: null, error: null }
-              }),
+        // 查询当前使用的密钥
+        supabaseAdmin
+          .from('profiles')
+          .select('access_key_id')
+          .eq('id', detailId)
+          .single()
+          .then(async (profile) => {
+            if (profile.data?.access_key_id) {
+              return supabaseAdmin
+                .from('access_keys')
+                .select('*')
+                .eq('id', profile.data.access_key_id)
+                .single()
+            }
+            return { data: null, error: null }
+          }),
 
-            // AI使用记录
-            supabaseAdmin
-              .from('ai_usage_records')
-              .select('*')
-              .eq('user_id', detailId)
-              .order('created_at', { ascending: false })
-              .limit(20),
+          // AI使用记录
+          supabaseAdmin
+            .from('ai_usage_records')
+            .select('*')
+            .eq('user_id', detailId)
+            .order('created_at', { ascending: false })
+            .limit(20),
 
-            // 游戏历史记录
-            supabaseAdmin
-              .from('game_history')
-              .select('*')
-              .or(`player1_id.eq.${detailId},player2_id.eq.${detailId}`)
-              .order('started_at', { ascending: false })
-              .limit(10)
+          // 游戏历史记录
+          supabaseAdmin
+            .from('game_history')
+            .select('*')
+            .or(`player1_id.eq.${detailId},player2_id.eq.${detailId}`)
+            .order('started_at', { ascending: false })
+            .limit(10)
           ])
 
         // 处理查询结果
