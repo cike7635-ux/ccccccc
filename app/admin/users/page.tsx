@@ -1,4 +1,4 @@
-// /app/admin/users/page.tsx - 完整修复版本
+// /app/admin/users/page.tsx - 完整修复版本，添加会员到期时间列
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -152,7 +152,7 @@ export default function UsersPage() {
         }
 
         // 获取性别
-        const gender = getGenderDisplay(profile.preferences)
+        const gender = getGenderDisplay(profile.preferences, profile.gender_display)
 
         // 计算用户活跃状态
         const userActive = isUserActive(profile.last_login_at)
@@ -217,67 +217,66 @@ export default function UsersPage() {
   }
 
   // 获取用户详情
- // 找到第152行附近的 fetchUserDetail 函数，修改如下：
-const fetchUserDetail = async (userId: string) => {
-  setDetailLoading(true)
-  setSelectedUserDetail(null)
-
-  try {
-    // 🔧 修复：使用正确的API端点
-    const response = await fetch(`/api/admin/data?table=profiles&detailId=${userId}`, {
-      credentials: 'include',
-      cache: 'no-cache',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-
-    console.log('🔍 获取用户详情API响应:', {
-      status: response.status,
-      ok: response.ok,
-      url: response.url
-    })
-
-    if (!response.ok) {
-      throw new Error(`获取详情失败: ${response.status}`)
-    }
-
-    const result = await response.json()
-    console.log('📊 用户详情API返回数据:', {
-      success: result.success,
-      hasData: !!result.data,
-      dataKeys: result.data ? Object.keys(result.data) : [],
-      aiRecordsCount: result.data?.ai_usage_records?.length || 0
-    })
-
-    if (!result.success) {
-      throw new Error(result.error || '未找到用户详情')
-    }
-
-    if (!result.data) {
-      throw new Error('API返回数据为空')
-    }
-
-    // 🔥 关键修复：确保数据格式正确
-    const userDetail = normalizeUserDetail(result.data)
-    
-    console.log('✅ 归一化后的用户详情:', {
-      id: userDetail.id,
-      email: userDetail.email,
-      aiRecords: userDetail.ai_usage_records?.length || 0,
-      accessKeys: userDetail.access_keys?.length || 0
-    })
-    
-    setSelectedUserDetail(userDetail)
-
-  } catch (error: any) {
-    console.error('❌ 获取用户详情失败:', error)
+  const fetchUserDetail = async (userId: string) => {
+    setDetailLoading(true)
     setSelectedUserDetail(null)
-    showMessage('error', `获取用户详情失败: ${error.message}`)
-  } finally {
-    setDetailLoading(false)
+
+    try {
+      // 🔧 修复：使用正确的API端点
+      const response = await fetch(`/api/admin/data?table=profiles&detailId=${userId}`, {
+        credentials: 'include',
+        cache: 'no-cache',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      console.log('🔍 获取用户详情API响应:', {
+        status: response.status,
+        ok: response.ok,
+        url: response.url
+      })
+
+      if (!response.ok) {
+        throw new Error(`获取详情失败: ${response.status}`)
+      }
+
+      const result = await response.json()
+      console.log('📊 用户详情API返回数据:', {
+        success: result.success,
+        hasData: !!result.data,
+        dataKeys: result.data ? Object.keys(result.data) : [],
+        aiRecordsCount: result.data?.ai_usage_records?.length || 0
+      })
+
+      if (!result.success) {
+        throw new Error(result.error || '未找到用户详情')
+      }
+
+      if (!result.data) {
+        throw new Error('API返回数据为空')
+      }
+
+      // 🔥 关键修复：确保数据格式正确
+      const userDetail = normalizeUserDetail(result.data)
+      
+      console.log('✅ 归一化后的用户详情:', {
+        id: userDetail.id,
+        email: userDetail.email,
+        aiRecords: userDetail.ai_usage_records?.length || 0,
+        accessKeys: userDetail.access_keys?.length || 0
+      })
+      
+      setSelectedUserDetail(userDetail)
+
+    } catch (error: any) {
+      console.error('❌ 获取用户详情失败:', error)
+      setSelectedUserDetail(null)
+      showMessage('error', `获取用户详情失败: ${error.message}`)
+    } finally {
+      setDetailLoading(false)
+    }
   }
-}
 
   // 显示操作消息
   const showMessage = useCallback((type: 'success' | 'error', message: string) => {
@@ -372,22 +371,43 @@ const fetchUserDetail = async (userId: string) => {
       : <SortDesc className="w-4 h-4 text-blue-400" />
   }
 
-  // 批量操作
+  // 🔥 优化批量操作函数
   const handleBatchAction = async (action: 'disable' | 'enable' | 'delete') => {
     if (!selectedUsers.length) {
       showMessage('error', '请先选择用户')
       return
     }
 
-    const actionNames = {
-      disable: { text: '禁用', confirm: '确定要禁用这些账户吗？\n\n禁用后用户将无法登录系统。' },
-      enable: { text: '启用', confirm: '确定要启用这些账户吗？\n\n启用后用户将恢复会员权限。' },
-      delete: { text: '删除', confirm: '确定要删除这些账户吗？\n\n此操作会将用户标记为删除，但保留历史数据。' }
+    // 🔥 优化确认对话框
+    const actionConfigs = {
+      disable: { 
+        text: '禁用', 
+        confirm: `确定要禁用这 ${selectedUsers.length} 个账户吗？\n\n禁用后用户将无法登录系统。`,
+        warning: '此操作会影响用户的登录权限。'
+      },
+      enable: { 
+        text: '启用', 
+        confirm: `确定要启用这 ${selectedUsers.length} 个账户吗？\n\n启用后用户将恢复会员权限。`,
+        warning: '此操作会恢复用户的会员权限。'
+      },
+      delete: { 
+        text: '删除', 
+        confirm: `⚠️ 重要警告：确定要删除这 ${selectedUsers.length} 个账户吗？\n\n此操作会将用户标记为删除，但保留历史数据。\n用户邮箱将被修改为 deleted_ 前缀，无法再登录。`,
+        warning: '此操作是软删除，用户数据会保留但无法登录。'
+      }
     }
 
-    const { text, confirm: confirmText } = actionNames[action]
+    const config = actionConfigs[action]
+    const userCount = selectedUsers.length
+    
+    // 创建更友好的确认消息
+    const confirmMessage = `${config.confirm}\n\n操作涉及 ${userCount} 个用户：\n${users
+      .filter(u => selectedUsers.includes(u.id))
+      .slice(0, 5) // 只显示前5个用户，避免太长
+      .map(u => `• ${u.nickname || u.email}`)
+      .join('\n')}${userCount > 5 ? `\n... 等 ${userCount} 个用户` : ''}`
 
-    if (!confirm(`${confirmText}\n\n涉及 ${selectedUsers.length} 个用户`)) return
+    if (!confirm(confirmMessage)) return
 
     setBatchActionLoading(true)
 
@@ -400,7 +420,7 @@ const fetchUserDetail = async (userId: string) => {
         body: JSON.stringify({
           userIds: selectedUsers,
           action: action,
-          reason: `管理员批量${text}操作`
+          reason: `管理员批量${config.text}操作 - ${new Date().toLocaleString()}`
         }),
         credentials: 'include',
       })
@@ -408,30 +428,39 @@ const fetchUserDetail = async (userId: string) => {
       const result = await response.json()
 
       if (result.success) {
-        showMessage('success', `成功${text}了 ${result.data.affectedCount} 个用户`)
+        showMessage('success', `✅ 成功${config.text}了 ${result.data.affectedCount} 个用户`)
         setSelectedUsers([])
         setShowBatchMenu(false)
-        fetchUsers(true) // 强制刷新
-        fetchStats() // 刷新统计数据
+        
+        // 延迟刷新，给服务器一点时间处理
+        setTimeout(() => {
+          fetchUsers(true)
+          fetchStats()
+        }, 1000)
       } else {
         throw new Error(result.error || '操作失败')
       }
     } catch (error: any) {
-      console.error(`批量${text}失败:`, error)
-      showMessage('error', `批量${text}失败: ${error.message}`)
+      console.error(`批量${config.text}失败:`, error)
+      showMessage('error', `❌ 批量${config.text}失败: ${error.message}`)
     } finally {
       setBatchActionLoading(false)
     }
   }
 
-  // 🔧 修复：全选/取消全选逻辑
+  // 🔧 优化：全选/取消全选逻辑
   const handleSelectAll = () => {
     if (selectedUsers.length === users.length && users.length > 0) {
-      // 取消全选
+      // 取消全选当前页
       setSelectedUsers([])
     } else {
       // 全选当前页
-      setSelectedUsers(users.map(user => user.id))
+      const currentPageUserIds = users.map(user => user.id)
+      setSelectedUsers(prev => {
+        // 合并已选中的用户（可能来自其他页面）和当前页用户
+        const combined = new Set([...prev, ...currentPageUserIds])
+        return Array.from(combined)
+      })
     }
   }
 
@@ -524,6 +553,22 @@ const fetchUserDetail = async (userId: string) => {
         >
           ×
         </button>
+      </div>
+    )
+  }
+
+  // 🔧 批量操作状态显示组件
+  const BatchOperationStatus = () => {
+    if (!batchActionLoading || selectedUsers.length === 0) return null
+
+    return (
+      <div className="fixed bottom-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg bg-blue-500/20 border border-blue-500/30 animate-fade-in">
+        <div className="flex items-center">
+          <Loader2 className="w-5 h-5 mr-2 text-blue-400 animate-spin" />
+          <span className="text-blue-300 text-sm">
+            正在批量处理 {selectedUsers.length} 个用户...
+          </span>
+        </div>
       </div>
     )
   }
@@ -728,6 +773,7 @@ const fetchUserDetail = async (userId: string) => {
       
       {/* 操作消息 */}
       <OperationMessage />
+      <BatchOperationStatus />
 
       {/* 页面标题与操作区 */}
       <div className="mb-4 md:mb-6">
@@ -867,9 +913,11 @@ const fetchUserDetail = async (userId: string) => {
               { value: 'all', label: '全部用户' },
               { value: 'premium', label: '会员用户' },
               { value: 'free', label: '免费用户' },
-              { value: 'active24h', label: '24h活跃' },
               { value: 'expired', label: '已过期' },
-              { value: 'active', label: '当前活跃' }
+              { value: 'active24h', label: '24h活跃' },
+              { value: 'active', label: '当前活跃' },
+              { value: 'male', label: '男性' },
+              { value: 'female', label: '女性' },
             ].map((item) => (
               <button
                 key={item.value}
@@ -1027,6 +1075,16 @@ const fetchUserDetail = async (userId: string) => {
                         <span className="ml-1">{getSortIcon('lastLogin')}</span>
                       </button>
                     </th>
+                    {/* 🔥 新增：会员到期时间列 */}
+                    <th className="text-left py-2 md:py-3 px-2 md:px-3 lg:px-4 text-gray-400 font-medium text-xs md:text-sm table-header-cell">
+                      <button
+                        className="flex items-center hover:text-gray-300 transition-colors"
+                        onClick={() => handleSort('accountExpires')}
+                      >
+                        会员到期时间
+                        <span className="ml-1">{getSortIcon('accountExpires')}</span>
+                      </button>
+                    </th>
                     <th className="text-left py-2 md:py-3 px-2 md:px-3 lg:px-4 text-gray-400 font-medium text-xs md:text-sm table-header-cell">
                       <button
                         className="flex items-center hover:text-gray-300 transition-colors"
@@ -1112,6 +1170,12 @@ const fetchUserDetail = async (userId: string) => {
                       </td>
                       <td className="py-2 md:py-3 px-2 md:px-3 lg:px-4 table-cell">
                         {renderLastLoginCell(user)}
+                      </td>
+                      {/* 🔥 新增：会员到期时间单元格 */}
+                      <td className="py-2 md:py-3 px-2 md:px-3 lg:px-4 table-cell">
+                        <div className="text-gray-300 text-xs md:text-sm">
+                          {user.accountExpires}
+                        </div>
                       </td>
                       <td className="py-2 md:py-3 px-2 md:px-3 lg:px-4 table-cell">
                         <div className="text-gray-300 text-xs md:text-sm">

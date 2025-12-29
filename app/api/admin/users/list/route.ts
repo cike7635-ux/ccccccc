@@ -1,3 +1,4 @@
+// /app/api/admin/users/list/route.ts - 修复版，支持会员到期时间筛选和排序
 import { NextRequest, NextResponse } from 'next/server'
 
 // 创建Supabase管理员客户端
@@ -85,8 +86,7 @@ export async function GET(request: NextRequest) {
       page, limit, search, filter, sortField, sortDirection
     })
 
-    // 🔧 构建基础查询 - 排除已删除用户并添加性别虚拟列
-    // ✅ 修复：移除查询字符串中的注释，只保留有效的Supabase查询语法
+    // 🔧 构建基础查询 - 排除已删除用户
     let query = supabaseAdmin
       .from('profiles')
       .select(`
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
       query = query.or(`email.ilike.%${search}%,nickname.ilike.%${search}%`)
     }
     
-    // 筛选条件
+    // 🔥 优化筛选条件 - 添加会员状态筛选
     const now = new Date().toISOString()
     const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString()
     
@@ -145,7 +145,7 @@ export async function GET(request: NextRequest) {
       // 'all' 不添加筛选
     }
     
-    // 🔧 排序字段映射 - 修复性别排序
+    // 🔧 排序字段映射 - 支持会员到期时间排序
     const sortMapping: Record<string, string> = {
       'createdAt': 'created_at',
       'lastLogin': 'last_login_at',
@@ -153,7 +153,7 @@ export async function GET(request: NextRequest) {
       'email': 'email',
       'nickname': 'nickname',
       'id': 'id',
-      'gender': 'preferences->>gender'  // ✅ 添加性别排序支持
+      'gender': 'preferences->>gender'
     }
     
     const dbSortField = sortMapping[sortField] || sortField
