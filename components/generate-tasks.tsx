@@ -6,19 +6,46 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Sparkles, X, CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react";
+import { 
+  Sparkles, 
+  X, 
+  CheckCircle2, 
+  AlertTriangle, 
+  RefreshCw, 
+  CalendarDays,
+  Clock,
+  Zap,
+  Infinity,
+  Loader2
+} from "lucide-react";
 import { bulkInsertTasks } from "@/app/themes/actions";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 
 type Suggestion = { description: string; type?: string; order_index?: number };
 
-// 使用统计类型
+// 新的使用统计类型
 interface UsageStats {
-  dailyUsed: number;
-  monthlyUsed: number;
-  dailyRemaining: number;
-  monthlyRemaining: number;
+  daily: {
+    used: number;
+    remaining: number;
+    limit: number;
+  };
+  cycle: {
+    used: number;
+    remaining: number;
+    limit: number;
+  };
+  cycleInfo: {
+    startDate: string;
+    endDate: string;
+    daysRemaining: number;
+  };
+}
+
+interface AIGenerateResponse {
+  tasks: Array<{ description: string }>;
+  usage: UsageStats;
 }
 
 export default function GenerateTasksSection({ 
@@ -42,12 +69,23 @@ export default function GenerateTasksSection({
   const [preferences, setPreferences] = useState<{ gender?: string; kinks?: string[] }>({});
   const [mounted, setMounted] = useState(false);
   
-  // 使用统计状态
+  // 新的使用统计状态
   const [usageStats, setUsageStats] = useState<UsageStats>({
-    dailyUsed: 0,
-    monthlyUsed: 0,
-    dailyRemaining: 10,
-    monthlyRemaining: 120
+    daily: {
+      used: 0,
+      remaining: 10,
+      limit: 10
+    },
+    cycle: {
+      used: 0,
+      remaining: 120,
+      limit: 120
+    },
+    cycleInfo: {
+      startDate: new Date().toISOString(),
+      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      daysRemaining: 30
+    }
   });
   const [loadingStats, setLoadingStats] = useState(false);
 
@@ -81,29 +119,69 @@ export default function GenerateTasksSection({
       const res = await fetch("/api/ai/usage-stats");
       if (res.ok) {
         const data = await res.json();
-        setUsageStats({
-          dailyUsed: data.dailyUsed || 0,
-          monthlyUsed: data.monthlyUsed || 0,
-          dailyRemaining: Math.max(0, 10 - (data.dailyUsed || 0)),
-          monthlyRemaining: Math.max(0, 120 - (data.monthlyUsed || 0))
-        });
+        // 新API返回结构
+        if (data.daily && data.cycle && data.cycleInfo) {
+          setUsageStats(data);
+        } else {
+          // 兼容旧API结构
+          setUsageStats({
+            daily: {
+              used: data.dailyUsed || 0,
+              remaining: Math.max(0, 10 - (data.dailyUsed || 0)),
+              limit: 10
+            },
+            cycle: {
+              used: data.monthlyUsed || 0,
+              remaining: Math.max(0, 120 - (data.monthlyUsed || 0)),
+              limit: 120
+            },
+            cycleInfo: {
+              startDate: data.cycleStartDate || new Date().toISOString(),
+              endDate: data.cycleEndDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+              daysRemaining: data.daysRemaining || 30
+            }
+          });
+        }
       } else {
         // API 不存在时的降级处理
+        console.warn("AI使用统计API不可用，使用默认值");
         setUsageStats({
-          dailyUsed: 0,
-          monthlyUsed: 0,
-          dailyRemaining: 10,
-          monthlyRemaining: 120
+          daily: {
+            used: 0,
+            remaining: 10,
+            limit: 10
+          },
+          cycle: {
+            used: 0,
+            remaining: 120,
+            limit: 120
+          },
+          cycleInfo: {
+            startDate: new Date().toISOString(),
+            endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            daysRemaining: 30
+          }
         });
       }
     } catch (error) {
       console.error("获取使用统计失败:", error);
       // 失败时使用默认值
       setUsageStats({
-        dailyUsed: 0,
-        monthlyUsed: 0,
-        dailyRemaining: 10,
-        monthlyRemaining: 120
+        daily: {
+          used: 0,
+          remaining: 10,
+          limit: 10
+        },
+        cycle: {
+          used: 0,
+          remaining: 120,
+          limit: 120
+        },
+        cycleInfo: {
+          startDate: new Date().toISOString(),
+          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          daysRemaining: 30
+        }
       });
     } finally {
       setLoadingStats(false);
@@ -125,13 +203,13 @@ export default function GenerateTasksSection({
 
   const generate = async () => {
     // 检查剩余次数
-    if (usageStats.dailyRemaining <= 0) {
+    if (usageStats.daily.remaining <= 0) {
       setError("今日AI使用次数已达上限（10次/天），请明天再试");
       return;
     }
     
-    if (usageStats.monthlyRemaining <= 0) {
-      setError("本月AI使用次数已达上限（120次/月）");
+    if (usageStats.cycle.remaining <= 0) {
+      setError("当前周期AI使用次数已达上限（120次/30天）");
       return;
     }
 
@@ -155,11 +233,19 @@ export default function GenerateTasksSection({
         if (res.status === 429) {
           setError(json?.error || "使用次数已用完");
           if (json.details) {
+            // 更新使用统计
             setUsageStats({
-              dailyUsed: json.details.daily.used,
-              monthlyUsed: json.details.monthly.used,
-              dailyRemaining: 10 - json.details.daily.used,
-              monthlyRemaining: 120 - json.details.monthly.used
+              daily: {
+                used: json.details.daily.used,
+                remaining: Math.max(0, 10 - json.details.daily.used),
+                limit: 10
+              },
+              cycle: {
+                used: json.details.cycle.used,
+                remaining: Math.max(0, 120 - json.details.cycle.used),
+                limit: 120
+              },
+              cycleInfo: json.details.cycleInfo || usageStats.cycleInfo
             });
           }
           return;
@@ -167,19 +253,18 @@ export default function GenerateTasksSection({
         throw new Error(json?.error || "生成失败");
       }
       
-      setSuggestions(json.tasks || []);
+      // 类型断言
+      const aiResponse = json as AIGenerateResponse;
+      
+      setSuggestions(aiResponse.tasks || []);
       const initialSelection = Object.fromEntries(
-        (json.tasks || []).map((_: any, i: number) => [i, true])
+        (aiResponse.tasks || []).map((_: any, i: number) => [i, true])
       );
       setSelected(initialSelection);
       
-      if (json.usage) {
-        setUsageStats({
-          dailyUsed: json.usage.dailyUsed,
-          monthlyUsed: json.usage.monthlyUsed,
-          dailyRemaining: json.usage.dailyRemaining,
-          monthlyRemaining: json.usage.monthlyRemaining
-        });
+      // 更新使用统计
+      if (aiResponse.usage) {
+        setUsageStats(aiResponse.usage);
       }
       
     } catch (e: any) {
@@ -248,68 +333,169 @@ export default function GenerateTasksSection({
   const hasKinks = Array.isArray(preferences.kinks) && preferences.kinks.length > 0;
   const preferencesEmpty = !hasGender || !hasKinks;
   
-  const dailyPercentage = Math.min(100, (usageStats.dailyUsed / 10) * 100);
-  const monthlyPercentage = Math.min(100, (usageStats.monthlyUsed / 120) * 100);
+  const dailyPercentage = Math.min(100, (usageStats.daily.used / usageStats.daily.limit) * 100);
+  const cyclePercentage = Math.min(100, (usageStats.cycle.used / usageStats.cycle.limit) * 100);
   
-  const isNearDailyLimit = usageStats.dailyRemaining <= 2;
-  const isNearMonthlyLimit = usageStats.monthlyRemaining <= 10;
-  const isOverDailyLimit = usageStats.dailyRemaining <= 0;
-  const isOverMonthlyLimit = usageStats.monthlyRemaining <= 0;
-  const canGenerate = !isOverDailyLimit && !isOverMonthlyLimit;
+  const isNearDailyLimit = usageStats.daily.remaining <= 2;
+  const isNearCycleLimit = usageStats.cycle.remaining <= 10;
+  const isOverDailyLimit = usageStats.daily.remaining <= 0;
+  const isOverCycleLimit = usageStats.cycle.remaining <= 0;
+  const canGenerate = !isOverDailyLimit && !isOverCycleLimit;
 
-  // 🔥 修复：使用毛玻璃效果
+  // 🔥 精美使用统计组件
   const renderUsageStats = () => (
-    <div className="mb-4 glass backdrop-blur-lg bg-white/5 rounded-xl p-3 border border-white/10">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-gray-400">AI使用统计</span>
+    <div className="mb-4 glass backdrop-blur-lg bg-gradient-to-br from-white/10 to-purple-500/10 rounded-2xl p-4 border border-white/20 shadow-lg">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center space-x-2">
+          <div className="p-2 bg-gradient-to-br from-brand-pink to-purple-600 rounded-lg">
+            <Zap className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold text-white">AI使用统计</h4>
+            <p className="text-xs text-gray-300">30天滚动周期</p>
+          </div>
+        </div>
         <button
           onClick={fetchUsageStats}
           disabled={loadingStats}
-          className="p-1 hover:bg-white/10 rounded-lg transition-colors"
+          className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 group"
+          title="刷新统计"
         >
-          <RefreshCw className={`w-3 h-3 text-gray-400 ${loadingStats ? 'animate-spin' : ''}`} />
+          {loadingStats ? (
+            <Loader2 className="w-4 h-4 text-brand-pink animate-spin" />
+          ) : (
+            <RefreshCw className="w-4 h-4 text-gray-400 group-hover:text-brand-pink transition-colors" />
+          )}
         </button>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <div className="flex justify-between items-center mb-1">
-            <span className="text-xs text-gray-400">今日</span>
-            <span className={`text-xs font-medium ${isNearDailyLimit ? 'text-yellow-400' : 'text-green-400'}`}>
-              {usageStats.dailyRemaining}/10
-            </span>
+      
+      <div className="grid grid-cols-2 gap-4 mb-3">
+        {/* 今日使用 */}
+        <div className="glass bg-white/5 rounded-xl p-3 border border-white/10">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center space-x-1">
+              <Clock className="w-3 h-3 text-blue-400" />
+              <span className="text-xs font-medium text-gray-300">今日</span>
+            </div>
+            <div className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+              isOverDailyLimit ? 'bg-red-500/20 text-red-300' :
+              isNearDailyLimit ? 'bg-yellow-500/20 text-yellow-300' : 
+              'bg-blue-500/20 text-blue-300'
+            }`}>
+              {usageStats.daily.remaining}/{usageStats.daily.limit}
+            </div>
           </div>
-          <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
-            <div 
-              className={`h-full transition-all duration-500 ${
-                dailyPercentage >= 100 ? 'bg-red-500' : 
-                dailyPercentage >= 80 ? 'bg-yellow-500' : 'bg-green-500'
-              }`}
-              style={{ width: `${dailyPercentage}%` }}
-            />
+          <div className="relative pt-1">
+            <div className="flex mb-2 items-center justify-between">
+              <div>
+                <span className="text-xs font-semibold inline-block text-white">
+                  {Math.round(dailyPercentage)}%
+                </span>
+              </div>
+            </div>
+            <div className="overflow-hidden h-2 mb-1 text-xs flex rounded-full bg-gray-700">
+              <div 
+                style={{ width: `${dailyPercentage}%` }}
+                className={`shadow-none flex flex-col text-center whitespace-nowrap justify-center transition-all duration-500 ${
+                  isOverDailyLimit ? 'bg-gradient-to-r from-red-500 to-red-400' :
+                  isNearDailyLimit ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
+                  'bg-gradient-to-r from-blue-500 to-blue-400'
+                }`}
+              />
+            </div>
+          </div>
+          <div className="text-xs text-gray-400 flex justify-between">
+            <span>已用: {usageStats.daily.used}次</span>
+            <span>剩余: {usageStats.daily.remaining}次</span>
           </div>
         </div>
-        <div>
-          <div className="flex justify-between items-center mb-1">
-            <span className="text-xs text-gray-400">本月</span>
-            <span className={`text-xs font-medium ${isNearMonthlyLimit ? 'text-yellow-400' : 'text-blue-400'}`}>
-              {usageStats.monthlyRemaining}/120
-            </span>
+
+        {/* 周期使用 */}
+        <div className="glass bg-white/5 rounded-xl p-3 border border-white/10">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center space-x-1">
+              <CalendarDays className="w-3 h-3 text-purple-400" />
+              <span className="text-xs font-medium text-gray-300">周期</span>
+            </div>
+            <div className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+              isOverCycleLimit ? 'bg-red-500/20 text-red-300' :
+              isNearCycleLimit ? 'bg-yellow-500/20 text-yellow-300' : 
+              'bg-purple-500/20 text-purple-300'
+            }`}>
+              {usageStats.cycle.remaining}/{usageStats.cycle.limit}
+            </div>
           </div>
-          <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
-            <div 
-              className={`h-full transition-all duration-500 ${
-                monthlyPercentage >= 100 ? 'bg-red-500' : 
-                monthlyPercentage >= 90 ? 'bg-yellow-500' : 'bg-blue-500'
-              }`}
-              style={{ width: `${monthlyPercentage}%` }}
-            />
+          <div className="relative pt-1">
+            <div className="flex mb-2 items-center justify-between">
+              <div>
+                <span className="text-xs font-semibold inline-block text-white">
+                  {Math.round(cyclePercentage)}%
+                </span>
+              </div>
+            </div>
+            <div className="overflow-hidden h-2 mb-1 text-xs flex rounded-full bg-gray-700">
+              <div 
+                style={{ width: `${cyclePercentage}%` }}
+                className={`shadow-none flex flex-col text-center whitespace-nowrap justify-center transition-all duration-500 ${
+                  isOverCycleLimit ? 'bg-gradient-to-r from-red-500 to-red-400' :
+                  isNearCycleLimit ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
+                  'bg-gradient-to-r from-purple-500 to-purple-400'
+                }`}
+              />
+            </div>
+          </div>
+          <div className="text-xs text-gray-400 flex justify-between">
+            <span>已用: {usageStats.cycle.used}次</span>
+            <span>剩余: {usageStats.cycle.remaining}次</span>
           </div>
         </div>
       </div>
-      {isNearDailyLimit && (
-        <div className="mt-2 text-xs text-yellow-400 flex items-center">
-          <AlertTriangle className="w-3 h-3 mr-1" />
-          今日剩余次数较少
+
+      {/* 周期信息 */}
+      <div className="glass bg-gradient-to-r from-gray-900/50 to-purple-900/30 rounded-xl p-3 border border-white/10">
+        <div className="flex items-center space-x-2 mb-1">
+          <Clock className="w-3 h-3 text-green-400" />
+          <span className="text-xs font-medium text-gray-300">周期信息</span>
+        </div>
+        <div className="text-xs space-y-1">
+          <div className="flex justify-between">
+            <span className="text-gray-400">剩余天数:</span>
+            <span className={`font-bold ${
+              usageStats.cycleInfo.daysRemaining <= 5 ? 'text-yellow-400' :
+              usageStats.cycleInfo.daysRemaining <= 10 ? 'text-orange-400' : 'text-green-400'
+            }`}>
+              {usageStats.cycleInfo.daysRemaining}天
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">结束时间:</span>
+            <span className="text-gray-300">
+              {new Date(usageStats.cycleInfo.endDate).toLocaleDateString('zh-CN', {
+                month: 'short',
+                day: 'numeric'
+              })}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 警告提示 */}
+      {(isNearDailyLimit || isNearCycleLimit) && (
+        <div className={`mt-3 p-2 rounded-lg flex items-center space-x-2 ${
+          isOverDailyLimit || isOverCycleLimit ? 
+          'bg-gradient-to-r from-red-900/30 to-red-800/20 border border-red-500/20' :
+          'bg-gradient-to-r from-yellow-900/30 to-yellow-800/20 border border-yellow-500/20'
+        }`}>
+          <AlertTriangle className={`w-4 h-4 ${
+            isOverDailyLimit || isOverCycleLimit ? 'text-red-400' : 'text-yellow-400'
+          }`} />
+          <p className={`text-xs ${
+            isOverDailyLimit || isOverCycleLimit ? 'text-red-300' : 'text-yellow-300'
+          }`}>
+            {isOverDailyLimit ? '今日次数已用完' : 
+             isOverCycleLimit ? '周期次数已用完' :
+             isNearDailyLimit ? '今日剩余次数较少，请合理安排使用' : '周期剩余次数较少'}
+          </p>
         </div>
       )}
     </div>
@@ -323,47 +509,88 @@ export default function GenerateTasksSection({
           {renderUsageStats()}
           
           <div className="space-y-4 mb-6">
-            <div className="glass rounded-xl p-4">
-              <p className="text-sm font-medium mb-2">当前主题</p>
-              <p className="text-gray-300">{themeTitle}</p>
+            <div className="glass bg-gradient-to-r from-gray-900/50 to-blue-900/30 rounded-xl p-4 border border-white/10">
+              <div className="flex items-center space-x-2 mb-2">
+                <div className="p-2 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg">
+                  <Sparkles className="w-4 h-4 text-white" />
+                </div>
+                <p className="text-sm font-semibold">当前主题</p>
+              </div>
+              <p className="text-gray-200 font-medium">{themeTitle}</p>
               {themeDescription && (
                 <p className="text-sm text-gray-400 mt-1">{themeDescription}</p>
               )}
             </div>
 
-            <div className="glass rounded-xl p-4">
-              <p className="text-sm font-medium mb-2">个人偏好</p>
-              <div className="text-sm space-y-1">
-                <p className="text-gray-300">性别：{genderText}</p>
-                <p className="text-gray-300">兴趣标签：{kinksText}</p>
+            <div className="glass bg-gradient-to-r from-gray-900/50 to-pink-900/30 rounded-xl p-4 border border-white/10">
+              <div className="flex items-center space-x-2 mb-2">
+                <div className="p-2 bg-gradient-to-br from-pink-500 to-pink-600 rounded-lg">
+                  <Sparkles className="w-4 h-4 text-white" />
+                </div>
+                <p className="text-sm font-semibold">个人偏好</p>
+              </div>
+              <div className="text-sm space-y-2">
+                <div className="flex items-center space-x-2">
+                  <span className="text-gray-400 min-w-12">性别:</span>
+                  <span className="px-2 py-1 bg-white/10 rounded text-gray-200">{genderText}</span>
+                </div>
+                <div className="flex items-start space-x-2">
+                  <span className="text-gray-400 min-w-12">兴趣标签:</span>
+                  <div className="flex flex-wrap gap-1">
+                    {kinksText === "未设置" ? (
+                      <span className="px-2 py-1 bg-white/10 rounded text-gray-200">{kinksText}</span>
+                    ) : (
+                      kinksText.split('、').map((kink, index) => (
+                        <span 
+                          key={index}
+                          className="px-2 py-1 bg-gradient-to-r from-brand-pink/20 to-purple-500/20 rounded text-brand-pink border border-brand-pink/30 text-xs"
+                        >
+                          {kink}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
               {mounted && preferencesEmpty && (
-                <div className="mt-3">
-                  <Link href="/profile" className="text-brand-pink hover:text-pink-300 underline text-xs">
-                    去设置偏好以获得更精准的生成
+                <div className="mt-3 pt-3 border-t border-white/10">
+                  <Link 
+                    href="/profile" 
+                    className="inline-flex items-center space-x-1 text-brand-pink hover:text-pink-300 text-xs font-medium transition-colors"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>去设置偏好以获得更精准的生成</span>
                   </Link>
                 </div>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="customRequirement" className="text-sm font-medium">
-                特别需求（可选）
-              </Label>
+              <div className="flex items-center space-x-2">
+                <div className="p-2 bg-gradient-to-br from-green-500 to-green-600 rounded-lg">
+                  <Sparkles className="w-4 h-4 text-white" />
+                </div>
+                <Label htmlFor="customRequirement" className="text-sm font-semibold">
+                  特别需求（可选）
+                </Label>
+              </div>
               <textarea
                 id="customRequirement"
                 value={customRequirement}
                 onChange={(e) => setCustomRequirement(e.target.value)}
                 rows={4}
-                className="w-full glass rounded-xl bg-white/5 border border-white/20 px-3 py-2 text-sm outline-none focus:border-brand-pink transition-all"
+                className="w-full glass bg-white/5 rounded-xl border border-white/20 px-3 py-3 text-sm outline-none focus:border-brand-pink focus:ring-1 focus:ring-brand-pink/30 transition-all placeholder-gray-500"
                 placeholder="例如：增加户外活动、避免需要高消费的任务、希望有更多情感交流类的内容..."
               />
             </div>
           </div>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
-              <p className="text-sm text-red-300">{error}</p>
+            <div className="mb-4 p-4 bg-gradient-to-r from-red-900/30 to-red-800/20 border border-red-500/20 rounded-xl">
+              <div className="flex items-center space-x-2">
+                <AlertTriangle className="w-4 h-4 text-red-400" />
+                <p className="text-sm text-red-300">{error}</p>
+              </div>
             </div>
           )}
 
@@ -371,16 +598,26 @@ export default function GenerateTasksSection({
             <Button
               onClick={closeModal}
               variant="outline"
-              className="flex-1 border-white/20 hover:bg-white/10"
+              className="flex-1 border-white/20 hover:bg-white/10 hover:text-white transition-all"
             >
               取消
             </Button>
             <Button
               onClick={generate}
               disabled={loading || !canGenerate}
-              className="flex-1 gradient-primary glow-pink"
+              className="flex-1 gradient-primary glow-pink hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 flex items-center justify-center space-x-2"
             >
-              {loading ? "生成中..." : "生成任务"}
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>生成中...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>生成任务</span>
+                </>
+              )}
             </Button>
           </div>
         </>
@@ -390,44 +627,66 @@ export default function GenerateTasksSection({
     return (
       <>
         <div className="mb-4">
-          <p className="text-sm text-gray-400 mb-3">
-            已生成 {suggestions.length} 条任务，选择需要保存的任务
-          </p>
-          <div className="flex space-x-2 mb-4">
-            <Button
-              onClick={selectAll}
-              size="sm"
-              variant="outline"
-              className="border-white/20 hover:bg-white/10"
-            >
-              全选
-            </Button>
-            <Button
-              onClick={deselectAll}
-              size="sm"
-              variant="outline"
-              className="border-white/20 hover:bg-white/10"
-            >
-              取消全选
-            </Button>
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm font-semibold text-white">
+                已生成 {suggestions.length} 条任务
+              </p>
+              <p className="text-xs text-gray-400">
+                选择需要保存的任务（已选 {Object.values(selected).filter(Boolean).length} 条）
+              </p>
+            </div>
+            <div className="flex space-x-2">
+              <Button
+                onClick={selectAll}
+                size="sm"
+                variant="outline"
+                className="border-white/20 hover:bg-white/10 hover:text-white transition-all"
+              >
+                全选
+              </Button>
+              <Button
+                onClick={deselectAll}
+                size="sm"
+                variant="outline"
+                className="border-white/20 hover:bg-white/10 hover:text-white transition-all"
+              >
+                取消全选
+              </Button>
+            </div>
           </div>
 
-          <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+          <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
             {suggestions.map((s, idx) => (
               <label
                 key={idx}
-                className={`flex items-start space-x-3 glass rounded-xl p-3 border transition-all cursor-pointer ${
+                className={`flex items-start space-x-3 glass rounded-xl p-4 border transition-all duration-200 cursor-pointer transform hover:scale-[1.01] ${
                   selected[idx]
-                    ? "bg-brand-pink/10 border-brand-pink/30"
-                    : "bg-white/5 border-white/10 hover:bg-white/10"
+                    ? "bg-gradient-to-r from-brand-pink/20 to-purple-500/20 border-brand-pink/40 shadow-lg shadow-brand-pink/10"
+                    : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
                 }`}
               >
-                <Checkbox
-                  checked={!!selected[idx]}
-                  onCheckedChange={() => toggle(idx)}
-                />
-                <div className="flex-1">
-                  <p className="text-sm">{s.description}</p>
+                <div className="flex-shrink-0 pt-0.5">
+                  <Checkbox
+                    checked={!!selected[idx]}
+                    onCheckedChange={() => toggle(idx)}
+                    className={`${
+                      selected[idx] 
+                        ? "border-brand-pink bg-brand-pink text-white" 
+                        : "border-white/30"
+                    }`}
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center space-x-2 mb-1">
+                    <div className="px-1.5 py-0.5 bg-white/10 rounded text-xs text-gray-400">
+                      {idx + 1}
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {s.type || '互动任务'}
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-200">{s.description}</p>
                 </div>
               </label>
             ))}
@@ -435,8 +694,11 @@ export default function GenerateTasksSection({
         </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
-            <p className="text-sm text-red-300">{error}</p>
+          <div className="mb-4 p-4 bg-gradient-to-r from-red-900/30 to-red-800/20 border border-red-500/20 rounded-xl">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="w-4 h-4 text-red-400" />
+              <p className="text-sm text-red-300">{error}</p>
+            </div>
           </div>
         )}
 
@@ -444,17 +706,23 @@ export default function GenerateTasksSection({
           <Button
             onClick={closeModal}
             variant="outline"
-            className="flex-1 border-white/20 hover:bg-white/10"
+            className="flex-1 border-white/20 hover:bg-white/10 hover:text-white transition-all"
           >
             取消
           </Button>
           <Button
             onClick={saveSelected}
             disabled={isPending || Object.values(selected).filter(Boolean).length === 0}
-            className="flex-1 gradient-primary glow-pink flex items-center justify-center space-x-2"
+            className="flex-1 gradient-primary glow-pink hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 flex items-center justify-center space-x-2"
           >
-            <CheckCircle2 className="w-4 h-4" />
-            <span>{isPending ? "保存中..." : `保存 (${Object.values(selected).filter(Boolean).length})`}</span>
+            {isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4" />
+            )}
+            <span>
+              {isPending ? "保存中..." : `保存 (${Object.values(selected).filter(Boolean).length})`}
+            </span>
           </Button>
         </div>
       </>
@@ -467,28 +735,39 @@ export default function GenerateTasksSection({
         <Button
           type="button"
           onClick={openModal}
-          className="gradient-primary glow-pink text-white flex items-center space-x-2"
+          className="gradient-primary glow-pink text-white flex items-center space-x-2 hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300"
           disabled={!canGenerate}
         >
           <Sparkles className="w-4 h-4" />
           <span>AI 生成任务</span>
-          {isNearDailyLimit && (
+          {isNearDailyLimit && !isOverDailyLimit && (
             <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full">
-              仅剩{usageStats.dailyRemaining}次
+              仅剩{usageStats.daily.remaining}次
+            </span>
+          )}
+          {isOverDailyLimit && (
+            <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full">
+              今日已用完
             </span>
           )}
         </Button>
       ) : (
         // 🔥 修复：恢复毛玻璃背景
-        <div className="glass backdrop-blur-xl rounded-2xl p-5 border border-white/10">
+        <div className="glass backdrop-blur-xl bg-gradient-to-br from-gray-900/50 to-purple-900/20 rounded-2xl p-6 border border-white/10 shadow-xl">
           <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center space-x-2">
-              <Sparkles className="w-5 h-5 text-brand-pink" />
-              <h3 className="text-lg font-bold">AI 生成任务</h3>
+            <div className="flex items-center space-x-3">
+              <div className="p-3 bg-gradient-to-br from-brand-pink to-purple-600 rounded-xl">
+                <Sparkles className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">AI 生成任务</h3>
+                <p className="text-sm text-gray-400">智能生成情侣互动任务</p>
+              </div>
             </div>
           </div>
-          <p className="text-sm text-gray-400 mb-4">
-            基于主题和个人偏好，快速生成符合情侣互动的任务列表
+          
+          <p className="text-sm text-gray-300 mb-4">
+            基于主题和个人偏好，使用专业AI模型快速生成符合情侣互动的任务列表
           </p>
           
           {/* 非内联模式：在模态框外显示AI计次 */}
@@ -496,14 +775,19 @@ export default function GenerateTasksSection({
           
           <Button
             onClick={openModal}
-            className="w-full gradient-primary glow-pink flex items-center justify-center space-x-2"
+            className="w-full gradient-primary glow-pink hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 flex items-center justify-center space-x-2 group"
             disabled={!canGenerate}
           >
-            <Sparkles className="w-4 h-4" />
+            <Sparkles className="w-4 h-4 group-hover:rotate-12 transition-transform" />
             <span>开始生成</span>
             {isOverDailyLimit && (
               <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full ml-2">
                 今日已用完
+              </span>
+            )}
+            {isNearDailyLimit && !isOverDailyLimit && (
+              <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full ml-2">
+                仅剩{usageStats.daily.remaining}次
               </span>
             )}
           </Button>
@@ -511,15 +795,20 @@ export default function GenerateTasksSection({
       )}
 
       {showModal && mounted && createPortal(
-        <div className="fixed inset-0 z-[1000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="glass backdrop-blur-xl rounded-3xl p-6 max-w-md w-full glow-pink max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold">AI 生成任务</h3>
+        <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-lg flex items-center justify-center p-6 animate-fadeIn">
+          <div className="glass backdrop-blur-2xl bg-gradient-to-br from-gray-900/70 to-purple-900/40 rounded-3xl p-8 max-w-lg w-full glow-pink border border-white/20 shadow-2xl animate-slideUp max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-gradient-to-br from-brand-pink to-purple-600 rounded-lg">
+                  <Sparkles className="w-5 h-5 text-white" />
+                </div>
+                <h3 className="text-xl font-bold text-white">AI 任务生成器</h3>
+              </div>
               <button
                 onClick={closeModal}
-                className="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center transition-all"
+                className="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center transition-all duration-200 hover:rotate-90"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5 text-gray-400 hover:text-white" />
               </button>
             </div>
 

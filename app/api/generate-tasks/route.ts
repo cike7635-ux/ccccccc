@@ -41,11 +41,14 @@ interface Task {
   description: string;
 }
 
-// ============ AI使用次数验证函数 ============
+// ============ 新的AI使用次数验证函数（30天滚动窗口） ============
 async function checkAIUsage(userId: string): Promise<{
   allowed: boolean;
   dailyUsed: number;
-  monthlyUsed: number;
+  cycleUsed: number;
+  cycleStartDate: string;      // 周期开始日期
+  cycleEndDate: string;        // 周期结束日期
+  daysRemaining: number;       // 剩余天数
   reason?: string;
 }> {
   const cookieStore = await cookies();
@@ -56,9 +59,72 @@ async function checkAIUsage(userId: string): Promise<{
   );
 
   try {
+    // 1. 查询用户最早的AI使用记录
+    const { data: earliestUsage, error: earliestError } = await supabase
+      .from('ai_usage_records')
+      .select('created_at')
+      .eq('user_id', userId)
+      .eq('success', true)
+      .eq('feature', 'generate_tasks')
+      .order('created_at', { ascending: true })
+      .limit(1);
+
+    if (earliestError) {
+      console.error('查询最早使用记录失败:', earliestError);
+      return {
+        allowed: true,
+        dailyUsed: 0,
+        cycleUsed: 0,
+        cycleStartDate: new Date().toISOString(),
+        cycleEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        daysRemaining: 30
+      };
+    }
+
+    if (!earliestUsage || earliestUsage.length === 0) {
+      // 用户从未使用过AI功能
+      const now = new Date();
+      const cycleEndDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      
+      return {
+        allowed: true,
+        dailyUsed: 0,
+        cycleUsed: 0,
+        cycleStartDate: now.toISOString(),
+        cycleEndDate: cycleEndDate.toISOString(),
+        daysRemaining: 30
+      };
+    }
+
+    // 2. 计算30天滚动周期
+    const firstUseDate = new Date(earliestUsage[0].created_at);
+    const now = new Date();
+    
+    // 计算距离第一次使用的毫秒数
+    const msSinceFirstUse = now.getTime() - firstUseDate.getTime();
+    
+    // 计算当前周期的索引（每30天一个周期）
+    const daysSinceFirstUse = Math.floor(msSinceFirstUse / (1000 * 60 * 60 * 24));
+    const cycleIndex = Math.floor(daysSinceFirstUse / 30);
+    
+    // 计算当前周期的开始日期
+    const cycleStartDate = new Date(firstUseDate);
+    cycleStartDate.setDate(firstUseDate.getDate() + cycleIndex * 30);
+    cycleStartDate.setHours(0, 0, 0, 0);
+    
+    // 计算当前周期的结束日期
+    const cycleEndDate = new Date(cycleStartDate);
+    cycleEndDate.setDate(cycleStartDate.getDate() + 30);
+    cycleEndDate.setHours(23, 59, 59, 999);
+    
+    // 计算剩余天数（向上取整）
+    const daysRemaining = Math.ceil((cycleEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    // 3. 查询每日使用次数（当天00:00到23:59:59）
     const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
     const { count: dailyCount, error: dailyError } = await supabase
       .from('ai_usage_records')
@@ -66,67 +132,92 @@ async function checkAIUsage(userId: string): Promise<{
       .eq('user_id', userId)
       .eq('success', true)
       .eq('feature', 'generate_tasks')
-      .gte('created_at', today.toISOString());
+      .gte('created_at', today.toISOString())
+      .lt('created_at', tomorrow.toISOString());
 
     if (dailyError) {
       console.error('查询每日使用次数失败:', dailyError);
       return {
         allowed: true,
         dailyUsed: 0,
-        monthlyUsed: 0
+        cycleUsed: 0,
+        cycleStartDate: cycleStartDate.toISOString(),
+        cycleEndDate: cycleEndDate.toISOString(),
+        daysRemaining
       };
     }
 
-    const { count: monthlyCount, error: monthlyError } = await supabase
+    // 4. 查询周期内使用次数（当前周期开始到结束）
+    const { count: cycleCount, error: cycleError } = await supabase
       .from('ai_usage_records')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
       .eq('success', true)
       .eq('feature', 'generate_tasks')
-      .gte('created_at', monthStart.toISOString());
+      .gte('created_at', cycleStartDate.toISOString())
+      .lt('created_at', cycleEndDate.toISOString());
 
-    if (monthlyError) {
-      console.error('查询每月使用次数失败:', monthlyError);
+    if (cycleError) {
+      console.error('查询周期使用次数失败:', cycleError);
       return {
         allowed: true,
         dailyUsed: dailyCount || 0,
-        monthlyUsed: 0
+        cycleUsed: 0,
+        cycleStartDate: cycleStartDate.toISOString(),
+        cycleEndDate: cycleEndDate.toISOString(),
+        daysRemaining
       };
     }
 
     const dailyUsed = dailyCount || 0;
-    const monthlyUsed = monthlyCount || 0;
+    const cycleUsed = cycleCount || 0;
 
+    // 5. 检查限制
     if (dailyUsed >= 10) {
       return {
         allowed: false,
         dailyUsed,
-        monthlyUsed,
+        cycleUsed,
+        cycleStartDate: cycleStartDate.toISOString(),
+        cycleEndDate: cycleEndDate.toISOString(),
+        daysRemaining,
         reason: '今日AI使用次数已达上限（10次/天）'
       };
     }
 
-    if (monthlyUsed >= 120) {
+    if (cycleUsed >= 120) {
       return {
         allowed: false,
         dailyUsed,
-        monthlyUsed,
-        reason: '本月AI使用次数已达上限（120次/月）'
+        cycleUsed,
+        cycleStartDate: cycleStartDate.toISOString(),
+        cycleEndDate: cycleEndDate.toISOString(),
+        daysRemaining,
+        reason: '当前周期AI使用次数已达上限（120次/30天）'
       };
     }
 
     return {
       allowed: true,
       dailyUsed,
-      monthlyUsed
+      cycleUsed,
+      cycleStartDate: cycleStartDate.toISOString(),
+      cycleEndDate: cycleEndDate.toISOString(),
+      daysRemaining
     };
 
   } catch (error) {
     console.error('检查AI使用次数失败:', error);
+    const now = new Date();
+    const cycleEndDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    
     return {
       allowed: true,
       dailyUsed: 0,
-      monthlyUsed: 0
+      cycleUsed: 0,
+      cycleStartDate: now.toISOString(),
+      cycleEndDate: cycleEndDate.toISOString(),
+      daysRemaining: 30
     };
   }
 }
@@ -245,10 +336,15 @@ export async function POST(req: NextRequest) {
           error: usageCheck.reason,
           details: {
             daily: { used: usageCheck.dailyUsed, limit: 10 },
-            monthly: { used: usageCheck.monthlyUsed, limit: 120 },
+            cycle: { used: usageCheck.cycleUsed, limit: 120 },
+            cycleInfo: {
+              startDate: usageCheck.cycleStartDate,
+              endDate: usageCheck.cycleEndDate,
+              daysRemaining: usageCheck.daysRemaining
+            },
             resetInfo: {
               daily: '每天00:00重置',
-              monthly: '每月1日00:00重置'
+              cycle: `${usageCheck.daysRemaining}天后重置（30天滚动窗口）`
             }
           }
         },
@@ -308,10 +404,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         tasks: formattedTasks,
         usage: {
-          dailyUsed: usageCheck.dailyUsed + 1,
-          monthlyUsed: usageCheck.monthlyUsed + 1,
-          dailyRemaining: 10 - (usageCheck.dailyUsed + 1),
-          monthlyRemaining: 120 - (usageCheck.monthlyUsed + 1)
+          daily: {
+            used: usageCheck.dailyUsed + 1,
+            remaining: Math.max(0, 10 - (usageCheck.dailyUsed + 1)),
+            limit: 10
+          },
+          cycle: {
+            used: usageCheck.cycleUsed + 1,
+            remaining: Math.max(0, 120 - (usageCheck.cycleUsed + 1)),
+            limit: 120
+          },
+          cycleInfo: {
+            startDate: usageCheck.cycleStartDate,
+            endDate: usageCheck.cycleEndDate,
+            daysRemaining: usageCheck.daysRemaining
+          }
         }
       });
 
@@ -417,29 +524,29 @@ function buildPrompts(payload: {
 【核心定位（不可混淆）】
 ━━━━━━━━━━━━━━━━━━
 - 这是【游戏任务指令】，不是剧情、不是小说
-- 每一条都是直接给“执行者（对方 / 伴侣 / TA）”的命令
-- \${nickname} 只是玩家在游戏中的昵称变量，用于被指向、被作用、被评价
+- 每一条都是直接给"执行者（对方 / 伴侣 / TA）"的命令
+- ${nickname} 只是玩家在游戏中的昵称变量，用于被指向、被作用、被评价
 
 ━━━━━━━━━━━━━━━━━━
 【昵称使用规则（极其重要）】
 ━━━━━━━━━━━━━━━━━━
-- \${nickname} 是字符串占位符，不代表执行者
+- ${nickname} 是字符串占位符，不代表执行者
 - 昵称只能作为：
   · 被服务对象
   · 被支配对象
   · 被控制对象
   · 被羞辱 / 被评价对象
-- 严禁任何导致“好像是玩家在执行动作”的歧义句式
+- 严禁任何导致"好像是玩家在执行动作"的歧义句式
 
 ✅ 正确句式结构：
-- “在 \${nickname} 面前……”
-- “对 \${nickname} 下达命令……”
-- “让 \${nickname} 清楚地看到……”
+- "在 ${nickname} 面前……"
+- "对 ${nickname} 下达命令……"
+- "让 ${nickname} 清楚地看到……"
 
 ❌ 禁止句式：
-- “让 \${nickname} 去做……”
-- “要求 \${nickname} 配合……”
-- “\${nickname} 执行以下动作……”
+- "让 ${nickname} 去做……"
+- "要求 ${nickname} 配合……"
+- "${nickname} 执行以下动作……"
 
 ━━━━━━━━━━━━━━━━━━
 【执行者锁定（强制）】
@@ -453,7 +560,7 @@ function buildPrompts(payload: {
 【兴趣偏好方向判定（生成前必须完成）】
 ━━━━━━━━━━━━━━━━━━
 所有兴趣偏好均具有方向性。
-必须先判断“快感属于谁”，再决定“谁施加、谁承受”。
+必须先判断"快感属于谁"，再决定"谁施加、谁承受"。
 
 ━━━━━━━━━━━━━━━━━━
 【快感来源判定规则（终版）】
@@ -464,7 +571,7 @@ function buildPrompts(payload: {
 - 快感来源于：对方的服从、暴露、承受、被支配
 - 行为结构必须为：
   · 对方 = 被作用者
-  · 用户（\${nickname}）= 支配与享受的一方
+  · 用户（${nickname}）= 支配与享受的一方
 - 允许对方被命令、被限制、被惩罚、被羞辱
 
 🔹 二、用户偏好为【接受 / 顺从 / 被控】（M / s）
@@ -472,9 +579,9 @@ function buildPrompts(payload: {
 - 快感来源于：被命令、被控制、被施加、被羞辱
 - 行为结构必须为：
   · 对方 = 主动施加者
-  · 用户（\${nickname}）= 被作用对象
-- 必须明确体现：对方正在“对 \${nickname} 做什么”
-- ❌ 严禁通过“让对方当 M”来取悦用户
+  · 用户（${nickname}）= 被作用对象
+- 必须明确体现：对方正在"对 ${nickname} 做什么"
+- ❌ 严禁通过"让对方当 M"来取悦用户
 
 🔹 三、偏好为【Switch】
 
@@ -488,27 +595,27 @@ function buildPrompts(payload: {
 【示例 A｜用户是 M（接受 / 被控）】
 
 示例 1：
-- “站在 \${nickname} 面前，命令\${nickname} 抬头直视你，明确告诉 \${nickname}：现在由你掌控节奏，\${nickname}只能服从。”
+- "站在 ${nickname} 面前，命令${nickname} 抬头直视你，明确告诉 ${nickname}：现在由你掌控节奏，${nickname}只能服从。"
 
 示例 2：
-- “靠近 \${nickname}，用语言对 \${nickname}进行羞辱，要求 \${nickname}在你的注视下保持指定姿势三分钟。”
+- "靠近 ${nickname}，用语言对 ${nickname}进行羞辱，要求 ${nickname}在你的注视下保持指定姿势三分钟。"
 
 → 说明：  
 执行者始终是「对方」，  
-快感来自「\${nickname} 被支配 / 被控制」。
+快感来自「${nickname} 被支配 / 被控制」。
 
 【示例 B｜用户是 S（施加 / 支配）】
 
 示例 1：
-- “在 \${nickname} 面前跪下，双手放在身后，未经允许不得起身，用姿态明确你的服从关系。”
+- "在 ${nickname} 面前跪下，双手放在身后，未经允许不得起身，用姿态明确你的服从关系。"
 
 示例 2：
-- “当着 \${nickname} 的面接受惩罚指令，完成指定动作后等待进一步命令。”
+- "当着 ${nickname} 的面接受惩罚指令，完成指定动作后等待进一步命令。"
 
 → 说明：  
 执行者是「对方」，  
 承受者是「对方」，  
-快感归属于「\${nickname}」。
+快感归属于「${nickname}」。
 
 ━━━━━━━━━━━━━━━━━━
 【设计硬性要求】
@@ -519,7 +626,7 @@ function buildPrompts(payload: {
 
 2. 指令必须具体  
 - 必须包含：动作 / 姿态 / 状态 / 场景 / 限制
-- 执行者一看就知道“怎么做、做到什么程度”
+- 执行者一看就知道"怎么做、做到什么程度"
 
 3. 刺激来源必须多样  
 - 整组任务需混合：
@@ -531,7 +638,7 @@ function buildPrompts(payload: {
 4. 表达尺度  
 - 命令式、压迫式、羞耻导向
 - 侧重心理与权力关系
-- 避免露骨性描写
+- 结合剧情需要，不限制露骨性描写甚至支持配合剧情进行露骨、大尺度、激情、性描写
 
 5. 数量与去重  
 - 生成 15–17 条任务
