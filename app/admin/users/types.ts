@@ -1,1455 +1,830 @@
-'use client'
+/**
+ * LOVE LUDO 后台管理系统 - 用户管理类型定义
+ * 修复版：正确映射AI记录数据库字段
+ * 注意：此文件只包含类型定义和纯函数，不包含JSX
+ */
 
-import { useState, useMemo, useEffect } from 'react'
-import { 
-  X, RefreshCw, Copy, Check, Calendar, Key, Brain, Gamepad2, Mail, 
-  User, Clock, Shield, ExternalLink, Tag, History, Activity, 
-  Venus, Mars, Users, Wifi, WifiOff, AlertCircle, Download
-} from 'lucide-react'
-import { UserDetail } from '../types'
+// ============================================
+// 1. 核心用户类型
+// ============================================
 
-interface UserDetailModalProps {
-  isOpen: boolean
-  onClose: () => void
-  userDetail: UserDetail | null
-  loading: boolean
-  onRefresh?: () => void
+/**
+ * 用户基础信息
+ */
+export interface User {
+  id: string
+  email: string
+  nickname: string | null
+  fullName: string | null
+  avatarUrl: string | null
+  bio: string | null
+  preferences: any
+  isAdmin: boolean
+  isPremium: boolean
+  lastLogin: string
+  lastLoginRaw: string | null
+  accountExpires: string | null
+  accountExpiresRaw: string | null
+  createdAt: string
+  createdAtRaw: string | null
+  accessKeyId: number | null
+  activeKey: string | null
+  isActive: boolean
+  gender: string
+  keyStatus?: 'active' | 'expired' | 'unused' | 'inactive'
+  isUserActive?: boolean
+  
+  // 🔧 新增字段：API返回的扩展字段
+  gender_display?: string
+  is_premium?: boolean
+  is_active_now?: boolean
+  key_status?: string
+  formatted_created_at?: string
+  formatted_last_login?: string
+  
+  // 数据库原始字段（用于类型兼容）
+  created_at?: string
+  last_login_at?: string | null
+  account_expires_at?: string | null
+  avatar_url?: string | null
+  full_name?: string | null
+  last_login_session?: string | null
+  updated_at?: string | null
+  current_key?: any
 }
 
-// 性别显示函数 - 与types.ts保持一致
-const getGenderDisplay = (preferences: any): string => {
-  if (!preferences || !preferences.gender) return '未设置';
+/**
+ * 用户详情信息（API返回格式）
+ */
+export interface UserDetail {
+  id: string
+  email: string
+  nickname: string | null
+  full_name: string | null
+  avatar_url: string | null
+  bio: string | null
+  preferences: any
+  account_expires_at: string | null
+  last_login_at: string | null
+  last_login_session: string | null
+  access_key_id: number | null
+  created_at: string
+  updated_at: string
+  access_keys: AccessKey[]
+  ai_usage_records: AIUsageRecord[]
+  game_history: GameHistory[]
+  key_usage_history?: KeyUsageHistory[]
+  current_access_key?: AccessKey
+  
+  // 驼峰命名兼容字段
+  fullName?: string | null
+  avatarUrl?: string | null
+  accountExpiresAt?: string | null
+  lastLoginAt?: string | null
+  lastLoginSession?: string | null
+  accessKeyId?: number | null
+  createdAt?: string
+  updatedAt?: string
+  accessKeys?: AccessKey[]
+  aiUsageRecords?: AIUsageRecord[]
+  gameHistory?: GameHistory[]
+  keyUsageHistory?: KeyUsageHistory[]
+  currentAccessKey?: AccessKey
+}
 
-  const genderMap: Record<string, string> = {
-    'male': '男', 'female': '女', 'other': '其他',
-    'non_binary': '非二元', 'M': '男', 'F': '女',
-    '男': '男', '女': '女', '未知': '未设置',
+// ============================================
+// 2. 相关数据类型
+// ============================================
+
+/**
+ * 访问密钥
+ */
+export interface AccessKey {
+  id: number
+  key_code: string
+  description: string | null
+  is_active: boolean
+  used_count: number
+  max_uses: number | null
+  account_valid_for_days: number | null
+  original_duration_hours: number | null
+  key_expires_at: string | null
+  user_id: string | null
+  used_at: string | null
+  created_at: string
+  updated_at: string
+  
+  // 驼峰命名兼容字段
+  keyCode?: string
+  isActive?: boolean
+  usedCount?: number
+  maxUses?: number | null
+  accountValidForDays?: number | null
+  originalDurationHours?: number | null
+  keyExpiresAt?: string | null
+  userId?: string | null
+  usedAt?: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+/**
+ * AI使用记录（修复版：匹配数据库字段）
+ */
+export interface AIUsageRecord {
+  // 数据库实际字段
+  id: number
+  user_id: string
+  created_at: string
+  feature: string                     // ✅ 数据库字段
+  request_data: any                   // ✅ 数据库字段（jsonb类型）
+  response_data: any                  // ✅ 数据库字段（jsonb类型）
+  success: boolean                    // ✅ 数据库字段
+  
+  // 🔧 兼容旧字段（废弃，但保留以兼容旧代码）
+  input_text?: string                 // ❌ 已废弃，使用 request_data
+  response_text?: string              // ❌ 已废弃，使用 response_data
+  model?: string | null               // ❌ 已废弃，使用 feature
+  tokens_used?: number | null         // ✅ 可选字段
+  session_id?: string | null          // ✅ 可选字段
+  
+  // 驼峰命名兼容字段
+  userId?: string
+  createdAt?: string
+  feature?: string                    // ✅ 保持一致
+  requestData?: any                   // ✅ 驼峰格式
+  responseData?: any                  // ✅ 驼峰格式
+  success?: boolean                   // ✅ 保持一致
+  
+  // 🔧 前端显示字段（通过转换得到）
+  inputText?: string                  // ✅ 从 request_data 提取
+  responseText?: string               // ✅ 从 response_data 提取
+  model?: string                      // ✅ 从 feature 映射
+  tokensUsed?: number | null          // ✅ 驼峰格式
+  sessionId?: string | null           // ✅ 驼峰格式
+}
+
+/**
+ * 游戏历史记录
+ */
+export interface GameHistory {
+  id: number
+  user_id: string
+  created_at: string
+  game_type: string
+  score: number | null
+  duration_seconds: number | null
+  opponent_id: string | null
+  result: 'win' | 'loss' | 'draw' | null
+  
+  // 驼峰命名兼容字段
+  userId?: string
+  createdAt?: string
+  gameType?: string
+  score?: number | null
+  durationSeconds?: number | null
+  opponentId?: string | null
+  result?: 'win' | 'loss' | 'draw' | null
+}
+
+/**
+ * 密钥使用历史
+ */
+export interface KeyUsageHistory {
+  id: number
+  user_id: string
+  access_key_id: number
+  used_at: string
+  usage_type: 'activate' | 'renew' | 'transfer'
+  operation_by: string | null
+  note: string | null
+  
+  // 驼峰命名兼容字段
+  userId?: string
+  accessKeyId?: number
+  usedAt?: string
+  usageType?: 'activate' | 'renew' | 'transfer'
+  operationBy?: string | null
+  note?: string | null
+}
+
+/**
+ * 用户统计数据
+ */
+export interface UserStats {
+  total: number
+  premium: number
+  active24h: number
+  male: number
+  female: number
+  otherGender: number
+  unknown: number
+  activeNow: number
+  deleted: number
+  newThisWeek: number
+}
+
+/**
+ * 增长数据
+ */
+export interface GrowthData {
+  date: string
+  count: number
+  cumulative: number
+}
+
+/**
+ * API分页信息
+ */
+export interface PaginationInfo {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+}
+
+/**
+ * API排序信息
+ */
+export interface SortInfo {
+  field: string
+  direction: 'asc' | 'desc'
+  dbField?: string
+}
+
+/**
+ * API响应格式
+ */
+export interface ApiResponse<T = any> {
+  success: boolean
+  data?: T
+  error?: string
+  details?: string
+  pagination?: PaginationInfo
+  sortInfo?: SortInfo
+  timestamp?: string
+  queryTime?: string
+}
+
+// ============================================
+// 3. 枚举类型
+// ============================================
+
+/**
+ * 排序字段枚举
+ */
+export type SortField = 
+  | 'createdAt' 
+  | 'lastLogin' 
+  | 'accountExpires' 
+  | 'email' 
+  | 'nickname' 
+  | 'id' 
+  | 'isPremium' 
+  | 'keyStatus'
+  | 'gender'
+
+/**
+ * 排序方向枚举
+ */
+export type SortDirection = 'asc' | 'desc'
+
+/**
+ * 用户筛选类型枚举
+ */
+export type UserFilterType = 
+  | 'all' 
+  | 'premium' 
+  | 'free' 
+  | 'active24h' 
+  | 'active' 
+  | 'expired' 
+  | 'male' 
+  | 'female'
+
+/**
+ * 密钥状态枚举
+ */
+export type KeyStatus = 'active' | 'expired' | 'unused' | 'inactive'
+
+/**
+ * 用户状态枚举
+ */
+export type UserStatus = 'active' | 'inactive' | 'expired' | 'deleted'
+
+/**
+ * 性别显示值枚举
+ */
+export type GenderDisplay = '男' | '女' | '其他' | '非二元' | '未设置'
+
+// ============================================
+// 4. 工具函数
+// ============================================
+
+/**
+ * 获取性别显示文本
+ * @param preferences 用户偏好设置对象
+ * @param genderDisplay API返回的性别显示值（可选）
+ * @returns 格式化后的性别显示文本
+ */
+export function getGenderDisplay(preferences: any, genderDisplay?: string): GenderDisplay {
+  // 优先使用API返回的gender_display
+  if (genderDisplay && ['男', '女', '其他', '非二元', '未设置'].includes(genderDisplay)) {
+    return genderDisplay as GenderDisplay
+  }
+  
+  if (!preferences || !preferences.gender) return '未设置'
+  
+  const genderMap: Record<string, GenderDisplay> = {
+    'male': '男', 'm': '男', '男': '男',
+    'female': '女', 'f': '女', '女': '女',
+    'other': '其他', 'other': '其他',
+    'non_binary': '非二元', 'non_binary': '非二元',
     '未设置': '未设置', '': '未设置',
-    null: '未设置', undefined: '未设置'
-  };
-
-  const genderKey = String(preferences.gender).toLowerCase();
-  return genderMap[genderKey] || String(preferences.gender);
+    'null': '未设置', 'undefined': '未设置'
+  }
+  
+  const genderKey = String(preferences.gender).toLowerCase().trim()
+  return genderMap[genderKey] || '未设置'
 }
 
-export default function UserDetailModal({ isOpen, onClose, userDetail, loading, onRefresh }: UserDetailModalProps) {
-  const [activeTab, setActiveTab] = useState<'basic' | 'keys' | 'ai' | 'games'>('basic')
-  const [copiedField, setCopiedField] = useState<string | null>(null)
-  const [expandedAIRecord, setExpandedAIRecord] = useState<number | null>(null)
+/**
+ * 检查用户是否活跃（3分钟内登录）
+ * @param lastLoginAt 最后登录时间
+ * @returns 是否活跃
+ */
+export function isUserActive(lastLoginAt: string | null): boolean {
+  if (!lastLoginAt) return false
+  
+  try {
+    const lastLogin = new Date(lastLoginAt)
+    const now = new Date()
+    const threeMinutesAgo = new Date(now.getTime() - 3 * 60 * 1000)
+    return lastLogin > threeMinutesAgo
+  } catch {
+    return false
+  }
+}
 
-  // 🔧 调试：打印用户详情数据
-  useEffect(() => {
-    if (userDetail && isOpen) {
-      console.log('🔍 UserDetailModal - 用户详情数据结构:', {
-        hasUserDetail: !!userDetail,
-        keys: Object.keys(userDetail),
-        aiRecords: userDetail.ai_usage_records,
-        aiRecordsType: typeof userDetail.ai_usage_records,
-        isArray: Array.isArray(userDetail.ai_usage_records),
-        aiRecordsLength: userDetail.ai_usage_records?.length || 0,
-        firstAIRecord: userDetail.ai_usage_records?.[0],
-      });
-    }
-  }, [userDetail, isOpen]);
+/**
+ * 获取活跃状态配置
+ * @param isActive 是否活跃
+ * @returns 活跃状态配置对象
+ */
+export interface ActiveStatusConfig {
+  label: string
+  color: string
+  bgColor: string
+  icon: string
+}
 
-  // 🔧 修复：安全获取AI使用记录
-  const aiUsageRecords = useMemo(() => {
-    try {
-      if (!userDetail) {
-        console.log('❌ aiUsageRecords: userDetail为空');
-        return [];
+export function getActiveStatusConfig(isActive: boolean): ActiveStatusConfig {
+  return isActive 
+    ? {
+        label: '活跃',
+        color: 'text-green-400',
+        bgColor: 'bg-green-500/15',
+        icon: '🟢'
       }
-
-      // 检查所有可能的字段名
-      console.log('🔍 检查AI记录字段:', {
-        ai_usage_records: userDetail.ai_usage_records,
-        aiUsageRecords: userDetail.aiUsageRecords,
-        aiRecords: userDetail.aiRecords
-      });
-
-      // 优先使用下划线格式，然后是驼峰格式
-      let records = userDetail.ai_usage_records || userDetail.aiUsageRecords || [];
-      
-      // 如果records是数字（旧错误），返回空数组
-      if (typeof records === 'number') {
-        console.error('⚠️ aiUsageRecords: 获取到数字而不是数组，返回空数组');
-        return [];
+    : {
+        label: '离线',
+        color: 'text-gray-400',
+        bgColor: 'bg-gray-500/10',
+        icon: '⚫'
       }
-      
-      // 确保是数组
-      if (!Array.isArray(records)) {
-        console.error('⚠️ aiUsageRecords: 不是数组，类型:', typeof records, '值:', records);
-        return [];
+}
+
+/**
+ * 获取密钥状态
+ * @param key 密钥对象
+ * @returns 密钥状态
+ */
+export function getKeyStatus(key: any): KeyStatus {
+  if (!key) return 'unused'
+  
+  if (key.is_active === false || key.isActive === false) {
+    return 'inactive'
+  }
+  
+  const expiryDate = key.key_expires_at || key.keyExpiresAt
+  if (expiryDate) {
+    try {
+      const expiry = new Date(expiryDate)
+      if (expiry < new Date()) {
+        return 'expired'
       }
-      
-      console.log('✅ aiUsageRecords: 成功获取', records.length, '条记录');
-      return records;
-    } catch (err) {
-      console.error('❌ 获取aiUsageRecords出错:', err);
-      return [];
+    } catch {
+      // 日期解析失败，不视为过期
     }
-  }, [userDetail]);
+  }
+  
+  return 'active'
+}
 
-  // 🔧 修复：安全获取访问密钥
-  const accessKeys = useMemo(() => {
-    try {
-      if (!userDetail) return [];
-      
-      const keys = userDetail.access_keys || userDetail.accessKeys || [];
-      
-      if (typeof keys === 'number') {
-        console.warn('⚠️ accessKeys: 获取到数字而不是数组');
-        return [];
+/**
+ * 从JSON数据中提取文本内容
+ * @param data JSON数据（可以是字符串、对象或其他）
+ * @returns 提取的文本内容
+ */
+export function extractTextFromJson(data: any): string {
+  if (!data) return ''
+  
+  try {
+    // 如果已经是字符串
+    if (typeof data === 'string') {
+      // 尝试解析为JSON
+      if (data.trim().startsWith('{') || data.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(data)
+          return extractTextFromJson(parsed)
+        } catch {
+          // 解析失败，返回原始字符串
+          return data
+        }
       }
-      
-      return Array.isArray(keys) ? keys : [];
-    } catch (err) {
-      console.error('获取accessKeys出错:', err);
-      return [];
+      return data
     }
-  }, [userDetail])
-
-  // 🔧 修复：安全获取游戏历史
-  const gameHistory = useMemo(() => {
-    try {
-      if (!userDetail) return [];
-      const history = userDetail.game_history || userDetail.gameHistory || [];
-      return Array.isArray(history) ? history : [];
-    } catch (err) {
-      console.error('获取gameHistory出错:', err);
-      return [];
-    }
-  }, [userDetail])
-
-  // 🔧 修复：安全获取密钥使用历史
-  const keyUsageHistory = useMemo(() => {
-    try {
-      if (!userDetail) return [];
-      const history = userDetail.key_usage_history || userDetail.keyUsageHistory || [];
-      return Array.isArray(history) ? history : [];
-    } catch (err) {
-      console.error('获取keyUsageHistory出错:', err);
-      return [];
-    }
-  }, [userDetail])
-
-  // 🔧 修复：安全获取当前访问密钥
-  const currentAccessKey = useMemo(() => {
-    try {
-      if (!userDetail) return null;
-      return userDetail.current_access_key || userDetail.currentAccessKey || null;
-    } catch (err) {
-      console.error('获取currentAccessKey出错:', err);
-      return null;
-    }
-  }, [userDetail])
-
-  // 统计数据计算
-  const stats = useMemo(() => {
-    if (!userDetail) return null;
-
-    // 计算密钥统计
-    const keyStats = {
-      total: accessKeys.length,
-      active: accessKeys.filter(k => k.is_active || k.isActive).length,
-      expired: accessKeys.filter(k => {
-        const expiry = k.key_expires_at || k.keyExpiresAt;
-        return expiry && new Date(expiry) < new Date();
-      }).length,
-      unused: accessKeys.filter(k => !(k.used_at || k.usedAt)).length,
-      currentId: userDetail.access_key_id || userDetail.accessKeyId
-    }
-
-    // 计算AI统计
-    const aiStats = {
-      total: aiUsageRecords.length,
-      success: aiUsageRecords.filter(r => r.success).length,
-      recent: aiUsageRecords.filter(r => {
-        const created = r.created_at || r.createdAt;
-        return created && new Date(created) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      }).length,
-      totalTokens: aiUsageRecords.reduce((sum, r) => sum + (r.tokens_used || r.tokensUsed || 0), 0)
-    }
-
-    // 计算游戏统计
-    const gameStats = {
-      total: gameHistory.length,
-      wins: gameHistory.filter(g => g.winner_id === userDetail.id).length,
-      recent: gameHistory.filter(g => {
-        const started = g.started_at;
-        return started && new Date(started) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      }).length
-    }
-
-    return { keyStats, aiStats, gameStats };
-  }, [userDetail, accessKeys, aiUsageRecords, gameHistory])
-
-  // 🔧 修复：提取所有使用过的密钥（修复useMemo位置问题）
-  const allUsedKeys = useMemo(() => {
-    console.log('🔄 计算allUsedKeys, keyUsageHistory长度:', keyUsageHistory.length);
     
-    if (!keyUsageHistory || keyUsageHistory.length === 0) return [];
-    
-    const uniqueKeys = new Map();
-    
-    keyUsageHistory.forEach(record => {
-      const accessKey = record?.access_key;
+    // 如果是对象
+    if (typeof data === 'object' && data !== null) {
+      // 优先尝试常见的文本字段
+      const textFields = ['content', 'text', 'message', 'input', 'prompt', 'query', 'response', 'answer', 'output']
       
-      if (accessKey?.id) {
-        const keyId = accessKey.id;
-        
-        if (!uniqueKeys.has(keyId)) {
-          uniqueKeys.set(keyId, {
-            id: keyId,
-            key_code: accessKey.key_code || accessKey.keyCode || '未知',
-            is_active: accessKey.is_active ?? accessKey.isActive ?? true,
-            key_expires_at: accessKey.key_expires_at || accessKey.keyExpiresAt,
-            first_used_at: record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt,
-            last_used_at: record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt,
-            usage_count: 1,
-            usage_types: new Set([record.usage_type || 'activate'])
-          })
-        } else {
-          const existing = uniqueKeys.get(keyId);
-          existing.usage_count++;
-          if (record.usage_type) {
-            existing.usage_types.add(record.usage_type);
-          }
-          // 更新时间戳
-          const currentUsedAt = record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt;
-          if (currentUsedAt && new Date(currentUsedAt) > new Date(existing.last_used_at || 0)) {
-            existing.last_used_at = currentUsedAt;
+      for (const field of textFields) {
+        if (data[field] !== undefined && data[field] !== null) {
+          const extracted = extractTextFromJson(data[field])
+          if (extracted && extracted.trim()) {
+            return extracted
           }
         }
+      }
+      
+      // 如果没有找到常见字段，返回整个对象的JSON字符串
+      try {
+        return JSON.stringify(data, null, 2)
+      } catch {
+        return String(data)
+      }
+    }
+    
+    // 其他类型直接转为字符串
+    return String(data || '')
+  } catch (error) {
+    console.warn('提取文本失败:', error, '原始数据:', data)
+    return String(data || '')
+  }
+}
+
+/**
+ * 归一化用户详情数据（处理API响应格式）
+ * 🔥 修复版：正确处理AI记录字段映射
+ */
+export function normalizeUserDetail(data: any): UserDetail {
+  if (!data) return {} as UserDetail
+  
+  // 日期格式化辅助函数
+  const formatDate = (dateString: any): string | null => {
+    if (!dateString) return null
+    try {
+      const date = new Date(dateString)
+      return isNaN(date.getTime()) ? null : date.toISOString()
+    } catch {
+      return null
+    }
+  }
+  
+  // 处理数组字段，确保格式统一
+  const normalizeArray = <T>(arr: any[] | undefined, mapper: (item: any) => T): T[] => {
+    if (!Array.isArray(arr)) return []
+    return arr.map(mapper)
+  }
+  
+  // 处理访问密钥
+  const normalizeAccessKey = (key: any): AccessKey => ({
+    id: key.id || 0,
+    key_code: key.key_code || key.keyCode || '',
+    description: key.description || null,
+    is_active: key.is_active ?? key.isActive ?? true,
+    used_count: key.used_count || key.usedCount || 0,
+    max_uses: key.max_uses || key.maxUses || null,
+    account_valid_for_days: key.account_valid_for_days || key.accountValidForDays || null,
+    original_duration_hours: key.original_duration_hours || key.originalDurationHours || null,
+    key_expires_at: formatDate(key.key_expires_at || key.keyExpiresAt),
+    user_id: key.user_id || key.userId || null,
+    used_at: formatDate(key.used_at || key.usedAt),
+    created_at: formatDate(key.created_at || key.createdAt) || new Date().toISOString(),
+    updated_at: formatDate(key.updated_at || key.updatedAt) || new Date().toISOString(),
+    
+    // 驼峰命名兼容字段
+    keyCode: key.key_code || key.keyCode || '',
+    isActive: key.is_active ?? key.isActive ?? true,
+    usedCount: key.used_count || key.usedCount || 0,
+    maxUses: key.max_uses || key.maxUses || null,
+    accountValidForDays: key.account_valid_for_days || key.accountValidForDays || null,
+    originalDurationHours: key.original_duration_hours || key.originalDurationHours || null,
+    keyExpiresAt: formatDate(key.key_expires_at || key.keyExpiresAt),
+    userId: key.user_id || key.userId || null,
+    usedAt: formatDate(key.used_at || key.usedAt),
+    createdAt: formatDate(key.created_at || key.createdAt) || new Date().toISOString(),
+    updatedAt: formatDate(key.updated_at || key.updatedAt) || new Date().toISOString()
+  })
+  
+  // 🔥 修复：处理AI使用记录 - 正确映射数据库字段
+  const normalizeAIUsageRecord = (record: any): AIUsageRecord => {
+    // 从各种可能的字段中获取数据
+    const feature = record.feature || record.model || 'AI对话'
+    const requestData = record.request_data || record.requestData || record.input_text || record.inputText || {}
+    const responseData = record.response_data || record.responseData || record.response_text || record.responseText || {}
+    const success = record.success !== false
+    
+    // 提取显示文本
+    const inputText = extractTextFromJson(requestData)
+    const responseText = extractTextFromJson(responseData)
+    
+    return {
+      // 数据库字段（下划线）
+      id: record.id || 0,
+      user_id: record.user_id || record.userId || '',
+      created_at: formatDate(record.created_at || record.createdAt) || new Date().toISOString(),
+      feature: feature,
+      request_data: requestData,
+      response_data: responseData,
+      success: success,
+      
+      // 兼容旧字段（废弃）
+      input_text: inputText,
+      response_text: responseText,
+      model: feature,
+      tokens_used: record.tokens_used || record.tokensUsed || null,
+      session_id: record.session_id || record.sessionId || null,
+      
+      // 驼峰命名兼容字段
+      userId: record.user_id || record.userId || '',
+      createdAt: formatDate(record.created_at || record.createdAt) || new Date().toISOString(),
+      requestData: requestData,
+      responseData: responseData,
+      success: success,
+      
+      // 前端显示字段
+      inputText: inputText,
+      responseText: responseText,
+      model: feature,
+      tokensUsed: record.tokens_used || record.tokensUsed || null,
+      sessionId: record.session_id || record.sessionId || null
+    }
+  }
+  
+  // 处理游戏历史记录
+  const normalizeGameHistory = (history: any): GameHistory => ({
+    id: history.id || 0,
+    user_id: history.user_id || history.userId || '',
+    created_at: formatDate(history.created_at || history.createdAt) || new Date().toISOString(),
+    game_type: history.game_type || history.gameType || 'unknown',
+    score: history.score || null,
+    duration_seconds: history.duration_seconds || history.durationSeconds || null,
+    opponent_id: history.opponent_id || history.opponentId || null,
+    result: history.result || null,
+    
+    // 驼峰命名兼容字段
+    userId: history.user_id || history.userId || '',
+    createdAt: formatDate(history.created_at || history.createdAt) || new Date().toISOString(),
+    gameType: history.game_type || history.gameType || 'unknown',
+    score: history.score || null,
+    durationSeconds: history.duration_seconds || history.durationSeconds || null,
+    opponentId: history.opponent_id || history.opponentId || null,
+    result: history.result || null
+  })
+  
+  // 处理密钥使用历史
+  const normalizeKeyUsageHistory = (history: any): KeyUsageHistory => ({
+    id: history.id || 0,
+    user_id: history.user_id || history.userId || '',
+    access_key_id: history.access_key_id || history.accessKeyId || 0,
+    used_at: formatDate(history.used_at || history.usedAt) || new Date().toISOString(),
+    usage_type: history.usage_type || history.usageType || 'activate',
+    operation_by: history.operation_by || history.operationBy || null,
+    note: history.note || null,
+    
+    // 驼峰命名兼容字段
+    userId: history.user_id || history.userId || '',
+    accessKeyId: history.access_key_id || history.accessKeyId || 0,
+    usedAt: formatDate(history.used_at || history.usedAt) || new Date().toISOString(),
+    usageType: history.usage_type || history.usageType || 'activate',
+    operationBy: history.operation_by || history.operationBy || null,
+    note: history.note || null
+  })
+  
+  // 构建归一化对象
+  const normalized: UserDetail = {
+    id: data.id || '',
+    email: data.email || '',
+    nickname: data.nickname || null,
+    full_name: data.full_name || data.fullName || null,
+    avatar_url: data.avatar_url || data.avatarUrl || null,
+    bio: data.bio || null,
+    preferences: data.preferences || {},
+    account_expires_at: formatDate(data.account_expires_at || data.accountExpiresAt),
+    last_login_at: formatDate(data.last_login_at || data.lastLoginAt),
+    last_login_session: data.last_login_session || data.lastLoginSession || null,
+    access_key_id: data.access_key_id || data.accessKeyId || null,
+    created_at: formatDate(data.created_at || data.createdAt) || new Date().toISOString(),
+    updated_at: formatDate(data.updated_at || data.updatedAt) || new Date().toISOString(),
+    
+    // 数组字段 - 使用修复后的函数
+    access_keys: normalizeArray(data.access_keys || data.accessKeys, normalizeAccessKey),
+    ai_usage_records: normalizeArray(data.ai_usage_records || data.aiUsageRecords, normalizeAIUsageRecord),
+    game_history: normalizeArray(data.game_history || data.gameHistory, normalizeGameHistory),
+    key_usage_history: normalizeArray(data.key_usage_history || data.keyUsageHistory, normalizeKeyUsageHistory),
+    
+    // 当前访问密钥
+    current_access_key: data.current_access_key || data.currentAccessKey 
+      ? normalizeAccessKey(data.current_access_key || data.currentAccessKey)
+      : undefined,
+    
+    // 驼峰命名兼容字段
+    fullName: data.full_name || data.fullName || null,
+    avatarUrl: data.avatar_url || data.avatarUrl || null,
+    accountExpiresAt: formatDate(data.account_expires_at || data.accountExpiresAt),
+    lastLoginAt: formatDate(data.last_login_at || data.lastLoginAt),
+    lastLoginSession: data.last_login_session || data.lastLoginSession || null,
+    accessKeyId: data.access_key_id || data.accessKeyId || null,
+    createdAt: formatDate(data.created_at || data.createdAt) || new Date().toISOString(),
+    updatedAt: formatDate(data.updated_at || data.updatedAt) || new Date().toISOString(),
+    accessKeys: normalizeArray(data.access_keys || data.accessKeys, normalizeAccessKey),
+    aiUsageRecords: normalizeArray(data.ai_usage_records || data.aiUsageRecords, normalizeAIUsageRecord),
+    gameHistory: normalizeArray(data.game_history || data.gameHistory, normalizeGameHistory),
+    keyUsageHistory: normalizeArray(data.key_usage_history || data.keyUsageHistory, normalizeKeyUsageHistory),
+    currentAccessKey: data.current_access_key || data.currentAccessKey 
+      ? normalizeAccessKey(data.current_access_key || data.currentAccessKey)
+      : undefined
+  }
+  
+  // 调试信息（开发环境）
+  if (process.env.NODE_ENV === 'development' && normalized.ai_usage_records.length > 0) {
+    console.log('🔥 AI记录归一化调试:', {
+      原始数量: (data.ai_usage_records || data.aiUsageRecords || []).length,
+      归一化数量: normalized.ai_usage_records.length,
+      第一条记录: {
+        feature: normalized.ai_usage_records[0].feature,
+        inputText: normalized.ai_usage_records[0].inputText,
+        responseText: normalized.ai_usage_records[0].responseText,
+        success: normalized.ai_usage_records[0].success
       }
     })
-    
-    const keysArray = Array.from(uniqueKeys.values())
-      .map(key => ({
-        ...key,
-        is_current: currentAccessKey ? 
-          (key.id === currentAccessKey.id || 
-           key.id === currentAccessKey.access_key?.id) : false
-      }))
-      .sort((a, b) => {
-        const dateA = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
-        const dateB = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
-        return dateB - dateA;
-      })
-    
-    console.log('✅ allUsedKeys计算完成，数量:', keysArray.length);
-    return keysArray;
-  }, [keyUsageHistory, currentAccessKey])
-
-  // 🔧 修复：密钥使用历史排序
-  const keyUsageHistorySorted = useMemo(() => {
-    console.log('🔄 排序keyUsageHistory, 原始长度:', keyUsageHistory.length);
-    
-    if (!keyUsageHistory || !Array.isArray(keyUsageHistory)) return [];
-    
-    return [...keyUsageHistory]
-      .filter(record => record) // 过滤掉null/undefined
-      .sort((a, b) => {
-        const dateA = a.used_at || a.usedAt || 0;
-        const dateB = b.used_at || b.usedAt || 0;
-        return new Date(dateB).getTime() - new Date(dateA).getTime();
-      });
-  }, [keyUsageHistory])
-
-  const handleCopy = async (text: string, field: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedField(field);
-      setTimeout(() => setCopiedField(null), 2000);
-    } catch (error) {
-      console.error('复制失败:', error);
-    }
   }
+  
+  return normalized
+}
 
-  const formatDate = (dateString: string | null | undefined): string => {
-    if (!dateString) return '无记录';
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return '无效日期';
-      
-      return date.toLocaleString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    } catch {
-      return '无效日期';
+/**
+ * 日期比较函数（用于排序）
+ * @param dateA 第一个日期
+ * @param dateB 第二个日期
+ * @param direction 排序方向
+ * @returns 比较结果
+ */
+export function compareDates(
+  dateA: string | null, 
+  dateB: string | null, 
+  direction: SortDirection = 'desc'
+): number {
+  if (!dateA && !dateB) return 0
+  if (!dateA) return direction === 'asc' ? 1 : -1
+  if (!dateB) return direction === 'asc' ? -1 : 1
+  
+  try {
+    const timeA = new Date(dateA).getTime()
+    const timeB = new Date(dateB).getTime()
+    
+    if (isNaN(timeA) || isNaN(timeB)) return 0
+    
+    if (direction === 'asc') {
+      return timeA - timeB
+    } else {
+      return timeB - timeA
     }
+  } catch {
+    return 0
   }
+}
 
-  const formatShortDate = (dateString: string | null | undefined): string => {
-    if (!dateString) return '无记录';
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return '无效日期';
-      
-      return date.toLocaleString('zh-CN', {
-        month: 'short',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    } catch {
-      return dateString;
-    }
-  }
-
-  const formatDuration = (start: string | null | undefined, end: string | null | undefined) => {
-    if (!start || !end) return '未知';
-    try {
-      const startDate = new Date(start);
-      const endDate = new Date(end);
-      const diffMs = endDate.getTime() - startDate.getTime();
-      
-      if (diffMs < 0) return '时间错误';
-      
-      const diffSeconds = Math.floor(diffMs / 1000);
-      const diffMinutes = Math.floor(diffMs / 60000);
-      const diffHours = Math.floor(diffMs / 3600000);
-      
-      if (diffHours > 0) {
-        return `${diffHours}小时${Math.floor((diffMs % 3600000) / 60000)}分钟`;
-      } else if (diffMinutes > 0) {
-        return `${diffMinutes}分钟${Math.floor((diffMs % 60000) / 1000)}秒`;
-      } else {
-        return `${diffSeconds}秒`;
-      }
-    } catch {
-      return '未知';
-    }
-  }
-
-  const getAccountStatus = () => {
-    if (!userDetail?.account_expires_at) {
-      return { status: '免费用户', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: '🟡' };
+/**
+ * 格式化为中文日期时间
+ * @param dateString 日期字符串
+ * @param includeTime 是否包含时间
+ * @returns 格式化后的日期时间字符串
+ */
+export function formatChineseDateTime(dateString: string | null, includeTime: boolean = true): string {
+  if (!dateString) return '无记录'
+  
+  try {
+    const date = new Date(dateString)
+    if (isNaN(date.getTime())) return '无效日期'
+    
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    
+    if (!includeTime) {
+      return `${year}年${month}月${day}日`
     }
     
-    try {
-      const expiryDate = new Date(userDetail.account_expires_at);
-      const isExpired = expiryDate < new Date();
-      
-      if (isExpired) {
-        return { status: '已过期', color: 'text-red-400', bgColor: 'bg-red-500/10', icon: '🔴' };
-      }
-      
-      // 如果7天内过期，显示即将过期
-      const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      if (expiryDate < sevenDaysFromNow) {
-        return { status: '即将过期', color: 'text-yellow-400', bgColor: 'bg-yellow-500/10', icon: '🟡' };
-      }
-      
-      return { status: '会员中', color: 'text-green-400', bgColor: 'bg-green-500/10', icon: '🟢' };
-    } catch {
-      return { status: '状态未知', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: '⚫' };
-    }
-  }
-
-  const getGenderIcon = (gender: string) => {
-    switch (gender) {
-      case '男': return <Mars className="w-4 h-4 text-blue-400" />;
-      case '女': return <Venus className="w-4 h-4 text-pink-400" />;
-      case '其他': return <Users className="w-4 h-4 text-purple-400" />;
-      case '非二元': return <Users className="w-4 h-4 text-purple-400" />;
-      default: return <User className="w-4 h-4 text-gray-400" />;
-    }
-  }
-
-  const getActiveStatus = () => {
-    if (!userDetail?.last_login_at) {
-      return { status: '从未登录', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: <WifiOff className="w-4 h-4" /> };
-    }
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
     
-    try {
-      const lastLogin = new Date(userDetail.last_login_at);
-      const now = new Date();
-      const threeMinutesAgo = new Date(now.getTime() - 3 * 60 * 1000);
-      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      
-      if (lastLogin > threeMinutesAgo) {
-        return { status: '在线', color: 'text-green-400', bgColor: 'bg-green-500/10', icon: <Wifi className="w-4 h-4" /> };
-      } else if (lastLogin > twentyFourHoursAgo) {
-        return { status: '今日活跃', color: 'text-blue-400', bgColor: 'bg-blue-500/10', icon: <Activity className="w-4 h-4" /> };
-      } else {
-        return { status: '离线', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: <WifiOff className="w-4 h-4" /> };
-      }
-    } catch {
-      return { status: '状态未知', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: <AlertCircle className="w-4 h-4" /> };
-    }
+    return `${year}年${month}月${day}日 ${hours}:${minutes}`
+  } catch {
+    return '无效日期'
   }
+}
 
-  // 🔧 修复：AI记录导出功能
-  const handleExportAI = (record: any) => {
-    try {
-      console.log('📤 导出AI记录:', record);
-      
-      const data = {
-        id: record.id,
-        userId: record.user_id || record.userId,
-        feature: record.feature || 'AI对话',
-        createdAt: record.created_at || record.createdAt,
-        requestData: record.request_data || record.requestData,
-        responseData: record.response_data || record.responseData,
-        success: record.success,
-        model: record.model || record.feature || 'gpt-3.5-turbo',
-        tokensUsed: record.tokens_used || record.tokensUsed || 0
-      };
-      
-      const json = JSON.stringify(data, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `ai-record-${record.id}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('导出失败:', error);
-    }
-  }
+/**
+ * 检查用户是否是管理员
+ * @param email 用户邮箱
+ * @returns 是否是管理员
+ */
+export function isAdminUser(email: string): boolean {
+  const adminEmails = [
+    '2200691917@qq.com',
+    // 可以添加更多管理员邮箱
+  ]
+  return adminEmails.includes(email)
+}
 
-  const toggleAIExpanded = (index: number) => {
-    setExpandedAIRecord(expandedAIRecord === index ? null : index);
-  }
+// ============================================
+// 5. 批量操作类型
+// ============================================
 
-  // 🔧 修复：从JSON数据提取文本
-  const extractTextFromJson = (data: any): string => {
-    if (!data) return '无数据';
-    
-    try {
-      // 如果已经是字符串
-      if (typeof data === 'string') {
-        // 尝试解析为JSON
-        if (data.trim().startsWith('{') || data.trim().startsWith('[')) {
-          try {
-            const parsed = JSON.parse(data);
-            return extractTextFromJson(parsed);
-          } catch {
-            // 解析失败，返回原始字符串
-            return data;
-          }
-        }
-        return data;
-      }
-      
-      // 如果是对象
-      if (typeof data === 'object' && data !== null) {
-        // 优先尝试常见的文本字段
-        const textFields = ['content', 'text', 'message', 'input', 'prompt', 'query', 'response', 'answer', 'output'];
-        
-        for (const field of textFields) {
-          if (data[field] !== undefined && data[field] !== null) {
-            const extracted = extractTextFromJson(data[field]);
-            if (extracted && extracted.trim()) {
-              return extracted;
-            }
-          }
-        }
-        
-        // 如果没有找到常见字段，返回整个对象的JSON字符串
-        try {
-          return JSON.stringify(data, null, 2);
-        } catch {
-          return String(data);
-        }
-      }
-      
-      // 其他类型直接转为字符串
-      return String(data || '');
-    } catch (error) {
-      console.warn('提取文本失败:', error, '原始数据:', data);
-      return String(data || '');
-    }
-  };
+/**
+ * 批量操作类型
+ */
+export type BatchActionType = 'delete' | 'disable' | 'enable'
 
-  if (!isOpen) return null;
+/**
+ * 批量操作请求
+ */
+export interface BatchActionRequest {
+  userIds: string[]
+  action: BatchActionType
+  reason?: string
+}
 
-  const accountStatus = getAccountStatus();
-  const activeStatus = getActiveStatus();
+/**
+ * 批量操作响应
+ */
+export interface BatchActionResponse {
+  success: boolean
+  affectedCount: number
+  failedCount: number
+  failedUsers?: Array<{ userId: string; error: string }>
+}
 
-  // 🔧 修复：准备密钥统计卡数据
-  const keyStats = {
-    totalUniqueKeys: allUsedKeys.length,
-    currentKey: currentAccessKey?.key_code || 
-                currentAccessKey?.keyCode || 
-                currentAccessKey?.access_key?.key_code ||
-                currentAccessKey?.access_key?.keyCode ||
-                '无',
-    usageRecords: keyUsageHistory.length || 0,
-    lastUsage: keyUsageHistory.length > 0 
-      ? formatShortDate(
-          keyUsageHistory[0]?.used_at || 
-          keyUsageHistory[0]?.usedAt ||
-          keyUsageHistory[0]?.access_key?.used_at ||
-          keyUsageHistory[0]?.access_key?.usedAt
-        )
-      : '无记录'
-  };
+// ============================================
+// 6. 导出所有类型
+// ============================================
 
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 md:p-6 overflow-y-auto">
-      <div className="bg-gradient-to-br from-gray-900 via-gray-900 to-gray-950 rounded-2xl border border-gray-800 w-full max-w-6xl max-h-[90vh] overflow-hidden shadow-2xl my-auto">
-        {/* 弹窗头部 */}
-        <div className="p-4 md:p-6 border-b border-gray-800 flex flex-col md:flex-row md:items-center justify-between bg-gradient-to-r from-gray-900/50 to-transparent gap-3">
-          <div className="flex items-center space-x-4">
-            <div className="relative">
-              {userDetail?.avatar_url ? (
-                <img
-                  src={userDetail.avatar_url}
-                  alt={userDetail.nickname || userDetail.email}
-                  className="w-12 h-12 rounded-full ring-2 ring-gray-700 object-cover"
-                  onError={(e) => {
-                    e.currentTarget.src = '';
-                    e.currentTarget.className = 'w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center ring-2 ring-gray-700';
-                    const span = document.createElement('span');
-                    span.className = 'text-white font-bold text-lg';
-                    span.textContent = (userDetail?.nickname || userDetail?.email || 'U').charAt(0).toUpperCase();
-                    e.currentTarget.appendChild(span);
-                  }}
-                />
-              ) : (
-                <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center ring-2 ring-gray-700">
-                  <span className="text-white font-bold text-lg">
-                    {(userDetail?.nickname || userDetail?.email || 'U').charAt(0).toUpperCase()}
-                  </span>
-                </div>
-              )}
-              
-              <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full ring-2 ring-gray-900 ${accountStatus.bgColor} flex items-center justify-center`}>
-                <div className={`w-2 h-2 rounded-full ${accountStatus.color.replace('text-', 'bg-')}`} />
-              </div>
-            </div>
+export type {
+  // 从当前模块重新导出，确保一致性
+  SortField,
+  SortDirection,
+  UserFilterType,
+  KeyStatus,
+  UserStatus,
+  GenderDisplay,
+  BatchActionType
+}
 
-            <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-bold text-white flex items-center truncate">
-                {userDetail?.nickname || '无昵称'}
-                {userDetail?.email === '2200691917@qq.com' && (
-                  <span className="ml-2 bg-gradient-to-r from-amber-500 to-orange-500 text-xs px-2 py-1 rounded-full whitespace-nowrap">
-                    管理员
-                  </span>
-                )}
-              </h2>
-              <p className="text-gray-400 text-sm flex items-center mt-1 truncate">
-                <Mail className="w-3 h-3 mr-1 flex-shrink-0" />
-                <span className="truncate">{userDetail?.email}</span>
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="hidden md:flex items-center gap-2">
-              <div className={`px-3 py-1 rounded-full text-sm font-medium ${activeStatus.bgColor} ${activeStatus.color} flex items-center`}>
-                {activeStatus.icon}
-                <span className="ml-1">{activeStatus.status}</span>
-              </div>
-              
-              <div className={`px-3 py-1 rounded-full text-sm font-medium ${accountStatus.bgColor} ${accountStatus.color}`}>
-                {accountStatus.status}
-              </div>
-            </div>
-
-            {onRefresh && (
-              <button
-                onClick={onRefresh}
-                className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors hover:scale-105 disabled:opacity-50"
-                disabled={loading}
-                title="刷新数据"
-              >
-                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              </button>
-            )}
-
-            <button
-              onClick={onClose}
-              className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors hover:scale-105"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* 移动端状态显示 */}
-        <div className="md:hidden px-4 py-2 border-b border-gray-800">
-          <div className="flex items-center justify-between">
-            <div className={`px-3 py-1 rounded-full text-sm font-medium ${activeStatus.bgColor} ${activeStatus.color} flex items-center`}>
-              {activeStatus.icon}
-              <span className="ml-1">{activeStatus.status}</span>
-            </div>
-            
-            <div className={`px-3 py-1 rounded-full text-sm font-medium ${accountStatus.bgColor} ${accountStatus.color}`}>
-              {accountStatus.status}
-            </div>
-          </div>
-        </div>
-
-        {/* 加载状态 */}
-        {loading ? (
-          <div className="p-8 md:p-12 text-center">
-            <div className="w-12 h-12 md:w-16 md:h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-            <p className="text-gray-400 mt-4 text-base md:text-lg">加载用户详情中...</p>
-          </div>
-        ) : !userDetail ? (
-          <div className="p-8 md:p-12 text-center">
-            <User className="w-16 h-16 md:w-20 md:h-20 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400 text-base md:text-lg">未找到用户信息</p>
-            <button
-              onClick={onClose}
-              className="mt-4 px-4 py-2 bg-gray-800 text-gray-300 rounded-lg hover:bg-gray-700 transition-colors"
-            >
-              关闭
-            </button>
-          </div>
-        ) : (
-          <>
-            {/* 标签页导航 */}
-            <div className="border-b border-gray-800 bg-gray-900/30">
-              <div className="flex overflow-x-auto">
-                {[
-                  { id: 'basic' as const, label: '基本信息', icon: User, count: null },
-                  { id: 'keys' as const, label: '密钥记录', icon: Key, count: accessKeys.length },
-                  { id: 'ai' as const, label: 'AI使用', icon: Brain, count: aiUsageRecords.length },
-                  { id: 'games' as const, label: '游戏记录', icon: Gamepad2, count: gameHistory.length }
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    className={`flex-1 min-w-[120px] flex items-center justify-center px-4 py-3 text-sm font-medium transition-all relative whitespace-nowrap ${activeTab === tab.id
-                      ? 'text-blue-400 border-b-2 border-blue-500 bg-gradient-to-t from-blue-500/5 to-transparent'
-                      : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/30'
-                      }`}
-                    onClick={() => setActiveTab(tab.id)}
-                  >
-                    <tab.icon className="w-4 h-4 mr-2 flex-shrink-0" />
-                    <span className="truncate">{tab.label}</span>
-                    {tab.count !== null && (
-                      <span className={`ml-2 px-1.5 py-0.5 text-xs rounded-full flex-shrink-0 ${activeTab === tab.id
-                        ? 'bg-blue-500/20 text-blue-400'
-                        : 'bg-gray-700 text-gray-400'
-                        }`}>
-                        {tab.count}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 标签页内容 */}
-            <div className="overflow-auto max-h-[calc(90vh-200px)] md:max-h-[calc(90vh-180px)]">
-              {/* 基本信息标签页 */}
-              {activeTab === 'basic' && (
-                <div className="p-4 md:p-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-                    {/* 用户基本信息 */}
-                    <div className="lg:col-span-2 space-y-4 md:space-y-6">
-                      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
-                        <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
-                          <User className="w-5 h-5 mr-2 text-blue-400" />
-                          用户信息
-                        </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
-                              <div className="flex items-center">
-                                <Tag className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
-                                <span className="text-gray-400 text-sm">用户ID:</span>
-                              </div>
-                              <div className="flex items-center gap-2 ml-2">
-                                <code className="text-xs md:text-sm font-mono text-gray-300 truncate max-w-[120px] md:max-w-[200px]">
-                                  {userDetail.id}
-                                </code>
-                                <button
-                                  onClick={() => handleCopy(userDetail.id, 'id')}
-                                  className="p-1.5 hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
-                                  title="复制ID"
-                                >
-                                  {copiedField === 'id' ? (
-                                    <Check className="w-3 h-3 md:w-4 md:h-4 text-green-400" />
-                                  ) : (
-                                    <Copy className="w-3 h-3 md:w-4 md:h-4 text-gray-400" />
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
-                              <div className="flex items-center">
-                                <Mail className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
-                                <span className="text-gray-400 text-sm">邮箱:</span>
-                              </div>
-                              <div className="flex items-center ml-2">
-                                <span className="text-white text-sm truncate max-w-[160px] md:max-w-[240px]">
-                                  {userDetail.email}
-                                </span>
-                                <button
-                                  onClick={() => handleCopy(userDetail.email, 'email')}
-                                  className="p-1.5 hover:bg-gray-700 rounded-lg transition-colors ml-2 flex-shrink-0"
-                                  title="复制邮箱"
-                                >
-                                  {copiedField === 'email' ? (
-                                    <Check className="w-3 h-3 md:w-4 md:h-4 text-green-400" />
-                                  ) : (
-                                    <Copy className="w-3 h-3 md:w-4 md:h-4 text-gray-400" />
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
-                              <div className="flex items-center">
-                                <User className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
-                                <span className="text-gray-400 text-sm">昵称:</span>
-                              </div>
-                              <span className="text-white text-sm">{userDetail.nickname || '未设置'}</span>
-                            </div>
-
-                            <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
-                              <div className="flex items-center">
-                                {getGenderIcon(getGenderDisplay(userDetail.preferences))}
-                                <span className="text-gray-400 text-sm ml-2">性别:</span>
-                              </div>
-                              <div className="flex items-center">
-                                <span className="text-white text-sm">{getGenderDisplay(userDetail.preferences)}</span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
-                              <div className="flex items-center">
-                                <Activity className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
-                                <span className="text-gray-400 text-sm">简介:</span>
-                              </div>
-                              <span className="text-gray-300 text-sm text-right truncate max-w-[160px]">
-                                {userDetail.bio || '未设置'}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 偏好设置 */}
-                      {userDetail.preferences && Object.keys(userDetail.preferences).length > 0 && (
-                        <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
-                          <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
-                            <Activity className="w-5 h-5 mr-2 text-blue-400" />
-                            偏好设置
-                          </h3>
-                          <div className="bg-gray-900/50 p-3 md:p-4 rounded-lg overflow-auto">
-                            <pre className="text-xs md:text-sm text-gray-300 whitespace-pre-wrap">
-                              {JSON.stringify(userDetail.preferences, null, 2)}
-                            </pre>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 账户状态 */}
-                    <div className="space-y-4 md:space-y-6">
-                      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
-                        <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
-                          <Shield className="w-5 h-5 mr-2 text-blue-400" />
-                          账户状态
-                        </h3>
-                        <div className="space-y-3 md:space-y-4">
-                          <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
-                            <div className="flex items-center">
-                              <Shield className="w-4 h-4 mr-2 text-gray-400" />
-                              <span className="text-gray-400 text-sm">会员状态:</span>
-                            </div>
-                            <span className={`font-medium text-sm ${accountStatus.color}`}>
-                              {accountStatus.status}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
-                            <div className="flex items-center">
-                              <Calendar className="w-4 h-4 mr-2 text-gray-400" />
-                              <span className="text-gray-400 text-sm">会员到期:</span>
-                            </div>
-                            <span className="text-white text-sm">{formatDate(userDetail.account_expires_at)}</span>
-                          </div>
-
-                          <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
-                            <div className="flex items-center">
-                              <Clock className="w-4 h-4 mr-2 text-gray-400" />
-                              <span className="text-gray-400 text-sm">最后登录:</span>
-                            </div>
-                            <span className="text-white text-sm">{formatDate(userDetail.last_login_at)}</span>
-                          </div>
-
-                          <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
-                            <div className="flex items-center">
-                              <History className="w-4 h-4 mr-2 text-gray-400" />
-                              <span className="text-gray-400 text-sm">注册时间:</span>
-                            </div>
-                            <span className="text-white text-sm">{formatDate(userDetail.created_at)}</span>
-                          </div>
-
-                          <div className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg">
-                            <div className="flex items-center">
-                              <Activity className="w-4 h-4 mr-2 text-gray-400" />
-                              <span className="text-gray-400 text-sm">最后活跃:</span>
-                            </div>
-                            <span className="text-white text-sm">{activeStatus.status}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 统计概览 */}
-                      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
-                        <h3 className="text-lg font-semibold text-white mb-4">统计概览</h3>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="bg-gray-800/30 p-3 rounded-lg">
-                            <p className="text-xs text-gray-400">密钥总数</p>
-                            <p className="text-lg md:text-xl font-bold text-white">{stats?.keyStats.total || 0}</p>
-                          </div>
-                          <div className="bg-gray-800/30 p-3 rounded-lg">
-                            <p className="text-xs text-gray-400">AI请求</p>
-                            <p className="text-lg md:text-xl font-bold text-blue-400">{stats?.aiStats.total || 0}</p>
-                          </div>
-                          <div className="bg-gray-800/30 p-3 rounded-lg">
-                            <p className="text-xs text-gray-400">游戏场次</p>
-                            <p className="text-lg md:text-xl font-bold text-green-400">{stats?.gameStats.total || 0}</p>
-                          </div>
-                          <div className="bg-gray-800/30 p-3 rounded-lg">
-                            <p className="text-xs text-gray-400">胜率</p>
-                            <p className="text-lg md:text-xl font-bold text-amber-400">
-                              {stats?.gameStats.total
-                                ? `${((stats.gameStats.wins / stats.gameStats.total) * 100).toFixed(1)}%`
-                                : '0%'
-                              }
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 密钥记录标签页 - 修复版 */}
-              {activeTab === 'keys' && (
-                <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-                  {/* 统计卡片 */}
-                  <div className="mb-4 md:mb-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
-                      <p className="text-xs md:text-sm text-gray-400 mb-1">总使用密钥</p>
-                      <p className="text-xl md:text-2xl font-bold text-white">
-                        {keyStats.totalUniqueKeys || 0}
-                      </p>
-                    </div>
-                    
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
-                      <p className="text-xs md:text-sm text-gray-400 mb-1">当前密钥</p>
-                      <p className="text-lg md:text-2xl font-bold text-blue-400 font-mono truncate" 
-                        title={keyStats.currentKey}>
-                        {keyStats.currentKey}
-                      </p>
-                    </div>
-                    
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
-                      <p className="text-xs md:text-sm text-gray-400 mb-1">使用记录</p>
-                      <p className="text-xl md:text-2xl font-bold text-green-400">
-                        {keyStats.usageRecords}
-                      </p>
-                    </div>
-                    
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
-                      <p className="text-xs md:text-sm text-gray-400 mb-1">最近使用</p>
-                      <p className="text-sm md:text-lg font-bold text-amber-400 truncate">
-                        {keyStats.lastUsage}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* 所有使用过的密钥表格 */}
-                  <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
-                    <div className="p-4 md:p-5 border-b border-gray-800">
-                      <h3 className="text-lg font-semibold text-white flex items-center">
-                        <Key className="w-5 h-5 mr-2 text-blue-400" />
-                        所有使用过的密钥
-                      </h3>
-                      <p className="text-sm text-gray-400 mt-1">
-                        用户激活和使用过的所有密钥列表
-                      </p>
-                    </div>
-
-                    {allUsedKeys.length === 0 ? (
-                      <div className="text-center py-8 md:py-12">
-                        <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <Key className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
-                        </div>
-                        <p className="text-gray-400 text-base md:text-lg">暂无密钥记录</p>
-                        <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未激活任何密钥</p>
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full min-w-[768px]">
-                          <thead>
-                            <tr className="border-b border-gray-800 bg-gray-900/50">
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">密钥代码</th>
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">状态</th>
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">有效期</th>
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">首次使用</th>
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">最后使用</th>
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">使用次数</th>
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作类型</th>
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {allUsedKeys.map((key, index) => {
-                              const keyCode = key.key_code || '未知';
-                              const isActive = key.is_active !== false;
-                              const isExpired = key.key_expires_at && new Date(key.key_expires_at) < new Date();
-                              const isCurrent = key.is_current;
-                              
-                              return (
-                                <tr
-                                  key={`key-${key.id || index}`}
-                                  className={`border-b border-gray-800/30 transition-all hover:bg-gray-800/30 ${isCurrent ? 'bg-blue-500/5' : ''}`}
-                                >
-                                  <td className="py-3 md:py-4 px-4">
-                                    <div className="flex items-center">
-                                      <code className="text-xs md:text-sm bg-gray-900 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-mono border border-gray-800 truncate max-w-[140px] md:max-w-[200px]">
-                                        {keyCode}
-                                      </code>
-                                      {isCurrent && (
-                                        <span className="ml-2 bg-gradient-to-r from-blue-500 to-blue-600 text-xs px-1.5 md:px-2 py-0.5 md:py-1 rounded-full whitespace-nowrap">
-                                          当前使用
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-4">
-                                    <div className="flex items-center space-x-1 md:space-x-2">
-                                      <div className={`w-2 h-2 rounded-full ${isExpired ? 'bg-red-500' : isActive ? 'bg-green-500' : 'bg-gray-500'}`} />
-                                      <span className={`text-xs md:text-sm ${isExpired ? 'text-red-400' : isActive ? 'text-green-400' : 'text-gray-400'}`}>
-                                        {isExpired ? '已过期' : isActive ? '活跃' : '未知'}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-4">
-                                    <span className="text-gray-300 text-xs md:text-sm">
-                                      {key.key_expires_at ? formatDate(key.key_expires_at) : '永久有效'}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-4">
-                                    <span className="text-gray-300 text-xs md:text-sm">
-                                      {key.first_used_at ? formatShortDate(key.first_used_at) : '无记录'}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-4">
-                                    <span className="text-gray-300 text-xs md:text-sm">
-                                      {key.last_used_at ? formatShortDate(key.last_used_at) : '无记录'}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-4">
-                                    <span className="text-gray-300 text-xs md:text-sm">
-                                      {key.usage_count || 0} 次
-                                    </span>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-4">
-                                    <div className="flex flex-wrap gap-1">
-                                      {Array.from(key.usage_types || new Set(['activate'])).map((type: any, idx) => (
-                                        <span 
-                                          key={`type-${idx}`}
-                                          className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300"
-                                        >
-                                          {type === 'activate' ? '激活' : 
-                                           type === 'renew' ? '续费' : 
-                                           type === 'transfer' ? '转移' : type}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-4">
-                                    <div className="flex space-x-1 md:space-x-2">
-                                      <button
-                                        onClick={() => keyCode && handleCopy(keyCode, `key-${key.id || index}`)}
-                                        className="text-blue-400 hover:text-blue-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 md:py-1.5 rounded-lg transition-colors disabled:opacity-50"
-                                        disabled={!keyCode || keyCode === '未知'}
-                                        title={keyCode === '未知' ? '无法复制未知密钥' : '复制密钥'}
-                                      >
-                                        <Copy className="w-3 h-3 mr-1" />
-                                        复制
-                                      </button>
-                                      {isCurrent && (
-                                        <span className="text-xs text-amber-400 flex items-center bg-amber-500/10 px-2 md:px-3 py-1 md:py-1.5 rounded-lg">
-                                          <Key className="w-3 h-3 mr-1" />
-                                          当前
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 密钥使用历史表格 */}
-                  <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
-                    <div className="p-4 md:p-5 border-b border-gray-800">
-                      <h3 className="text-lg font-semibold text-white flex items-center">
-                        <History className="w-5 h-5 mr-2 text-blue-400" />
-                        密钥使用历史
-                      </h3>
-                      <p className="text-sm text-gray-400 mt-1">
-                        每次密钥操作的详细记录
-                      </p>
-                    </div>
-
-                    {keyUsageHistorySorted.length === 0 ? (
-                      <div className="text-center py-8 md:py-12">
-                        <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <History className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
-                        </div>
-                        <p className="text-gray-400 text-base md:text-lg">暂无使用历史</p>
-                        <p className="text-gray-500 text-xs md:text-sm mt-2">该用户暂无密钥使用记录</p>
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full min-w-[768px]">
-                          <thead>
-                            <tr className="border-b border-gray-800 bg-gray-900/50">
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作时间</th>
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作类型</th>
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">密钥代码</th>
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">前一个密钥</th>
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">后一个密钥</th>
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作者</th>
-                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">备注</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {keyUsageHistorySorted.map((record, index) => {
-                              const usedAt = record.used_at || record.usedAt || '';
-                              const usageType = record.usage_type || 'activate';
-                              const accessKey = record.access_key || {};
-                              const keyCode = accessKey.key_code || accessKey.keyCode || '未知';
-                              const operator = record.operator || {};
-                              const operatorEmail = operator.email || '系统';
-                              const operatorNickname = operator.nickname || '';
-                              const notes = record.notes || record.note || '';
-                              
-                              const previousKeyId = record.previous_key_id || null;
-                              const nextKeyId = record.next_key_id || null;
-
-                              return (
-                                <tr
-                                  key={`history-${record.id || index}`}
-                                  className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-all"
-                                >
-                                  <td className="py-3 md:py-4 px-4">
-                                    <div className="flex flex-col">
-                                      <span className="text-gray-300 text-xs md:text-sm">
-                                        {formatDate(usedAt)}
-                                      </span>
-                                      <span className="text-xs text-gray-500 mt-1">
-                                        {formatShortDate(usedAt)}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-4">
-                                    <span className={`text-xs md:text-sm px-2 py-1 rounded-full ${
-                                      usageType === 'activate' ? 'bg-green-500/20 text-green-400' :
-                                      usageType === 'renew' ? 'bg-blue-500/20 text-blue-400' :
-                                      usageType === 'transfer' ? 'bg-purple-500/20 text-purple-400' :
-                                      'bg-gray-500/20 text-gray-400'
-                                    }`}>
-                                      {usageType === 'activate' ? '激活' :
-                                       usageType === 'renew' ? '续费' :
-                                       usageType === 'transfer' ? '转移' : usageType}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-4">
-                                    <code className="text-xs md:text-sm bg-gray-900 px-2 py-1 rounded-lg font-mono border border-gray-800">
-                                      {keyCode}
-                                    </code>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-4">
-                                    <span className="text-gray-300 text-xs md:text-sm">
-                                      {previousKeyId ? `密钥ID: ${previousKeyId}` : '无'}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-4">
-                                    <span className="text-gray-300 text-xs md:text-sm">
-                                      {nextKeyId ? `密钥ID: ${nextKeyId}` : '无'}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-4">
-                                    <div className="flex flex-col">
-                                      <span className="text-gray-300 text-xs md:text-sm">
-                                        {operatorNickname || operatorEmail}
-                                      </span>
-                                      {operatorNickname && (
-                                        <span className="text-xs text-gray-500 mt-1">
-                                          {operatorEmail}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-4">
-                                    <span className="text-gray-300 text-xs md:text-sm truncate max-w-[120px]" title={notes}>
-                                      {notes || '无备注'}
-                                    </span>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 数据说明 */}
-                  <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
-                    <h4 className="text-sm font-medium text-white mb-2">数据说明</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-400">
-                      <div className="flex items-start">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full mt-1 mr-2"></div>
-                        <div>
-                          <span className="font-medium">当前密钥</span>
-                          <p className="mt-1">用户当前正在使用的密钥，在表格中标记为"当前使用"</p>
-                        </div>
-                      </div>
-                      <div className="flex items-start">
-                        <div className="w-2 h-2 bg-green-500 rounded-full mt-1 mr-2"></div>
-                        <div>
-                          <span className="font-medium">使用历史</span>
-                          <p className="mt-1">用户每次激活、续费或转移密钥的记录</p>
-                        </div>
-                      </div>
-                      <div className="flex items-start">
-                        <div className="w-2 h-2 bg-amber-500 rounded-full mt-1 mr-2"></div>
-                        <div>
-                          <span className="font-medium">操作类型</span>
-                          <p className="mt-1">激活: 首次使用密钥<br/>续费: 延长密钥有效期<br/>转移: 更换到新密钥</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* AI使用记录标签页 - 修复版 */}
-              {activeTab === 'ai' && (
-                <div className="p-4 md:p-6">
-                  <div className="mb-4 md:mb-6 grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">总请求数</p>
-                      <p className="text-xl md:text-2xl font-bold text-white">{stats?.aiStats.total || 0}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        7天内请求: {stats?.aiStats.recent || 0}
-                      </p>
-                    </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">成功请求</p>
-                      <p className="text-xl md:text-2xl font-bold text-green-400">{stats?.aiStats.success || 0}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        成功率: {stats?.aiStats.total
-                          ? `${((stats.aiStats.success / stats.aiStats.total) * 100).toFixed(1)}%`
-                          : '0%'
-                        }
-                      </p>
-                    </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">令牌使用</p>
-                      <p className="text-xl md:text-2xl font-bold text-blue-400">{stats?.aiStats.totalTokens || 0}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        平均: {stats?.aiStats.total
-                          ? Math.round((stats.aiStats.totalTokens || 0) / stats.aiStats.total)
-                          : 0
-                        }/请求
-                      </p>
-                    </div>
-                  </div>
-
-                  {aiUsageRecords.length === 0 ? (
-                    <div className="text-center py-8 md:py-12">
-                      <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Brain className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
-                      </div>
-                      <p className="text-gray-400 text-base md:text-lg">暂无AI使用记录</p>
-                      <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未使用过AI功能</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3 md:space-y-4">
-                      {aiUsageRecords.slice(0, 10).map((record, index) => {
-                        console.log('📄 渲染AI记录:', index, record);
-                        
-                        // 🔧 修复：正确获取AI记录字段
-                        const feature = record.feature || record.model || 'AI对话';
-                        const createdAt = record.created_at || record.createdAt;
-                        const success = record.success;
-                        const isExpanded = expandedAIRecord === index;
-                        
-                        // 🔧 修复：正确获取请求和响应数据
-                        const requestData = record.request_data || record.requestData || record.input_text || record.inputText || {};
-                        const responseData = record.response_data || record.responseData || record.response_text || record.responseText || {};
-                        
-                        return (
-                          <div
-                            key={index}
-                            className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5 hover:border-gray-600/50 transition-all"
-                          >
-                            <div className="flex items-center justify-between mb-3 md:mb-4">
-                              <div className="flex items-center">
-                                <Brain className="w-4 h-4 md:w-5 md:h-5 mr-2 md:mr-3 text-blue-400 flex-shrink-0" />
-                                <div className="min-w-0">
-                                  <span className="text-white text-sm md:text-base font-medium truncate block">
-                                    {feature}
-                                  </span>
-                                  <div className="flex items-center mt-1">
-                                    <span className={`px-2 py-0.5 rounded text-xs ${success
-                                      ? 'bg-green-500/20 text-green-400'
-                                      : 'bg-red-500/20 text-red-400'
-                                      }`}>
-                                      {success ? '成功' : '失败'}
-                                    </span>
-                                    <span className="text-gray-500 text-xs ml-2">
-                                      {record.model || record.feature || '未知模型'}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="flex items-center space-x-2 ml-2">
-                                <button
-                                  onClick={() => toggleAIExpanded(index)}
-                                  className="text-gray-400 hover:text-gray-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 rounded-lg transition-colors"
-                                >
-                                  {isExpanded ? '收起' : '详情'}
-                                </button>
-                                <button
-                                  onClick={() => handleExportAI(record)}
-                                  className="text-gray-400 hover:text-gray-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 rounded-lg transition-colors"
-                                  title="导出JSON"
-                                >
-                                  <Download className="w-3 h-3 md:w-4 md:h-4" />
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="text-xs text-gray-400 mb-2">
-                              创建时间: {formatDate(createdAt)}
-                              {(record.tokens_used || record.tokensUsed) && (
-                                <span className="ml-2">
-                                  令牌: {record.tokens_used || record.tokensUsed}
-                                </span>
-                              )}
-                            </div>
-
-                            {isExpanded && (
-                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 mt-3 pt-3 border-t border-gray-800/30">
-                                <div>
-                                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">请求数据</p>
-                                  <div className="bg-gray-900/50 p-2 md:p-3 rounded-lg overflow-auto max-h-48">
-                                    <pre className="text-xs text-gray-300 whitespace-pre-wrap">
-                                      {(() => {
-                                        try {
-                                          if (typeof requestData === 'string') {
-                                            return JSON.stringify(JSON.parse(requestData), null, 2);
-                                          } else if (typeof requestData === 'object') {
-                                            return JSON.stringify(requestData, null, 2);
-                                          }
-                                          return String(requestData || '无数据');
-                                        } catch {
-                                          return String(requestData || '无数据');
-                                        }
-                                      })()}
-                                    </pre>
-                                  </div>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">响应数据</p>
-                                  <div className="bg-gray-900/50 p-2 md:p-3 rounded-lg overflow-auto max-h-48">
-                                    <pre className="text-xs text-gray-300 whitespace-pre-wrap">
-                                      {(() => {
-                                        try {
-                                          if (typeof responseData === 'string') {
-                                            return JSON.stringify(JSON.parse(responseData), null, 2);
-                                          } else if (typeof responseData === 'object') {
-                                            return JSON.stringify(responseData, null, 2);
-                                          }
-                                          return String(responseData || '无数据');
-                                        } catch {
-                                          return String(responseData || '无数据');
-                                        }
-                                      })()}
-                                    </pre>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-
-                      {aiUsageRecords.length > 10 && (
-                        <div className="text-center pt-4">
-                          <p className="text-gray-400 text-xs md:text-sm">
-                            显示最近10条记录，共{aiUsageRecords.length}条
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 游戏记录标签页 */}
-              {activeTab === 'games' && (
-                <div className="p-4 md:p-6">
-                  <div className="mb-4 md:mb-6 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">总场次</p>
-                      <p className="text-xl md:text-2xl font-bold text-white">{stats?.gameStats.total || 0}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        7天内场次: {stats?.gameStats.recent || 0}
-                      </p>
-                    </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">胜场</p>
-                      <p className="text-xl md:text-2xl font-bold text-green-400">{stats?.gameStats.wins || 0}</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">负场</p>
-                      <p className="text-xl md:text-2xl font-bold text-red-400">
-                        {stats ? stats.gameStats.total - stats.gameStats.wins : 0}
-                      </p>
-                    </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">胜率</p>
-                      <p className="text-xl md:text-2xl font-bold text-blue-400">
-                        {stats?.gameStats.total
-                          ? `${((stats.gameStats.wins / stats.gameStats.total) * 100).toFixed(1)}%`
-                          : '0%'
-                        }
-                      </p>
-                    </div>
-                  </div>
-
-                  {gameHistory.length === 0 ? (
-                    <div className="text-center py-8 md:py-12">
-                      <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Gamepad2 className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
-                      </div>
-                      <p className="text-gray-400 text-base md:text-lg">暂无游戏记录</p>
-                      <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未参与过游戏</p>
-                    </div>
-                  ) : (
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
-                      <div className="overflow-x-auto">
-                        <table className="w-full min-w-[640px]">
-                          <thead>
-                            <tr className="border-b border-gray-800 bg-gray-900/50">
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">对局ID</th>
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">对手</th>
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">结果</th>
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">时长</th>
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">开始时间</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {gameHistory.map((game, index) => {
-                              const isWin = game.winner_id === userDetail.id;
-                              const isDraw = !game.winner_id;
-                              const startedAt = game.started_at;
-                              const endedAt = game.ended_at;
-
-                              return (
-                                <tr
-                                  key={index}
-                                  className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-all"
-                                >
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <code className="text-xs bg-gray-900 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-mono border border-gray-800">
-                                      {game.id?.substring(0, 8) || '未知'}
-                                    </code>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <div className="flex flex-col">
-                                      <span className="text-gray-300 text-xs md:text-sm">
-                                        玩家{game.player1_id === userDetail.id ? '2' : '1'}
-                                      </span>
-                                      <span className="text-xs text-gray-500 mt-1">
-                                        {game.player1_id === userDetail.id ? '你是玩家1' : '你是玩家2'}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <div className="flex items-center">
-                                      <div className={`w-2 h-2 rounded-full mr-1 md:mr-2 ${isWin ? 'bg-green-500' : isDraw ? 'bg-yellow-500' : 'bg-red-500'
-                                        }`} />
-                                      <span className={`text-xs md:text-sm ${isWin ? 'text-green-400' : isDraw ? 'text-yellow-400' : 'text-red-400'
-                                        }`}>
-                                        {isWin ? '胜利' : isDraw ? '平局' : '失败'}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <span className="text-gray-300 text-xs md:text-sm">
-                                      {formatDuration(startedAt, endedAt)}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <span className="text-gray-300 text-xs md:text-sm">
-                                      {formatDate(startedAt)}
-                                    </span>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-
-        {/* 调试信息（开发环境显示） */}
-        {process.env.NODE_ENV === 'development' && userDetail && (
-          <div className="mt-4 p-4 border-t border-gray-800 bg-gray-900/30">
-            <details>
-              <summary className="text-sm text-gray-400 cursor-pointer">调试信息</summary>
-              <pre className="text-xs text-gray-500 mt-2 whitespace-pre-wrap max-h-40 overflow-auto">
-                {JSON.stringify({
-                  用户ID: userDetail.id,
-                  AI记录数量: aiUsageRecords.length,
-                  AI记录类型: typeof aiUsageRecords,
-                  AI记录字段: {
-                    ai_usage_records: userDetail.ai_usage_records,
-                    aiUsageRecords: userDetail.aiUsageRecords,
-                    aiRecords: userDetail.aiRecords
-                  },
-                  第一条AI记录: aiUsageRecords[0] || null,
-                  密钥记录数量: accessKeys.length,
-                  游戏记录数量: gameHistory.length,
-                  密钥历史数量: keyUsageHistory.length,
-                  当前密钥: currentAccessKey
-                }, null, 2)}
-              </pre>
-            </details>
-          </div>
-        )}
-      </div>
-    </div>
-  )
+// 默认导出（如果需要）
+export default {
+  // 类型
+  User,
+  UserDetail,
+  AccessKey,
+  AIUsageRecord,
+  GameHistory,
+  KeyUsageHistory,
+  UserStats,
+  GrowthData,
+  PaginationInfo,
+  SortInfo,
+  ApiResponse,
+  
+  // 枚举类型
+  SortField,
+  SortDirection,
+  UserFilterType,
+  KeyStatus,
+  UserStatus,
+  GenderDisplay,
+  BatchActionType,
+  
+  // 工具函数
+  getGenderDisplay,
+  isUserActive,
+  getActiveStatusConfig,
+  getKeyStatus,
+  normalizeUserDetail,
+  compareDates,
+  formatChineseDateTime,
+  isAdminUser
 }
