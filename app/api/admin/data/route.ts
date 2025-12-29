@@ -1,4 +1,3 @@
-// /app/api/admin/data/route.ts - 完整修复版
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -63,12 +62,12 @@ export async function GET(request: NextRequest) {
 
     console.log('📊 API查询参数:', { table, detailId, search, filter, page, limit, offset })
 
-    // 5. 处理用户详情查询（重点修复）
+    // 5. 处理用户详情查询
     if (table === 'profiles' && detailId) {
       console.log(`🔍 查询用户详情: ${detailId}`)
 
       try {
-        // 并行查询所有相关数据
+        // 🔧 修复：并行查询所有相关数据（修复密钥查询关联）
         const [profileResult, keyUsageHistoryResult, currentKeyResult, aiUsageResult, gameHistoriesResult] =
           await Promise.allSettled([
             // 用户基本信息
@@ -78,66 +77,66 @@ export async function GET(request: NextRequest) {
               .eq('id', detailId)
               .single(),
 
-          
-        // 修复第76行左右的查询
-// 查询密钥使用历史
-const { data: keyUsageHistory, error: keyUsageHistoryError } = await supabaseAdmin
-  .from('key_usage_history')
-  .select(`
-    *,
-    access_key:access_keys!key_usage_history_access_key_id_fkey (*),
-    next_key:access_keys!key_usage_history_next_key_id_fkey (
-      id,
-      key_code,
-      is_active
-    ),
-    previous_key:access_keys!key_usage_history_previous_key_id_fkey (
-      id,
-      key_code,
-      is_active
-    ),
-    operator:profiles!key_usage_history_operation_by_fkey (
-      id,
-      email,
-      nickname
-    )
-  `)
-  .eq('user_id', detailId)
-  .order('used_at', { ascending: false })
-  .limit(20);
+            // 🔥 关键修复：密钥使用历史查询 - 使用正确的关联关系
+            supabaseAdmin
+              .from('key_usage_history')
+              .select(`
+                *,
+                access_key:access_keys!key_usage_history_access_key_id_fkey (
+                  id,
+                  key_code,
+                  is_active,
+                  used_count,
+                  max_uses,
+                  key_expires_at,
+                  account_valid_for_days,
+                  user_id,
+                  used_at,
+                  created_at,
+                  updated_at
+                ),
+                operator:profiles!key_usage_history_operation_by_fkey (
+                  id,
+                  email,
+                  nickname
+                )
+              `)
+              .eq('user_id', detailId)
+              .order('used_at', { ascending: false })
+              .limit(20),
 
-        // 查询当前使用的密钥
-        supabaseAdmin
-          .from('profiles')
-          .select('access_key_id')
-          .eq('id', detailId)
-          .single()
-          .then(async (profile) => {
-            if (profile.data?.access_key_id) {
-              return supabaseAdmin
-                .from('access_keys')
-                .select('*')
-                .eq('id', profile.data.access_key_id)
-                .single()
-            }
-            return { data: null, error: null }
-          }),
+            // 查询当前使用的密钥
+            supabaseAdmin
+              .from('profiles')
+              .select('access_key_id')
+              .eq('id', detailId)
+              .single()
+              .then(async (profile) => {
+                if (profile.data?.access_key_id) {
+                  return supabaseAdmin
+                    .from('access_keys')
+                    .select('*')
+                    .eq('id', profile.data.access_key_id)
+                    .single()
+                }
+                return { data: null, error: null }
+              }),
 
-          // AI使用记录
-          supabaseAdmin
-            .from('ai_usage_records')
-            .select('*')
-            .eq('user_id', detailId)
-            .order('created_at', { ascending: false })
-            .limit(20),
+            // AI使用记录
+            supabaseAdmin
+              .from('ai_usage_records')
+              .select('*')
+              .eq('user_id', detailId)
+              .order('created_at', { ascending: false })
+              .limit(20),
 
-          // 游戏历史记录
-          supabaseAdmin
-            .from('game_history')
-            .select('*')
-            .or(`player1_id.eq.${detailId},player2_id.eq.${detailId}`)
-            .order('started_at', { ascending: false })
-            .limit(10)
+            // 游戏历史记录
+            supabaseAdmin
+              .from('game_history')
+              .select('*')
+              .or(`player1_id.eq.${detailId},player2_id.eq.${detailId}`)
+              .order('started_at', { ascending: false })
+              .limit(10)
           ])
 
         // 处理查询结果
@@ -217,7 +216,7 @@ const { data: keyUsageHistory, error: keyUsageHistoryError } = await supabaseAdm
           当前密钥: currentKey ? currentKey.key_code : '无'
         })
 
-        // 🔥 关键修复：统一使用下划线命名
+        // 统一使用下划线命名
         return NextResponse.json({
           success: true,
           data: {
@@ -420,8 +419,7 @@ const { data: keyUsageHistory, error: keyUsageHistoryError } = await supabaseAdm
 
         console.log(`🔑 为 ${userIds.length} 个用户查询密钥信息...`)
 
-        // 🔧 修复：通过profiles.access_key_id关联查询密钥
-        // 收集所有需要查询的access_key_id（非空值）
+        // 通过profiles.access_key_id关联查询密钥
         const accessKeyIds = result.data
           .map((profile: any) => profile.access_key_id)
           .filter((id): id is number => id !== null && id !== undefined)
@@ -496,25 +494,22 @@ const { data: keyUsageHistory, error: keyUsageHistoryError } = await supabaseAdm
 
         console.log(`✅ 获取到 ${accessKeysData?.length || 0} 条密钥记录`)
 
-        // 🔧 关键修复：建立 access_key_id 到密钥对象的映射
+        // 建立 access_key_id 到密钥对象的映射
         const keyMap = new Map()
         if (accessKeysData && accessKeysData.length > 0) {
           accessKeysData.forEach((key: any) => {
-            // 使用密钥ID作为键，这样可以通过 profiles.access_key_id 快速查找
             keyMap.set(key.id, key)
           })
         }
 
         // 为每个用户添加密钥信息
         const profilesWithKeys = result.data.map((profile: any) => {
-          // ✅ 修复：直接通过 profiles.access_key_id 从映射中查找密钥
           let currentAccessKey = null
 
           if (profile.access_key_id && keyMap.has(profile.access_key_id)) {
             currentAccessKey = keyMap.get(profile.access_key_id)
           }
 
-          // ✅ 调试日志 - 确认找到了正确的密钥
           console.log(`用户 ${profile.email} 的密钥查找:`, {
             access_key_id: profile.access_key_id,
             是否找到: !!currentAccessKey,
@@ -524,7 +519,7 @@ const { data: keyUsageHistory, error: keyUsageHistoryError } = await supabaseAdm
 
           return {
             ...profile,
-            access_keys: currentAccessKey ? [currentAccessKey] : [], // 返回包含当前密钥的数组
+            access_keys: currentAccessKey ? [currentAccessKey] : [],
             current_access_key: currentAccessKey || null
           }
         })
