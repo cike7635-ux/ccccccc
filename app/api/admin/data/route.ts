@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
           )
         }
 
-        // 🔧 修复：使用Supabase的内置关联查询
+        // 🔧 修复：使用明确的外键约束名称进行关联查询
         const { data: keyUsageHistory, error: keyUsageHistoryError, count: keyUsageHistoryCount } = await supabaseAdmin
           .from('key_usage_history')
           .select(`
@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
             notes,
             created_at,
             updated_at,
-            access_keys!inner (
+            access_keys!key_usage_history_access_key_id_fkey (
               id,
               key_code,
               is_active,
@@ -116,6 +116,91 @@ export async function GET(request: NextRequest) {
           错误: keyUsageHistoryError?.message 
         })
 
+        // 🔧 修复：如果关联查询失败，使用回退方案（分别查询）
+        let processedKeyUsageHistory = []
+        let finalKeyHistoryCount = keyUsageHistoryCount || 0
+
+        if (keyUsageHistoryError) {
+          console.log('⚠️ 关联查询失败，使用分别查询方案...')
+          
+          // 分别查询：先查密钥历史，再查关联的密钥
+          const { data: rawKeyUsageHistory, count: rawCount } = await supabaseAdmin
+            .from('key_usage_history')
+            .select('*', { count: 'exact' })
+            .eq('user_id', detailId)
+            .order('used_at', { ascending: false })
+            .limit(20)
+          
+          finalKeyHistoryCount = rawCount || 0
+          
+          if (rawKeyUsageHistory && rawKeyUsageHistory.length > 0) {
+            // 收集所有access_key_id
+            const accessKeyIds = rawKeyUsageHistory
+              .map(record => record.access_key_id)
+              .filter(Boolean)
+            
+            // 查询关联的密钥信息
+            let keyMap = new Map()
+            if (accessKeyIds.length > 0) {
+              const { data: accessKeysData } = await supabaseAdmin
+                .from('access_keys')
+                .select('*')
+                .in('id', accessKeyIds)
+              
+              if (accessKeysData) {
+                accessKeysData.forEach(key => {
+                  keyMap.set(key.id, key)
+                })
+              }
+            }
+            
+            // 手动关联数据
+            processedKeyUsageHistory = rawKeyUsageHistory.map(record => ({
+              ...record,
+              access_key: record.access_key_id ? keyMap.get(record.access_key_id) : null
+            }))
+            
+            console.log(`✅ 分别查询成功: ${processedKeyUsageHistory.length} 条记录`)
+          }
+        } else {
+          // 关联查询成功，处理返回的数据
+          processedKeyUsageHistory = (keyUsageHistory || []).map(record => {
+            // Supabase关联查询返回的access_keys是一个数组
+            let accessKeyData = {}
+            
+            if (Array.isArray(record.access_keys) && record.access_keys.length > 0) {
+              // 关联查询返回的是数组
+              accessKeyData = record.access_keys[0] || {}
+            } else if (record.access_keys && typeof record.access_keys === 'object') {
+              // 直接对象格式
+              accessKeyData = record.access_keys
+            }
+            
+            return {
+              id: record.id,
+              user_id: record.user_id,
+              access_key_id: record.access_key_id,
+              used_at: record.used_at,
+              usage_type: record.usage_type || 'activate',
+              previous_key_id: record.previous_key_id,
+              next_key_id: record.next_key_id,
+              operation_by: record.operation_by,
+              notes: record.notes,
+              created_at: record.created_at,
+              updated_at: record.updated_at,
+              
+              // 关联的密钥信息
+              access_key: accessKeyData.id ? {
+                id: accessKeyData.id,
+                key_code: accessKeyData.key_code || '未知',
+                is_active: accessKeyData.is_active ?? true,
+                key_expires_at: accessKeyData.key_expires_at,
+                created_at: accessKeyData.created_at
+              } : null
+            }
+          })
+        }
+
         // 🔧 修复：单独查询当前使用的密钥
         let currentKey = null
         if (profileData.access_key_id) {
@@ -130,16 +215,16 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        // 🔧 修复：获取所有相关的密钥ID
+        // 🔧 修复：获取所有相关的密钥ID（用于previous_key和next_key）
         const keyIds = new Set<number>()
-        if (keyUsageHistory && keyUsageHistory.length > 0) {
-          keyUsageHistory.forEach(record => {
+        if (processedKeyUsageHistory && processedKeyUsageHistory.length > 0) {
+          processedKeyUsageHistory.forEach(record => {
             if (record.previous_key_id) keyIds.add(record.previous_key_id)
             if (record.next_key_id) keyIds.add(record.next_key_id)
           })
         }
 
-        // 查询所有相关的密钥信息
+        // 查询所有相关的密钥信息（previous_key和next_key）
         let allKeys = []
         if (keyIds.size > 0) {
           const { data: keysData, error: keysError } = await supabaseAdmin
@@ -158,13 +243,20 @@ export async function GET(request: NextRequest) {
           keyMap.set(key.id, key)
         })
 
+        // 为processedKeyUsageHistory添加previous_key和next_key
+        processedKeyUsageHistory = processedKeyUsageHistory.map(record => ({
+          ...record,
+          previous_key: record.previous_key_id ? keyMap.get(record.previous_key_id) : null,
+          next_key: record.next_key_id ? keyMap.get(record.next_key_id) : null
+        }))
+
         // 🔧 修复：AI使用记录查询 - 保持分页但返回总数
         const { data: aiUsageRecords, error: aiUsageError, count: aiTotalCount } = await supabaseAdmin
           .from('ai_usage_records')
           .select('*', { count: 'exact' })
           .eq('user_id', detailId)
           .order('created_at', { ascending: false })
-          .limit(10)
+          .limit(20) // 改为20条
 
         console.log('🤖 AI记录查询结果:', { 
           记录数量: aiUsageRecords?.length || 0,
@@ -178,46 +270,14 @@ export async function GET(request: NextRequest) {
           .select('*', { count: 'exact' })
           .or(`player1_id.eq.${detailId},player2_id.eq.${detailId}`)
           .order('started_at', { ascending: false })
-          .limit(10)
+          .limit(20) // 改为20条
 
         console.log('✅ 用户详情查询成功:', {
           用户: profileData.email,
-          密钥记录数: keyUsageHistoryCount || 0,
+          密钥记录数: finalKeyHistoryCount || 0,
           AI记录数: aiTotalCount || 0,
           游戏记录数: gameHistoryCount || 0,
           当前密钥: currentKey ? currentKey.key_code : '无'
-        })
-
-        // 🔧 修复：构建密钥使用历史，确保access_key字段正确
-        const processedKeyUsageHistory = (keyUsageHistory || []).map(record => {
-          // 从关联查询中获取access_key信息
-          const accessKeyData = record.access_keys || {}
-          
-          return {
-            id: record.id,
-            user_id: record.user_id,
-            access_key_id: record.access_key_id,
-            used_at: record.used_at,
-            usage_type: record.usage_type || 'activate',
-            previous_key_id: record.previous_key_id,
-            next_key_id: record.next_key_id,
-            operation_by: record.operation_by,
-            notes: record.notes,
-            created_at: record.created_at,
-            updated_at: record.updated_at,
-            
-            // 关联的密钥信息
-            access_key: {
-              id: accessKeyData.id,
-              key_code: accessKeyData.key_code,
-              is_active: accessKeyData.is_active ?? true,
-              key_expires_at: accessKeyData.key_expires_at,
-              created_at: accessKeyData.created_at
-            },
-            
-            previous_key: record.previous_key_id ? keyMap.get(record.previous_key_id) : null,
-            next_key: record.next_key_id ? keyMap.get(record.next_key_id) : null
-          }
         })
 
         // 构建响应数据
@@ -238,12 +298,12 @@ export async function GET(request: NextRequest) {
 
           // 密钥使用历史
           key_usage_history: processedKeyUsageHistory,
-          key_usage_history_total: keyUsageHistoryCount || 0, // 🔧 添加总数
+          key_usage_history_total: finalKeyHistoryCount || 0, // 🔧 使用修复后的总数
 
           // 当前使用的密钥
           current_access_key: currentKey,
 
-          // 所有相关的密钥
+          // 所有相关的密钥（previous_key和next_key）
           access_keys: allKeys,
 
           // AI使用记录

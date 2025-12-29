@@ -17,7 +17,7 @@ interface UserDetailModalProps {
   onRefresh?: () => void
 }
 
-// 🔧 修复：获取密钥代码的辅助函数 - 简化版
+// 🔧 修复：获取密钥代码的辅助函数 - 增强版
 const getKeyCode = (record: any): string => {
   // 调试日志
   if (process.env.NODE_ENV === 'development') {
@@ -26,22 +26,32 @@ const getKeyCode = (record: any): string => {
       accessKeyId: record?.access_key_id,
       hasAccessKey: !!record?.access_key,
       accessKeyCode: record?.access_key?.key_code,
-      hasAccessKeys: !!record?.access_keys,
-      accessKeysCode: record?.access_keys?.key_code
+      hasAccessKeysArray: Array.isArray(record?.access_keys),
+      accessKeysLength: record?.access_keys?.length,
+      firstAccessKeyCode: record?.access_keys?.[0]?.key_code,
+      accessKeysObject: record?.access_keys // 检查是否是对象
     })
   }
 
-  // 情况1: 直接有access_key对象（新API返回格式）
+  // 情况1: 直接有access_key对象（修复后API返回格式）
   if (record?.access_key?.key_code) {
     return record.access_key.key_code
   }
   
-  // 情况2: 有access_keys对象（关联查询返回格式）
+  // 情况2: 有access_keys数组（关联查询返回格式）
+  if (Array.isArray(record?.access_keys) && record.access_keys.length > 0) {
+    const firstKey = record.access_keys[0]
+    if (firstKey?.key_code) {
+      return firstKey.key_code
+    }
+  }
+  
+  // 情况3: access_keys是对象（某些Supabase版本返回格式）
   if (record?.access_keys?.key_code) {
     return record.access_keys.key_code
   }
   
-  // 情况3: 只有access_key_id
+  // 情况4: 只有access_key_id
   if (record?.access_key_id) {
     return `密钥ID: ${record.access_key_id}`
   }
@@ -156,7 +166,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     };
   };
 
-  // 🔧 调试：打印用户详情数据
+  // 🔧 修复：调试日志 - 显示详细的密钥历史数据结构
   useEffect(() => {
     if (userDetail && isOpen && process.env.NODE_ENV === 'development') {
       console.log('🔍 UserDetailModal - 用户详情数据结构:', {
@@ -168,8 +178,16 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
         ai_usage_records_total: userDetail.ai_usage_records_total,
         game_history_total: userDetail.game_history_total,
         firstKeyHistory: userDetail.key_usage_history?.[0],
-        firstKeyAccessKey: userDetail.key_usage_history?.[0]?.access_key
+        firstKeyAccessKey: userDetail.key_usage_history?.[0]?.access_key,
+        firstKeyAccessKeys: userDetail.key_usage_history?.[0]?.access_keys,
+        currentAccessKey: userDetail.current_access_key
       });
+      
+      // 特别调试getKeyCode函数
+      if (userDetail.key_usage_history?.[0]) {
+        const testCode = getKeyCode(userDetail.key_usage_history[0]);
+        console.log('🔍 getKeyCode测试结果:', testCode);
+      }
     }
   }, [userDetail, isOpen]);
 
@@ -1699,7 +1717,8 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                   '密钥历史数量': keyUsageHistory.length,
                   '第一条密钥历史': keyUsageHistory[0],
                   '第一条密钥代码': getKeyCode(keyUsageHistory[0]),
-                  '当前密钥': currentAccessKey
+                  '当前密钥': currentAccessKey,
+                  '密钥代码调试': getKeyCode(keyUsageHistory[0])
                 }, null, 2)}
               </pre>
             </details>
