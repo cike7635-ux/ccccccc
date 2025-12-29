@@ -86,6 +86,17 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   const [activeTab, setActiveTab] = useState<'basic' | 'keys' | 'ai' | 'games'>('basic')
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [expandedAIRecord, setExpandedAIRecord] = useState<number | null>(null)
+  
+  // 🔧 新增：AI分页状态
+  const [aiRecords, setAiRecords] = useState<any[]>([]);
+  const [aiPagination, setAiPagination] = useState({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 0,
+    hasMore: false
+  });
+  const [loadingMoreAI, setLoadingMoreAI] = useState(false);
 
   // 🔧 调试：打印用户详情数据
   useEffect(() => {
@@ -103,6 +114,82 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       });
     }
   }, [userDetail, isOpen]);
+
+  // 🔧 新增：初始化AI记录分页数据
+  useEffect(() => {
+    if (userDetail?.id && activeTab === 'ai') {
+      loadAIRecords(userDetail.id, 1, true);
+    }
+  }, [userDetail?.id, activeTab]);
+
+  // 🔧 新增：切换用户时重置AI记录
+  useEffect(() => {
+    if (userDetail?.id) {
+      setAiRecords([]);
+      setAiPagination({
+        page: 1,
+        limit: 10,
+        total: 0,
+        totalPages: 0,
+        hasMore: false
+      });
+    }
+  }, [userDetail?.id]);
+
+  // 🔧 新增：加载AI记录函数
+  const loadAIRecords = async (userId: string, page: number, isInitial: boolean = false) => {
+    try {
+      // 如果是初始加载，使用已有的数据
+      if (isInitial && userDetail?.ai_usage_records) {
+        const records = userDetail.ai_usage_records;
+        setAiRecords(records.slice(0, 10));
+        setAiPagination({
+          page: 1,
+          limit: 10,
+          total: records.length,
+          totalPages: Math.ceil(records.length / 10),
+          hasMore: records.length > 10
+        });
+        return;
+      }
+
+      setLoadingMoreAI(true);
+      const response = await fetch(
+        `/api/admin/users/ai-records?userId=${userId}&page=${page}&limit=10`,
+        { credentials: 'include' }
+      );
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          if (page === 1) {
+            setAiRecords(result.data || []);
+          } else {
+            setAiRecords(prev => [...prev, ...(result.data || [])]);
+          }
+          
+          setAiPagination({
+            page: result.pagination.page,
+            limit: result.pagination.limit,
+            total: result.pagination.total,
+            totalPages: result.pagination.totalPages,
+            hasMore: result.pagination.hasMore
+          });
+        }
+      }
+    } catch (error) {
+      console.error('加载AI记录失败:', error);
+    } finally {
+      setLoadingMoreAI(false);
+    }
+  };
+
+  // 🔧 新增：加载更多AI记录
+  const handleLoadMoreAI = () => {
+    if (userDetail?.id && !loadingMoreAI) {
+      loadAIRecords(userDetail.id, aiPagination.page + 1);
+    }
+  };
 
   // 🔧 修复：安全获取AI使用记录（修复版）
   const aiUsageRecords = useMemo(() => {
@@ -134,7 +221,6 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       // 策略3：如果两者都不是数组，尝试aiRecords字段
       if (!Array.isArray(records) && typeof userDetail.aiRecords === 'number') {
         console.warn('⚠️ aiUsageRecords: 只获取到数量而不是数组，尝试重新获取数据');
-        // 如果只有数量，返回空数组，等待重新获取
         return [];
       }
       
@@ -227,13 +313,13 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
 
     // 计算AI统计
     const aiStats = {
-      total: aiUsageRecords.length,
-      success: aiUsageRecords.filter(r => r.success).length,
-      recent: aiUsageRecords.filter(r => {
+      total: aiPagination.total || 0, // 🔧 使用分页的总数
+      success: aiRecords.filter(r => r.success).length,
+      recent: aiRecords.filter(r => {
         const created = r.created_at || r.createdAt;
         return created && new Date(created) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       }).length,
-      totalTokens: aiUsageRecords.reduce((sum, r) => sum + (r.tokens_used || r.tokensUsed || 0), 0)
+      totalTokens: aiRecords.reduce((sum, r) => sum + (r.tokens_used || r.tokensUsed || 0), 0)
     }
 
     // 计算游戏统计
@@ -247,9 +333,9 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     }
 
     return { keyStats, aiStats, gameStats };
-  }, [userDetail, accessKeys, aiUsageRecords, gameHistory])
+  }, [userDetail, accessKeys, aiRecords, gameHistory, aiPagination.total])
 
-  // 🔧 修复：提取所有使用过的密钥（修复useMemo位置问题）
+  // 🔧 修复：提取所有使用过的密钥
   const allUsedKeys = useMemo(() => {
     if (process.env.NODE_ENV === 'development') {
       console.log('🔄 计算allUsedKeys, keyUsageHistory长度:', keyUsageHistory.length);
@@ -326,6 +412,10 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
         return new Date(dateB).getTime() - new Date(dateA).getTime();
       });
   }, [keyUsageHistory])
+
+  const toggleAIExpanded = (index: number) => {
+    setExpandedAIRecord(expandedAIRecord === index ? null : index);
+  }
 
   const handleCopy = async (text: string, field: string) => {
     try {
@@ -487,10 +577,6 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     } catch (error) {
       console.error('导出失败:', error);
     }
-  }
-
-  const toggleAIExpanded = (index: number) => {
-    setExpandedAIRecord(expandedAIRecord === index ? null : index);
   }
 
   if (!isOpen) return null;
@@ -660,7 +746,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 {[
                   { id: 'basic' as const, label: '基本信息', icon: User, count: null },
                   { id: 'keys' as const, label: '密钥记录', icon: Key, count: accessKeys.length },
-                  { id: 'ai' as const, label: 'AI使用', icon: Brain, count: aiUsageRecords.length },
+                  { id: 'ai' as const, label: 'AI使用', icon: Brain, count: aiPagination.total || 0 }, // 🔧 使用分页总数
                   { id: 'games' as const, label: '游戏记录', icon: Gamepad2, count: gameHistory.length }
                 ].map((tab) => (
                   <button
@@ -1190,13 +1276,13 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 </div>
               )}
 
-              {/* AI使用记录标签页 - 修复版 */}
+              {/* AI使用记录标签页 - 分页修复版 */}
               {activeTab === 'ai' && (
                 <div className="p-4 md:p-6">
                   <div className="mb-4 md:mb-6 grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
                     <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
                       <p className="text-xs md:text-sm text-gray-400 mb-2">总请求数</p>
-                      <p className="text-xl md:text-2xl font-bold text-white">{stats?.aiStats.total || 0}</p>
+                      <p className="text-xl md:text-2xl font-bold text-white">{aiPagination.total || 0}</p>
                       <p className="text-xs text-gray-500 mt-1">
                         7天内请求: {stats?.aiStats.recent || 0}
                       </p>
@@ -1223,7 +1309,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                     </div>
                   </div>
 
-                  {aiUsageRecords.length === 0 ? (
+                  {aiRecords.length === 0 ? (
                     <div className="text-center py-8 md:py-12">
                       <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
                         <Brain className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
@@ -1233,7 +1319,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                     </div>
                   ) : (
                     <div className="space-y-3 md:space-y-4">
-                      {aiUsageRecords.slice(0, 10).map((record, index) => {
+                      {aiRecords.map((record, index) => {
                         const feature = record.feature || record.model || 'AI对话';
                         const createdAt = record.created_at || record.createdAt;
                         const success = record.success;
@@ -1363,10 +1449,28 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                         );
                       })}
 
-                      {aiUsageRecords.length > 10 && (
+                      {/* 🔧 加载更多按钮 */}
+                      {aiPagination.hasMore && (
                         <div className="text-center pt-4">
-                          <p className="text-gray-400 text-xs md:text-sm">
-                            显示最近10条记录，共{aiUsageRecords.length}条
+                          <button
+                            onClick={handleLoadMoreAI}
+                            disabled={loadingMoreAI}
+                            className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center mx-auto"
+                          >
+                            {loadingMoreAI ? (
+                              <>
+                                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                                加载中...
+                              </>
+                            ) : (
+                              <>
+                                <Brain className="w-4 h-4 mr-2" />
+                                加载更多AI记录
+                              </>
+                            )}
+                          </button>
+                          <p className="text-gray-400 text-sm mt-2">
+                            显示 {aiRecords.length} 条记录，共 {aiPagination.total} 条
                           </p>
                         </div>
                       )}
@@ -1497,18 +1601,13 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
               <pre className="text-xs text-gray-500 mt-2 whitespace-pre-wrap max-h-40 overflow-auto">
                 {JSON.stringify({
                   用户ID: userDetail.id,
-                  'AI记录字段检查': {
-                    'ai_usage_records 存在': !!userDetail.ai_usage_records,
-                    'ai_usage_records 类型': typeof userDetail.ai_usage_records,
-                    'ai_usage_records 是数组': Array.isArray(userDetail.ai_usage_records),
-                    'ai_usage_records 长度': userDetail.ai_usage_records?.length || 0,
-                    'aiUsageRecords 存在': !!userDetail.aiUsageRecords,
-                    'aiUsageRecords 类型': typeof userDetail.aiUsageRecords,
-                    'aiUsageRecords 是数组': Array.isArray(userDetail.aiUsageRecords),
-                    'aiRecords 存在': !!userDetail.aiRecords,
-                    'aiRecords 类型': typeof userDetail.aiRecords,
+                  'AI分页状态': {
+                    当前条数: aiRecords.length,
+                    总条数: aiPagination.total,
+                    当前页: aiPagination.page,
+                    总页数: aiPagination.totalPages,
+                    是否还有更多: aiPagination.hasMore
                   },
-                  '组件内AI记录数量': aiUsageRecords.length,
                   '密钥记录数量': accessKeys.length,
                   '游戏记录数量': gameHistory.length,
                   '密钥历史数量': keyUsageHistory.length,
