@@ -4,7 +4,8 @@ import { useState, useMemo, useEffect } from 'react'
 import { 
   X, RefreshCw, Copy, Check, Calendar, Key, Brain, Gamepad2, Mail, 
   User, Clock, Shield, ExternalLink, Tag, History, Activity, 
-  Venus, Mars, Users, Wifi, WifiOff, AlertCircle, Download
+  Venus, Mars, Users, Wifi, WifiOff, AlertCircle, Download,
+  ChevronDown, ChevronUp
 } from 'lucide-react'
 import { UserDetail } from '../types'
 
@@ -16,21 +17,55 @@ interface UserDetailModalProps {
   onRefresh?: () => void
 }
 
-// 🔧 修复：安全获取密钥代码的辅助函数 - 简化版本
+// 🔧 修复：获取密钥代码的辅助函数 - 简化版
 const getKeyCode = (record: any): string => {
-  if (!record) return '未知';
+  // 调试日志
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔍 getKeyCode 调试:', {
+      recordId: record?.id,
+      accessKeyId: record?.access_key_id,
+      hasAccessKey: !!record?.access_key,
+      accessKeyCode: record?.access_key?.key_code,
+      hasAccessKeys: !!record?.access_keys,
+      accessKeysCode: record?.access_keys?.key_code
+    })
+  }
+
+  // 情况1: 直接有access_key对象（新API返回格式）
+  if (record?.access_key?.key_code) {
+    return record.access_key.key_code
+  }
   
-  // 尝试多种方式获取密钥代码
-  if (record?.access_key?.key_code) return record.access_key.key_code;
-  if (record?.key_code) return record.key_code;
-  if (record?.access_key_id) return `密钥ID: ${record.access_key_id}`;
+  // 情况2: 有access_keys对象（关联查询返回格式）
+  if (record?.access_keys?.key_code) {
+    return record.access_keys.key_code
+  }
   
-  return '未知';
+  // 情况3: 只有access_key_id
+  if (record?.access_key_id) {
+    return `密钥ID: ${record.access_key_id}`
+  }
+  
+  return '未知'
 }
 
-// 性别显示函数
+// 🔧 修复：检查是否是当前密钥
+const isCurrentKey = (keyId: number | null, currentKey: any): boolean => {
+  if (!keyId || !currentKey) return false
+  
+  // 比较当前密钥的ID
+  if (currentKey.id === keyId) return true
+  
+  // 如果当前密钥有access_key属性，也比较一下
+  if (currentKey.access_key?.id === keyId) return true
+  
+  return false
+}
+
+// 性别显示函数 - 与types.ts保持一致
 const getGenderDisplay = (preferences: any): string => {
   if (!preferences || !preferences.gender) return '未设置';
+
   const genderMap: Record<string, string> = {
     'male': '男', 'female': '女', 'other': '其他',
     'non_binary': '非二元', 'M': '男', 'F': '女',
@@ -38,6 +73,7 @@ const getGenderDisplay = (preferences: any): string => {
     '未设置': '未设置', '': '未设置',
     null: '未设置', undefined: '未设置'
   };
+
   const genderKey = String(preferences.gender).toLowerCase();
   return genderMap[genderKey] || String(preferences.gender);
 }
@@ -47,20 +83,26 @@ const extractTextFromJson = (data: any): string => {
   if (!data) return '无数据';
   
   try {
+    // 如果已经是字符串
     if (typeof data === 'string') {
+      // 尝试解析为JSON
       if (data.trim().startsWith('{') || data.trim().startsWith('[')) {
         try {
           const parsed = JSON.parse(data);
           return extractTextFromJson(parsed);
         } catch {
+          // 解析失败，返回原始字符串
           return data;
         }
       }
       return data;
     }
     
+    // 如果是对象
     if (typeof data === 'object' && data !== null) {
+      // 优先尝试常见的文本字段
       const textFields = ['content', 'text', 'message', 'input', 'prompt', 'query', 'response', 'answer', 'output'];
+      
       for (const field of textFields) {
         if (data[field] !== undefined && data[field] !== null) {
           const extracted = extractTextFromJson(data[field]);
@@ -70,6 +112,7 @@ const extractTextFromJson = (data: any): string => {
         }
       }
       
+      // 如果没有找到常见字段，返回整个对象的JSON字符串
       try {
         return JSON.stringify(data, null, 2);
       } catch {
@@ -77,6 +120,7 @@ const extractTextFromJson = (data: any): string => {
       }
     }
     
+    // 其他类型直接转为字符串
     return String(data || '');
   } catch (error) {
     console.warn('提取文本失败:', error, '原始数据:', data);
@@ -89,7 +133,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [expandedAIRecord, setExpandedAIRecord] = useState<number | null>(null)
   
-  // AI分页状态
+  // 🔧 新增：AI分页状态
   const [aiRecords, setAiRecords] = useState<any[]>([]);
   const [aiPagination, setAiPagination] = useState({
     page: 1,
@@ -100,39 +144,26 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   });
   const [loadingMoreAI, setLoadingMoreAI] = useState(false);
 
-  // 🔧 修复：简化AI记录初始化
+  // 🔧 调试：打印用户详情数据
+  useEffect(() => {
+    if (userDetail && isOpen && process.env.NODE_ENV === 'development') {
+      console.log('🔍 UserDetailModal - 用户详情数据结构:', {
+        hasUserDetail: !!userDetail,
+        keys: Object.keys(userDetail),
+        key_usage_history: userDetail.key_usage_history,
+        key_usage_history_length: userDetail.key_usage_history?.length,
+        firstKeyHistory: userDetail.key_usage_history?.[0],
+        firstKeyAccessKey: userDetail.key_usage_history?.[0]?.access_key
+      });
+    }
+  }, [userDetail, isOpen]);
+
+  // 🔧 修复：初始化AI记录分页数据
   useEffect(() => {
     if (userDetail?.id && activeTab === 'ai') {
-      console.log('🔄 初始化AI记录分页，用户ID:', userDetail.id);
-      
-      // 使用userDetail中的AI记录
-      if (userDetail.ai_usage_records && Array.isArray(userDetail.ai_usage_records)) {
-        const records = userDetail.ai_usage_records;
-        console.log('✅ 使用现有AI记录:', records.length);
-        
-        // 只显示前10条
-        const displayRecords = records.slice(0, 10);
-        setAiRecords(displayRecords);
-        
-        // 如果有更多记录，允许加载更多
-        const hasMore = records.length > 10;
-        setAiPagination({
-          page: 1,
-          limit: 10,
-          total: records.length,
-          totalPages: Math.ceil(records.length / 10),
-          hasMore
-        });
-        
-        // 如果有更多记录，自动加载第一页
-        if (hasMore && records.length > 10) {
-          setTimeout(() => {
-            loadAIRecords(userDetail.id, 2); // 加载第2页
-          }, 500);
-        }
-      }
+      loadAIRecords(userDetail.id, 1, true);
     }
-  }, [userDetail?.id, activeTab, userDetail?.ai_usage_records]);
+  }, [userDetail?.id, activeTab]);
 
   // 🔧 修复：切换用户时重置AI记录
   useEffect(() => {
@@ -148,16 +179,17 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     }
   }, [userDetail?.id]);
 
-  // 🔧 修复：加载AI记录函数 - 完全重写
-  const loadAIRecords = async (userId: string, page: number) => {
+  // 🔧 修复：加载AI记录函数 - 改进版
+  const loadAIRecords = async (userId: string, page: number, isInitial: boolean = false) => {
     try {
-      console.log(`🔄 加载AI记录，用户ID: ${userId}, 页数: ${page}`);
+      console.log(`🔄 加载AI记录，用户ID: ${userId}, 页数: ${page}, 初始: ${isInitial}`);
       
-      // 如果是第一页，使用现有数据
-      if (page === 1 && userDetail?.ai_usage_records) {
+      // 如果是初始加载，使用已有的数据
+      if (isInitial && userDetail?.ai_usage_records) {
         const records = userDetail.ai_usage_records;
-        const limitedRecords = records.slice(0, 10);
-        setAiRecords(limitedRecords);
+        console.log('✅ 使用现有AI记录:', records.length);
+        
+        setAiRecords(records.slice(0, 10));
         setAiPagination({
           page: 1,
           limit: 10,
@@ -170,143 +202,127 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
 
       setLoadingMoreAI(true);
       
-      // 直接使用现有数据中的下一页
-      if (userDetail?.ai_usage_records) {
-        const allRecords = userDetail.ai_usage_records;
-        const startIndex = (page - 1) * 10;
-        const endIndex = startIndex + 10;
-        const pageRecords = allRecords.slice(startIndex, endIndex);
+      // 测试API路径
+      const apiUrl = `/api/admin/users/ai-records?userId=${userId}&page=${page}&limit=10`;
+      console.log('📡 调用AI记录API:', apiUrl);
+      
+      const response = await fetch(apiUrl, { credentials: 'include' });
+      
+      console.log('📡 AI记录API响应状态:', response.status);
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log('📡 AI记录API响应数据:', {
+          success: result.success,
+          dataLength: result.data?.length,
+          pagination: result.pagination
+        });
         
-        if (pageRecords.length > 0) {
-          setAiRecords(prev => [...prev, ...pageRecords]);
-          setAiPagination(prev => ({
-            ...prev,
-            page: page,
-            hasMore: allRecords.length > endIndex
-          }));
+        if (result.success) {
+          console.log(`✅ 获取到AI记录: ${result.data?.length || 0} 条`);
+          
+          if (page === 1) {
+            setAiRecords(result.data || []);
+          } else {
+            setAiRecords(prev => [...prev, ...(result.data || [])]);
+          }
+          
+          setAiPagination({
+            page: result.pagination?.page || page,
+            limit: result.pagination?.limit || 10,
+            total: result.pagination?.total || (result.data?.length || 0),
+            totalPages: result.pagination?.totalPages || 1,
+            hasMore: result.pagination?.hasMore || false
+          });
+        } else {
+          console.error('❌ AI记录API返回错误:', result.error);
         }
+      } else {
+        console.error('❌ AI记录API请求失败:', response.status);
       }
-      
-      setLoadingMoreAI(false);
-      
     } catch (error) {
       console.error('❌ 加载AI记录失败:', error);
+    } finally {
       setLoadingMoreAI(false);
     }
   };
 
-  // 🔧 修复：加载更多AI记录
-  const handleLoadMoreAI = () => {
-    if (userDetail?.id && !loadingMoreAI) {
-      loadAIRecords(userDetail.id, aiPagination.page + 1);
-    }
-  };
-
-  // 🔧 修复：简化数据获取，避免复杂计算
-  const safeGet = (obj: any, path: string, defaultValue: any = null) => {
+  // 🔧 修复：安全获取AI使用记录
+  const aiUsageRecords = useMemo(() => {
     try {
-      const value = path.split('.').reduce((acc, part) => acc && acc[part], obj);
-      return value !== undefined ? value : defaultValue;
-    } catch {
-      return defaultValue;
-    }
-  };
+      if (!userDetail) {
+        return [];
+      }
 
-  // 🔧 修复：使用安全的获取方法
+      // 使用下划线格式的数组
+      let records = userDetail.ai_usage_records;
+      
+      // 确保是数组
+      if (!Array.isArray(records)) {
+        records = [];
+      }
+      
+      return records;
+    } catch (err) {
+      console.error('❌ 获取aiUsageRecords出错:', err);
+      return [];
+    }
+  }, [userDetail]);
+
+  // 🔧 修复：安全获取访问密钥
   const accessKeys = useMemo(() => {
-    return safeGet(userDetail, 'access_keys', []);
-  }, [userDetail]);
-
-  const gameHistory = useMemo(() => {
-    return safeGet(userDetail, 'game_history', []);
-  }, [userDetail]);
-
-  const keyUsageHistory = useMemo(() => {
-    return safeGet(userDetail, 'key_usage_history', []);
-  }, [userDetail]);
-
-  const currentAccessKey = useMemo(() => {
-    return safeGet(userDetail, 'current_access_key', null);
-  }, [userDetail]);
-
-  // 🔧 修复：简化所有使用过的密钥计算
-  const allUsedKeys = useMemo(() => {
-    console.log('🔄 计算allUsedKeys, 密钥历史长度:', keyUsageHistory.length);
-    
-    const keys = [];
-    
-    // 添加当前密钥
-    if (currentAccessKey) {
-      keys.push({
-        id: currentAccessKey.id,
-        key_code: currentAccessKey.key_code || '未知',
-        is_active: currentAccessKey.is_active !== false,
-        key_expires_at: currentAccessKey.key_expires_at,
-        usage_count: 1,
-        is_current: true,
-        last_used_at: currentAccessKey.used_at || currentAccessKey.created_at
-      });
+    try {
+      if (!userDetail) return [];
+      
+      // 优先使用下划线格式，然后是驼峰格式
+      const keys = userDetail.access_keys || userDetail.accessKeys || [];
+      
+      if (typeof keys === 'number') {
+        console.warn('⚠️ accessKeys: 获取到数字而不是数组');
+        return [];
+      }
+      
+      return Array.isArray(keys) ? keys : [];
+    } catch (err) {
+      console.error('获取accessKeys出错:', err);
+      return [];
     }
-    
-    // 从历史记录中添加其他密钥
-    const keyMap = new Map();
-    keyUsageHistory.forEach(record => {
-      if (!record) return;
-      
-      const keyId = record.access_key_id;
-      if (!keyId) return;
-      
-      const keyCode = getKeyCode(record);
-      
-      if (!keyMap.has(keyId)) {
-        keyMap.set(keyId, {
-          id: keyId,
-          key_code: keyCode,
-          is_active: true,
-          usage_count: 1,
-          is_current: currentAccessKey?.id === keyId,
-          last_used_at: record.used_at
-        });
-      }
-    });
-    
-    // 添加其他密钥
-    keyMap.forEach(key => {
-      if (!keys.some(k => k.id === key.id)) {
-        keys.push(key);
-      }
-    });
-    
-    // 按最后使用时间排序
-    return keys.sort((a, b) => {
-      const dateA = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
-      const dateB = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
-      return dateB - dateA;
-    });
-  }, [keyUsageHistory, currentAccessKey]);
+  }, [userDetail])
 
-  // 🔧 修复：密钥使用历史排序
-  const keyUsageHistorySorted = useMemo(() => {
-    return [...keyUsageHistory]
-      .filter(record => record)
-      .sort((a, b) => {
-        const dateA = a.used_at || 0;
-        const dateB = b.used_at || 0;
-        return new Date(dateB).getTime() - new Date(dateA).getTime();
-      });
-  }, [keyUsageHistory]);
+  // 🔧 修复：安全获取游戏历史
+  const gameHistory = useMemo(() => {
+    try {
+      if (!userDetail) return [];
+      const history = userDetail.game_history || userDetail.gameHistory || [];
+      return Array.isArray(history) ? history : [];
+    } catch (err) {
+      console.error('获取gameHistory出错:', err);
+      return [];
+    }
+  }, [userDetail])
 
-  // 🔧 修复：简化密钥统计
-  const keyStats = useMemo(() => {
-    return {
-      totalUniqueKeys: allUsedKeys.length,
-      currentKey: currentAccessKey?.key_code || '无',
-      usageRecords: keyUsageHistory.length,
-      lastUsage: keyUsageHistorySorted.length > 0 
-        ? formatShortDate(keyUsageHistorySorted[0]?.used_at)
-        : '无记录'
-    };
-  }, [allUsedKeys, currentAccessKey, keyUsageHistory, keyUsageHistorySorted]);
+  // 🔧 修复：安全获取密钥使用历史
+  const keyUsageHistory = useMemo(() => {
+    try {
+      if (!userDetail) return [];
+      const history = userDetail.key_usage_history || userDetail.keyUsageHistory || [];
+      return Array.isArray(history) ? history : [];
+    } catch (err) {
+      console.error('获取keyUsageHistory出错:', err);
+      return [];
+    }
+  }, [userDetail])
+
+  // 🔧 修复：安全获取当前访问密钥
+  const currentAccessKey = useMemo(() => {
+    try {
+      if (!userDetail) return null;
+      return userDetail.current_access_key || userDetail.currentAccessKey || null;
+    } catch (err) {
+      console.error('获取currentAccessKey出错:', err);
+      return null;
+    }
+  }, [userDetail])
 
   // 统计数据计算
   const stats = useMemo(() => {
@@ -321,12 +337,12 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
         return expiry && new Date(expiry) < new Date();
       }).length,
       unused: accessKeys.filter(k => !(k.used_at || k.usedAt)).length,
-      currentId: safeGet(userDetail, 'access_key_id')
+      currentId: userDetail.access_key_id || userDetail.accessKeyId
     }
 
     // 计算AI统计
     const aiStats = {
-      total: aiPagination.total || 0,
+      total: aiPagination.total || 0, // 使用分页的总数
       success: aiRecords.filter(r => r.success).length,
       recent: aiRecords.filter(r => {
         const created = r.created_at || r.createdAt;
@@ -346,7 +362,96 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     }
 
     return { keyStats, aiStats, gameStats };
-  }, [userDetail, accessKeys, aiRecords, gameHistory, aiPagination.total]);
+  }, [userDetail, accessKeys, aiRecords, gameHistory, aiPagination.total])
+
+  // 🔧 修复：提取所有使用过的密钥 - 改进版
+  const allUsedKeys = useMemo(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔄 计算allUsedKeys, keyUsageHistory长度:', keyUsageHistory.length);
+    }
+    
+    if (!keyUsageHistory || keyUsageHistory.length === 0) {
+      // 如果没有密钥历史，但是有当前密钥，也显示当前密钥
+      if (currentAccessKey) {
+        return [{
+          id: currentAccessKey.id,
+          key_code: currentAccessKey.key_code || currentAccessKey.keyCode || '未知',
+          is_active: currentAccessKey.is_active ?? currentAccessKey.isActive ?? true,
+          key_expires_at: currentAccessKey.key_expires_at || currentAccessKey.keyExpiresAt,
+          usage_count: 1,
+          is_current: true,
+          last_used_at: currentAccessKey.used_at || currentAccessKey.usedAt
+        }]
+      }
+      return [];
+    }
+    
+    const uniqueKeys = new Map();
+    
+    keyUsageHistory.forEach(record => {
+      // 🔧 修复：使用getKeyCode函数获取密钥代码
+      const keyCode = getKeyCode(record);
+      const keyId = record.access_key_id;
+      
+      if (!keyId) return; // 跳过没有access_key_id的记录
+      
+      const isCurrent = isCurrentKey(keyId, currentAccessKey);
+      
+      if (!uniqueKeys.has(keyId)) {
+        uniqueKeys.set(keyId, {
+          id: keyId,
+          key_code: keyCode,
+          is_active: record.access_key?.is_active ?? true,
+          key_expires_at: record.access_key?.key_expires_at,
+          usage_count: 1,
+          is_current: isCurrent,
+          last_used_at: record.used_at || record.usedAt,
+          first_used_at: record.used_at || record.usedAt,
+          usage_types: new Set([record.usage_type || 'activate'])
+        })
+      } else {
+        const existing = uniqueKeys.get(keyId);
+        existing.usage_count++;
+        if (record.usage_type) {
+          existing.usage_types.add(record.usage_type);
+        }
+        // 更新最后使用时间
+        const currentUsedAt = record.used_at || record.usedAt;
+        if (currentUsedAt && new Date(currentUsedAt) > new Date(existing.last_used_at || 0)) {
+          existing.last_used_at = currentUsedAt;
+        }
+      }
+    })
+    
+    const keysArray = Array.from(uniqueKeys.values())
+      .sort((a, b) => {
+        const dateA = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
+        const dateB = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
+        return dateB - dateA;
+      })
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log('✅ allUsedKeys计算完成，数量:', keysArray.length);
+    }
+    return keysArray;
+  }, [keyUsageHistory, currentAccessKey])
+
+  // 🔧 修复：密钥使用历史排序
+  const keyUsageHistorySorted = useMemo(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔄 排序keyUsageHistory, 原始长度:', keyUsageHistory.length);
+    }
+    
+    if (!keyUsageHistory || !Array.isArray(keyUsageHistory)) return [];
+    
+    return [...keyUsageHistory]
+      .filter(record => record) // 过滤掉null/undefined
+      .sort((a, b) => {
+        const dateA = a.used_at || a.usedAt || 0;
+        const dateB = b.used_at || b.usedAt || 0;
+        return new Date(dateB).getTime() - new Date(dateA).getTime();
+      });
+  }, [keyUsageHistory])
 
   const toggleAIExpanded = (index: number) => {
     setExpandedAIRecord(expandedAIRecord === index ? null : index);
@@ -483,6 +588,10 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   // 🔧 修复：AI记录导出功能
   const handleExportAI = (record: any) => {
     try {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('📤 导出AI记录:', record);
+      }
+      
       const data = {
         id: record.id,
         userId: record.user_id || record.userId,
@@ -510,6 +619,30 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     }
   }
 
+  // 🔧 修复：加载更多AI记录
+  const handleLoadMoreAI = () => {
+    if (userDetail?.id && !loadingMoreAI && aiPagination.hasMore) {
+      loadAIRecords(userDetail.id, aiPagination.page + 1);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const accountStatus = getAccountStatus();
+  const activeStatus = getActiveStatus();
+
+  // 🔧 修复：准备密钥统计卡数据
+  const keyStats = {
+    totalUniqueKeys: allUsedKeys.length,
+    currentKey: currentAccessKey?.key_code || 
+                currentAccessKey?.keyCode || 
+                '无',
+    usageRecords: keyUsageHistory.length || 0,
+    lastUsage: keyUsageHistorySorted.length > 0 
+      ? formatShortDate(keyUsageHistorySorted[0]?.used_at || keyUsageHistorySorted[0]?.usedAt)
+      : '无记录'
+  };
+
   // 🔧 修复：从AI记录数据中获取显示文本
   const getAIRecordDisplayText = (record: any) => {
     try {
@@ -532,12 +665,6 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     }
   };
 
-  if (!isOpen) return null;
-
-  const accountStatus = getAccountStatus();
-  const activeStatus = getActiveStatus();
-
-  // 🔧 修复：渲染函数 - 简化版本
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 md:p-6 overflow-y-auto">
       <div className="bg-gradient-to-br from-gray-900 via-gray-900 to-gray-950 rounded-2xl border border-gray-800 w-full max-w-6xl max-h-[90vh] overflow-hidden shadow-2xl my-auto">
@@ -658,7 +785,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
               <div className="flex overflow-x-auto">
                 {[
                   { id: 'basic' as const, label: '基本信息', icon: User, count: null },
-                  { id: 'keys' as const, label: '密钥记录', icon: Key, count: accessKeys.length },
+                  { id: 'keys' as const, label: '密钥记录', icon: Key, count: keyUsageHistory.length },
                   { id: 'ai' as const, label: 'AI使用', icon: Brain, count: aiPagination.total || 0 },
                   { id: 'games' as const, label: '游戏记录', icon: Gamepad2, count: gameHistory.length }
                 ].map((tab) => (
@@ -687,7 +814,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
 
             {/* 标签页内容 */}
             <div className="overflow-auto max-h-[calc(90vh-200px)] md:max-h-[calc(90vh-180px)]">
-              {/* 基本信息标签页 - 保持不变 */}
+              {/* 基本信息标签页 */}
               {activeTab === 'basic' && (
                 <div className="p-4 md:p-6">
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
@@ -879,7 +1006,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 </div>
               )}
 
-              {/* 密钥记录标签页 - 简化修复版 */}
+              {/* 密钥记录标签页 - 修复版 */}
               {activeTab === 'keys' && (
                 <div className="p-4 md:p-6 space-y-4 md:space-y-6">
                   {/* 统计卡片 */}
@@ -1003,9 +1130,16 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                                   </td>
                                   <td className="py-3 md:py-4 px-4">
                                     <div className="flex flex-wrap gap-1">
-                                      <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">
-                                        {key.usage_types?.has('activate') ? '激活' : '使用'}
-                                      </span>
+                                      {Array.from(key.usage_types || new Set(['activate'])).map((type: any, idx) => (
+                                        <span 
+                                          key={`type-${idx}`}
+                                          className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300"
+                                        >
+                                          {type === 'activate' ? '激活' : 
+                                           type === 'renew' ? '续费' : 
+                                           type === 'transfer' ? '转移' : type}
+                                        </span>
+                                      ))}
                                     </div>
                                   </td>
                                   <td className="py-3 md:py-4 px-4">
@@ -1036,7 +1170,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                     )}
                   </div>
 
-                  {/* 密钥使用历史表格 - 简化版 */}
+                  {/* 密钥使用历史表格 */}
                   <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
                     <div className="p-4 md:p-5 border-b border-gray-800">
                       <h3 className="text-lg font-semibold text-white flex items-center">
@@ -1064,15 +1198,28 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                               <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作时间</th>
                               <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作类型</th>
                               <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">密钥代码</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">前一个密钥</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">后一个密钥</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作者</th>
                               <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">备注</th>
                             </tr>
                           </thead>
                           <tbody>
                             {keyUsageHistorySorted.map((record, index) => {
-                              const usedAt = record.used_at || '';
+                              const usedAt = record.used_at || record.usedAt || '';
                               const usageType = record.usage_type || 'activate';
-                              const notes = record.notes || '';
                               
+                              // 🔧 修复：使用getKeyCode函数获取密钥代码
+                              const keyCode = getKeyCode(record);
+                              
+                              const operator = record.operator || {};
+                              const operatorEmail = operator.email || '系统';
+                              const operatorNickname = operator.nickname || '';
+                              const notes = record.notes || record.note || '';
+                              
+                              const previousKeyId = record.previous_key_id || null;
+                              const nextKeyId = record.next_key_id || null;
+
                               return (
                                 <tr
                                   key={`history-${record.id || index}`}
@@ -1102,8 +1249,30 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                                   </td>
                                   <td className="py-3 md:py-4 px-4">
                                     <code className="text-xs md:text-sm bg-gray-900 px-2 py-1 rounded-lg font-mono border border-gray-800">
-                                      {getKeyCode(record)}
+                                      {keyCode}
                                     </code>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <span className="text-gray-300 text-xs md:text-sm">
+                                      {previousKeyId ? `密钥ID: ${previousKeyId}` : '无'}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <span className="text-gray-300 text-xs md:text-sm">
+                                      {nextKeyId ? `密钥ID: ${nextKeyId}` : '无'}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <div className="flex flex-col">
+                                      <span className="text-gray-300 text-xs md:text-sm">
+                                        {operatorNickname || operatorEmail}
+                                      </span>
+                                      {operatorNickname && (
+                                        <span className="text-xs text-gray-500 mt-1">
+                                          {operatorEmail}
+                                        </span>
+                                      )}
+                                    </div>
                                   </td>
                                   <td className="py-3 md:py-4 px-4">
                                     <span className="text-gray-300 text-xs md:text-sm truncate max-w-[120px]" title={notes}>
@@ -1118,21 +1287,40 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                       </div>
                     )}
                   </div>
+
+                  {/* 数据说明 */}
+                  <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
+                    <h4 className="text-sm font-medium text-white mb-2">数据说明</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-400">
+                      <div className="flex items-start">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full mt-1 mr-2"></div>
+                        <div>
+                          <span className="font-medium">当前密钥</span>
+                          <p className="mt-1">用户当前正在使用的密钥，在表格中标记为"当前使用"</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start">
+                        <div className="w-2 h-2 bg-green-500 rounded-full mt-1 mr-2"></div>
+                        <div>
+                          <span className="font-medium">使用历史</span>
+                          <p className="mt-1">用户每次激活、续费或转移密钥的记录</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start">
+                        <div className="w-2 h-2 bg-amber-500 rounded-full mt-1 mr-2"></div>
+                        <div>
+                          <span className="font-medium">操作类型</span>
+                          <p className="mt-1">激活: 首次使用密钥<br/>续费: 延长密钥有效期<br/>转移: 更换到新密钥</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {/* AI使用记录标签页 - 简化修复版 */}
+              {/* AI使用记录标签页 - 分页修复版 */}
               {activeTab === 'ai' && (
                 <div className="p-4 md:p-6">
-                  {/* 调试信息 */}
-                  {process.env.NODE_ENV === 'development' && (
-                    <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-                      <p className="text-xs text-yellow-400">
-                        调试信息: 当前显示 {aiRecords.length} 条记录，总记录数: {aiPagination.total}，有更多: {aiPagination.hasMore ? '是' : '否'}
-                      </p>
-                    </div>
-                  )}
-                  
                   <div className="mb-4 md:mb-6 grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
                     <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
                       <p className="text-xs md:text-sm text-gray-400 mb-2">总请求数</p>
@@ -1212,7 +1400,17 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                                   onClick={() => toggleAIExpanded(index)}
                                   className="text-gray-400 hover:text-gray-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 rounded-lg transition-colors"
                                 >
-                                  {isExpanded ? '收起' : '详情'}
+                                  {isExpanded ? (
+                                    <>
+                                      <ChevronUp className="w-3 h-3 mr-1" />
+                                      收起
+                                    </>
+                                  ) : (
+                                    <>
+                                      <ChevronDown className="w-3 h-3 mr-1" />
+                                      详情
+                                    </>
+                                  )}
                                 </button>
                                 <button
                                   onClick={() => handleExportAI(record)}
@@ -1254,11 +1452,56 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                                 </div>
                               </div>
                             </div>
+
+                            {isExpanded && (
+                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 mt-3 pt-3 border-t border-gray-800/30">
+                                <div>
+                                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">完整请求数据</p>
+                                  <div className="bg-gray-900/50 p-2 md:p-3 rounded-lg overflow-auto max-h-48">
+                                    <pre className="text-xs text-gray-300 whitespace-pre-wrap">
+                                      {(() => {
+                                        const requestData = record.request_data || record.requestData;
+                                        try {
+                                          if (typeof requestData === 'string') {
+                                            return JSON.stringify(JSON.parse(requestData), null, 2);
+                                          } else if (typeof requestData === 'object') {
+                                            return JSON.stringify(requestData, null, 2);
+                                          }
+                                          return String(requestData || '无数据');
+                                        } catch {
+                                          return String(requestData || '无数据');
+                                        }
+                                      })()}
+                                    </pre>
+                                  </div>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">完整响应数据</p>
+                                  <div className="bg-gray-900/50 p-2 md:p-3 rounded-lg overflow-auto max-h-48">
+                                    <pre className="text-xs text-gray-300 whitespace-pre-wrap">
+                                      {(() => {
+                                        const responseData = record.response_data || record.responseData;
+                                        try {
+                                          if (typeof responseData === 'string') {
+                                            return JSON.stringify(JSON.parse(responseData), null, 2);
+                                          } else if (typeof responseData === 'object') {
+                                            return JSON.stringify(responseData, null, 2);
+                                          }
+                                          return String(responseData || '无数据');
+                                        } catch {
+                                          return String(responseData || '无数据');
+                                        }
+                                      })()}
+                                    </pre>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
 
-                      {/* 加载更多按钮 */}
+                      {/* 🔧 加载更多按钮 */}
                       {aiPagination.hasMore && (
                         <div className="text-center pt-4">
                           <button
@@ -1288,11 +1531,114 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 </div>
               )}
 
-              {/* 游戏记录标签页 - 保持不变 */}
+              {/* 游戏记录标签页 */}
               {activeTab === 'games' && (
                 <div className="p-4 md:p-6">
-                  {/* 游戏记录标签页内容 - 保持不变 */}
-                  {/* ... 省略游戏记录代码以节省空间 ... */}
+                  <div className="mb-4 md:mb-6 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">总场次</p>
+                      <p className="text-xl md:text-2xl font-bold text-white">{stats?.gameStats.total || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        7天内场次: {stats?.gameStats.recent || 0}
+                      </p>
+                    </div>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">胜场</p>
+                      <p className="text-xl md:text-2xl font-bold text-green-400">{stats?.gameStats.wins || 0}</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">负场</p>
+                      <p className="text-xl md:text-2xl font-bold text-red-400">
+                        {stats ? stats.gameStats.total - stats.gameStats.wins : 0}
+                      </p>
+                    </div>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">胜率</p>
+                      <p className="text-xl md:text-2xl font-bold text-blue-400">
+                        {stats?.gameStats.total
+                          ? `${((stats.gameStats.wins / stats.gameStats.total) * 100).toFixed(1)}%`
+                          : '0%'
+                        }
+                      </p>
+                    </div>
+                  </div>
+
+                  {gameHistory.length === 0 ? (
+                    <div className="text-center py-8 md:py-12">
+                      <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Gamepad2 className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
+                      </div>
+                      <p className="text-gray-400 text-base md:text-lg">暂无游戏记录</p>
+                      <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未参与过游戏</p>
+                    </div>
+                  ) : (
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[640px]">
+                          <thead>
+                            <tr className="border-b border-gray-800 bg-gray-900/50">
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">对局ID</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">对手</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">结果</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">时长</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">开始时间</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {gameHistory.map((game, index) => {
+                              const isWin = game.winner_id === userDetail.id;
+                              const isDraw = !game.winner_id;
+                              const startedAt = game.started_at;
+                              const endedAt = game.ended_at;
+
+                              return (
+                                <tr
+                                  key={index}
+                                  className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-all"
+                                >
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <code className="text-xs bg-gray-900 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-mono border border-gray-800">
+                                      {game.id?.substring(0, 8) || '未知'}
+                                    </code>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <div className="flex flex-col">
+                                      <span className="text-gray-300 text-xs md:text-sm">
+                                        玩家{game.player1_id === userDetail.id ? '2' : '1'}
+                                      </span>
+                                      <span className="text-xs text-gray-500 mt-1">
+                                        {game.player1_id === userDetail.id ? '你是玩家1' : '你是玩家2'}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <div className="flex items-center">
+                                      <div className={`w-2 h-2 rounded-full mr-1 md:mr-2 ${isWin ? 'bg-green-500' : isDraw ? 'bg-yellow-500' : 'bg-red-500'
+                                        }`} />
+                                      <span className={`text-xs md:text-sm ${isWin ? 'text-green-400' : isDraw ? 'text-yellow-400' : 'text-red-400'
+                                        }`}>
+                                        {isWin ? '胜利' : isDraw ? '平局' : '失败'}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <span className="text-gray-300 text-xs md:text-sm">
+                                      {formatDuration(startedAt, endedAt)}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <span className="text-gray-300 text-xs md:text-sm">
+                                      {formatDate(startedAt)}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1315,8 +1661,9 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                     是否还有更多: aiPagination.hasMore
                   },
                   '密钥记录数量': accessKeys.length,
-                  '游戏记录数量': gameHistory.length,
                   '密钥历史数量': keyUsageHistory.length,
+                  '第一条密钥历史': keyUsageHistory[0],
+                  '第一条密钥代码': getKeyCode(keyUsageHistory[0]),
                   '当前密钥': currentAccessKey
                 }, null, 2)}
               </pre>

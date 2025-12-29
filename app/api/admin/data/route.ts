@@ -1,4 +1,4 @@
-// /app/api/admin/data/route.ts - 修复密钥查询版本
+// /app/api/admin/data/route.ts - 完整修复版
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
       console.log(`🔍 查询用户详情: ${detailId}`)
 
       try {
-        // 🔧 修复：简化查询，避免复杂的关联关系
+        // 🔧 修复：使用Supabase的内置关联查询
         // 先查询用户基本信息
         const { data: profileData, error: profileError } = await supabaseAdmin
           .from('profiles')
@@ -84,17 +84,37 @@ export async function GET(request: NextRequest) {
           )
         }
 
-        // 🔧 修复：单独查询密钥使用历史
+        // 🔧 修复：查询密钥使用历史，并关联access_keys表
         const { data: keyUsageHistory, error: keyUsageHistoryError } = await supabaseAdmin
           .from('key_usage_history')
-          .select('*')
+          .select(`
+            id,
+            user_id,
+            access_key_id,
+            used_at,
+            usage_type,
+            previous_key_id,
+            next_key_id,
+            operation_by,
+            notes,
+            created_at,
+            updated_at,
+            access_keys!inner (
+              id,
+              key_code,
+              is_active,
+              key_expires_at,
+              created_at
+            )
+          `)
           .eq('user_id', detailId)
           .order('used_at', { ascending: false })
           .limit(20)
 
         console.log('🗝️ 密钥使用历史查询结果:', { 
           记录数量: keyUsageHistory?.length || 0,
-          错误: keyUsageHistoryError?.message 
+          第一条记录: keyUsageHistory?.[0],
+          密钥代码: keyUsageHistory?.[0]?.access_keys?.key_code
         })
 
         // 🔧 修复：单独查询当前使用的密钥
@@ -111,16 +131,14 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        // 🔧 修复：获取所有相关的密钥ID
+        // 🔧 修复：获取所有相关的密钥ID（previous_key_id, next_key_id）
         const keyIds = new Set<number>()
         if (keyUsageHistory && keyUsageHistory.length > 0) {
           keyUsageHistory.forEach(record => {
-            if (record.access_key_id) keyIds.add(record.access_key_id)
             if (record.previous_key_id) keyIds.add(record.previous_key_id)
             if (record.next_key_id) keyIds.add(record.next_key_id)
           })
         }
-        if (currentKey?.id) keyIds.add(currentKey.id)
 
         // 查询所有相关的密钥信息
         let allKeys = []
@@ -170,6 +188,38 @@ export async function GET(request: NextRequest) {
           当前密钥: currentKey ? currentKey.key_code : '无'
         })
 
+        // 🔧 修复：构建密钥使用历史，确保access_key字段正确
+        const processedKeyUsageHistory = (keyUsageHistory || []).map(record => {
+          // 从关联查询中获取access_key信息
+          const accessKeyData = record.access_keys || {}
+          
+          return {
+            id: record.id,
+            user_id: record.user_id,
+            access_key_id: record.access_key_id,
+            used_at: record.used_at,
+            usage_type: record.usage_type || 'activate',
+            previous_key_id: record.previous_key_id,
+            next_key_id: record.next_key_id,
+            operation_by: record.operation_by,
+            notes: record.notes,
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+            
+            // 关联的密钥信息
+            access_key: {
+              id: accessKeyData.id,
+              key_code: accessKeyData.key_code,
+              is_active: accessKeyData.is_active ?? true,
+              key_expires_at: accessKeyData.key_expires_at,
+              created_at: accessKeyData.created_at
+            },
+            
+            previous_key: record.previous_key_id ? keyMap.get(record.previous_key_id) : null,
+            next_key: record.next_key_id ? keyMap.get(record.next_key_id) : null
+          }
+        })
+
         // 构建响应数据
         const responseData = {
           id: profileData.id,
@@ -186,25 +236,8 @@ export async function GET(request: NextRequest) {
           created_at: profileData.created_at,
           updated_at: profileData.updated_at,
 
-          // 密钥使用历史，包含密钥信息
-          key_usage_history: (keyUsageHistory || []).map(record => ({
-            id: record.id,
-            user_id: record.user_id,
-            access_key_id: record.access_key_id,
-            used_at: record.used_at,
-            usage_type: record.usage_type || 'activate',
-            previous_key_id: record.previous_key_id,
-            next_key_id: record.next_key_id,
-            operation_by: record.operation_by,
-            notes: record.notes,
-            created_at: record.created_at,
-            updated_at: record.updated_at,
-
-            // 关联的密钥信息
-            access_key: record.access_key_id ? keyMap.get(record.access_key_id) : null,
-            previous_key: record.previous_key_id ? keyMap.get(record.previous_key_id) : null,
-            next_key: record.next_key_id ? keyMap.get(record.next_key_id) : null
-          })),
+          // 密钥使用历史
+          key_usage_history: processedKeyUsageHistory,
 
           // 当前使用的密钥
           current_access_key: currentKey,
