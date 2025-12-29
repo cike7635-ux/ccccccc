@@ -614,7 +614,9 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 </div>
               )}
 
-             {/* 密钥记录标签页 - 重新设计为表格式 */}
+         // ... 其他代码保持不变 ...
+
+{/* 密钥记录标签页 - 修复版 */}
 {activeTab === 'keys' && (
   <div className="p-4 md:p-6 space-y-4 md:space-y-6">
     {/* 统计卡片 */}
@@ -623,11 +625,13 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
         <p className="text-xs md:text-sm text-gray-400 mb-1">总使用密钥</p>
         <p className="text-xl md:text-2xl font-bold text-white">
           {(() => {
-            // 从 keyUsageHistory 中提取唯一密钥数量
-            if (!keyUsageHistory || keyUsageHistory.length === 0) return 0;
+            // 从 keyUsageHistory 中提取唯一密钥数量（安全版本）
+            if (!keyUsageHistory || !Array.isArray(keyUsageHistory) || keyUsageHistory.length === 0) return 0;
+            
             const uniqueKeys = new Set();
             keyUsageHistory.forEach(record => {
-              if (record.access_key?.id) {
+              // 安全访问：确保 access_key 存在且有 id
+              if (record?.access_key?.id) {
                 uniqueKeys.add(record.access_key.id);
               }
             });
@@ -635,22 +639,43 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
           })()}
         </p>
       </div>
+      
       <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
         <p className="text-xs md:text-sm text-gray-400 mb-1">当前密钥</p>
         <p className="text-lg md:text-2xl font-bold text-blue-400 font-mono truncate" 
-           title={currentAccessKey?.key_code || currentAccessKey?.keyCode || '无'}>
-          {currentAccessKey?.key_code || currentAccessKey?.keyCode || '无'}
+           title={
+             // 安全访问：处理所有可能的字段名
+             currentAccessKey?.key_code || 
+             currentAccessKey?.keyCode || 
+             currentAccessKey?.access_key?.key_code ||
+             currentAccessKey?.access_key?.keyCode ||
+             '无'
+           }>
+          {currentAccessKey?.key_code || 
+           currentAccessKey?.keyCode || 
+           currentAccessKey?.access_key?.key_code ||
+           currentAccessKey?.access_key?.keyCode ||
+           '无'}
         </p>
       </div>
+      
       <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
         <p className="text-xs md:text-sm text-gray-400 mb-1">使用记录</p>
-        <p className="text-xl md:text-2xl font-bold text-green-400">{keyUsageHistory.length || 0}</p>
+        <p className="text-xl md:text-2xl font-bold text-green-400">
+          {Array.isArray(keyUsageHistory) ? keyUsageHistory.length : 0}
+        </p>
       </div>
+      
       <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
         <p className="text-xs md:text-sm text-gray-400 mb-1">最近使用</p>
         <p className="text-sm md:text-lg font-bold text-amber-400 truncate">
-          {keyUsageHistory.length > 0 
-            ? formatShortDate(keyUsageHistory[0]?.used_at || keyUsageHistory[0]?.usedAt)
+          {keyUsageHistory && keyUsageHistory.length > 0 
+            ? formatShortDate(
+                keyUsageHistory[0]?.used_at || 
+                keyUsageHistory[0]?.usedAt ||
+                keyUsageHistory[0]?.access_key?.used_at ||
+                keyUsageHistory[0]?.access_key?.usedAt
+              )
             : '无记录'
           }
         </p>
@@ -670,24 +695,29 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       </div>
 
       {(() => {
-        // 从 keyUsageHistory 中提取所有使用过的密钥（去重）
+        // 从 keyUsageHistory 中提取所有使用过的密钥（去重） - 安全版本
         const allUsedKeys = useMemo(() => {
-          if (!keyUsageHistory || keyUsageHistory.length === 0) return [];
+          if (!keyUsageHistory || !Array.isArray(keyUsageHistory) || keyUsageHistory.length === 0) {
+            return [];
+          }
           
           const uniqueKeys = new Map();
+          
           keyUsageHistory.forEach(record => {
-            if (record.access_key) {
-              const key = record.access_key;
-              const keyId = key.id;
+            // 安全访问：多层嵌套检查
+            const accessKey = record?.access_key;
+            
+            if (accessKey?.id) {
+              const keyId = accessKey.id;
               
               if (!uniqueKeys.has(keyId)) {
                 uniqueKeys.set(keyId, {
                   id: keyId,
-                  key_code: key.key_code || key.keyCode,
-                  is_active: key.is_active || key.isActive,
-                  key_expires_at: key.key_expires_at || key.keyExpiresAt,
-                  first_used_at: record.used_at || record.usedAt,
-                  last_used_at: record.used_at || record.usedAt,
+                  key_code: accessKey.key_code || accessKey.keyCode,
+                  is_active: accessKey.is_active ?? accessKey.isActive ?? true,
+                  key_expires_at: accessKey.key_expires_at || accessKey.keyExpiresAt,
+                  first_used_at: record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt,
+                  last_used_at: record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt,
                   usage_count: 1,
                   usage_types: new Set([record.usage_type || 'activate'])
                 });
@@ -697,19 +727,29 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 if (record.usage_type) {
                   existing.usage_types.add(record.usage_type);
                 }
-                if (new Date(record.used_at || record.usedAt) > new Date(existing.last_used_at)) {
-                  existing.last_used_at = record.used_at || record.usedAt;
+                // 更新时间戳
+                const currentUsedAt = record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt;
+                if (currentUsedAt && new Date(currentUsedAt) > new Date(existing.last_used_at || 0)) {
+                  existing.last_used_at = currentUsedAt;
                 }
               }
             }
           });
           
-          return Array.from(uniqueKeys.values())
+          const keysArray = Array.from(uniqueKeys.values())
             .map(key => ({
               ...key,
-              is_current: currentAccessKey ? (key.id === currentAccessKey.id) : false
+              is_current: currentAccessKey ? 
+                (key.id === currentAccessKey.id || 
+                 key.id === currentAccessKey.access_key?.id) : false
             }))
-            .sort((a, b) => new Date(b.last_used_at).getTime() - new Date(a.last_used_at).getTime());
+            .sort((a, b) => {
+              const dateA = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
+              const dateB = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
+              return dateB - dateA;
+            });
+          
+          return keysArray;
         }, [keyUsageHistory, currentAccessKey]);
 
         if (allUsedKeys.length === 0) {
@@ -741,14 +781,15 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
               </thead>
               <tbody>
                 {allUsedKeys.map((key, index) => {
-                  const isActive = key.is_active;
-                  const isCurrent = key.is_current;
+                  // 安全获取所有字段
                   const keyCode = key.key_code || '未知';
+                  const isActive = key.is_active !== false;
                   const isExpired = key.key_expires_at && new Date(key.key_expires_at) < new Date();
+                  const isCurrent = key.is_current;
                   
                   return (
                     <tr
-                      key={index}
+                      key={`key-${key.id || index}`}
                       className={`border-b border-gray-800/30 transition-all hover:bg-gray-800/30 ${
                         isCurrent ? 'bg-blue-500/5' : ''
                       }`}
@@ -769,13 +810,13 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                         <div className="flex items-center space-x-1 md:space-x-2">
                           <div className={`w-2 h-2 rounded-full ${
                             isExpired ? 'bg-red-500' : 
-                            isActive ? 'bg-green-500' : 'bg-red-500'
+                            isActive ? 'bg-green-500' : 'bg-gray-500'
                           }`} />
                           <span className={`text-xs md:text-sm ${
                             isExpired ? 'text-red-400' : 
-                            isActive ? 'text-green-400' : 'text-red-400'
+                            isActive ? 'text-green-400' : 'text-gray-400'
                           }`}>
-                            {isExpired ? '已过期' : isActive ? '活跃' : '禁用'}
+                            {isExpired ? '已过期' : isActive ? '活跃' : '未知'}
                           </span>
                         </div>
                       </td>
@@ -786,24 +827,24 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                       </td>
                       <td className="py-3 md:py-4 px-4">
                         <span className="text-gray-300 text-xs md:text-sm">
-                          {formatShortDate(key.first_used_at)}
+                          {key.first_used_at ? formatShortDate(key.first_used_at) : '无记录'}
                         </span>
                       </td>
                       <td className="py-3 md:py-4 px-4">
                         <span className="text-gray-300 text-xs md:text-sm">
-                          {formatShortDate(key.last_used_at)}
+                          {key.last_used_at ? formatShortDate(key.last_used_at) : '无记录'}
                         </span>
                       </td>
                       <td className="py-3 md:py-4 px-4">
                         <span className="text-gray-300 text-xs md:text-sm">
-                          {key.usage_count} 次
+                          {key.usage_count || 0} 次
                         </span>
                       </td>
                       <td className="py-3 md:py-4 px-4">
                         <div className="flex flex-wrap gap-1">
-                          {Array.from(key.usage_types || new Set(['activate'])).map((type, idx) => (
+                          {Array.from(key.usage_types || new Set(['activate'])).map((type: any, idx) => (
                             <span 
-                              key={idx}
+                              key={`type-${idx}`}
                               className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300"
                             >
                               {type === 'activate' ? '激活' : 
@@ -816,8 +857,10 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                       <td className="py-3 md:py-4 px-4">
                         <div className="flex space-x-1 md:space-x-2">
                           <button
-                            onClick={() => keyCode && handleCopy(keyCode, `key-${key.id}`)}
-                            className="text-blue-400 hover:text-blue-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 md:py-1.5 rounded-lg transition-colors"
+                            onClick={() => keyCode && handleCopy(keyCode, `key-${key.id || index}`)}
+                            className="text-blue-400 hover:text-blue-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 md:py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                            disabled={!keyCode || keyCode === '未知'}
+                            title={keyCode === '未知' ? '无法复制未知密钥' : '复制密钥'}
                           >
                             <Copy className="w-3 h-3 mr-1" />
                             复制
@@ -852,7 +895,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
         </p>
       </div>
 
-      {keyUsageHistory.length === 0 ? (
+      {(!keyUsageHistory || keyUsageHistory.length === 0) ? (
         <div className="text-center py-8 md:py-12">
           <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
             <History className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
@@ -876,22 +919,29 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
             </thead>
             <tbody>
               {keyUsageHistory
-                .sort((a, b) => new Date(b.used_at || b.usedAt).getTime() - new Date(a.used_at || a.usedAt).getTime())
+                .filter(record => record) // 过滤掉null/undefined
+                .sort((a, b) => {
+                  const dateA = a.used_at || a.usedAt || 0;
+                  const dateB = b.used_at || b.usedAt || 0;
+                  return new Date(dateB).getTime() - new Date(dateA).getTime();
+                })
                 .map((record, index) => {
-                  const usedAt = record.used_at || record.usedAt;
+                  // 安全获取所有字段
+                  const usedAt = record.used_at || record.usedAt || '';
                   const usageType = record.usage_type || 'activate';
-                  const keyCode = record.access_key?.key_code || record.access_key?.keyCode || '未知';
-                  const operatorEmail = record.operator?.email || '系统';
-                  const operatorNickname = record.operator?.nickname || '';
+                  const accessKey = record.access_key || {};
+                  const keyCode = accessKey.key_code || accessKey.keyCode || '未知';
+                  const operator = record.operator || {};
+                  const operatorEmail = operator.email || '系统';
+                  const operatorNickname = operator.nickname || '';
                   const notes = record.notes || record.note || '';
                   
-                  // 由于数据库中没有 previous_key_id 和 next_key_id 的数据，这里显示占位符
                   const previousKeyId = record.previous_key_id || null;
                   const nextKeyId = record.next_key_id || null;
 
                   return (
                     <tr
-                      key={index}
+                      key={`history-${record.id || index}`}
                       className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-all"
                     >
                       <td className="py-3 md:py-4 px-4">
@@ -986,6 +1036,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     </div>
   </div>
 )}
+
               {/* AI使用记录标签页 */}
               {activeTab === 'ai' && (
                 <div className="p-4 md:p-6">
