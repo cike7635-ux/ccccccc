@@ -111,7 +111,7 @@ export async function GET(request: NextRequest) {
           .order('used_at', { ascending: false })
           .limit(20)
 
-        console.log('🗝️ 密钥使用历史查询结果:', { 
+        console.log('🗝️ 密钥使用历史查询结果:', {
           记录数量: keyUsageHistory?.length || 0,
           第一条记录: keyUsageHistory?.[0],
           密钥代码: keyUsageHistory?.[0]?.access_keys?.key_code
@@ -160,16 +160,17 @@ export async function GET(request: NextRequest) {
         })
 
         // 🔧 修复：AI使用记录查询
-        const { data: aiUsageRecords, error: aiUsageError } = await supabaseAdmin
+        const { data: aiUsageRecords, error: aiUsageError, count: aiTotalCount } = await supabaseAdmin
           .from('ai_usage_records')
-          .select('*')
+          .select('*', { count: 'exact' })
           .eq('user_id', detailId)
           .order('created_at', { ascending: false })
           .limit(10) // 初始只查询10条，用于分页
 
-        console.log('🤖 AI记录查询结果:', { 
+        console.log('🤖 AI记录查询结果:', {
           记录数量: aiUsageRecords?.length || 0,
-          错误: aiUsageError?.message 
+          总记录数: aiTotalCount || 0,
+          错误: aiUsageError?.message
         })
 
         // 游戏历史记录
@@ -192,7 +193,7 @@ export async function GET(request: NextRequest) {
         const processedKeyUsageHistory = (keyUsageHistory || []).map(record => {
           // 从关联查询中获取access_key信息
           const accessKeyData = record.access_keys || {}
-          
+
           return {
             id: record.id,
             user_id: record.user_id,
@@ -205,7 +206,7 @@ export async function GET(request: NextRequest) {
             notes: record.notes,
             created_at: record.created_at,
             updated_at: record.updated_at,
-            
+
             // 关联的密钥信息
             access_key: {
               id: accessKeyData.id,
@@ -214,7 +215,7 @@ export async function GET(request: NextRequest) {
               key_expires_at: accessKeyData.key_expires_at,
               created_at: accessKeyData.created_at
             },
-            
+
             previous_key: record.previous_key_id ? keyMap.get(record.previous_key_id) : null,
             next_key: record.next_key_id ? keyMap.get(record.next_key_id) : null
           }
@@ -247,6 +248,7 @@ export async function GET(request: NextRequest) {
 
           // AI使用记录
           ai_usage_records: aiUsageRecords || [],
+          ai_usage_records_total: aiTotalCount || 0, // 添加总记录数
 
           // 游戏历史记录
           game_history: gameHistory || []

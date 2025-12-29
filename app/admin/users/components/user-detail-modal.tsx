@@ -180,25 +180,39 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   }, [userDetail?.id]);
 
   // 🔧 修复：加载AI记录函数 - 改进版
-  const loadAIRecords = async (userId: string, page: number, isInitial: boolean = false) => {
-    try {
-      console.log(`🔄 加载AI记录，用户ID: ${userId}, 页数: ${page}, 初始: ${isInitial}`);
+ const loadAIRecords = async (userId: string, page: number, isInitial: boolean = false) => {
+  try {
+    console.log(`🔄 加载AI记录，用户ID: ${userId}, 页数: ${page}, 初始: ${isInitial}`);
+    
+    // 如果是初始加载，使用已有的数据
+    if (isInitial && userDetail?.ai_usage_records) {
+      const records = userDetail.ai_usage_records;
+      const total = userDetail.ai_usage_records_total || records.length;
       
-      // 如果是初始加载，使用已有的数据
-      if (isInitial && userDetail?.ai_usage_records) {
-        const records = userDetail.ai_usage_records;
-        console.log('✅ 使用现有AI记录:', records.length);
-        
-        setAiRecords(records.slice(0, 10));
-        setAiPagination({
-          page: 1,
-          limit: 10,
-          total: records.length,
-          totalPages: Math.ceil(records.length / 10),
-          hasMore: records.length > 10
-        });
-        return;
+      console.log('✅ 使用现有AI记录:', {
+        现有记录数: records.length,
+        总记录数: total
+      });
+      
+      setAiRecords(records);
+      setAiPagination({
+        page: 1,
+        limit: 10,
+        total: total,
+        totalPages: Math.ceil(total / 10),
+        hasMore: total > 10
+      });
+      
+      // 如果总记录数大于10，立即加载更多
+      if (total > 10) {
+        console.log(`📈 总记录数${total} > 10，立即加载分页数据`);
+        // 稍后加载第2页
+        setTimeout(() => {
+          loadAIRecords(userId, 2);
+        }, 100);
       }
+      return;
+    }
 
       setLoadingMoreAI(true);
       
