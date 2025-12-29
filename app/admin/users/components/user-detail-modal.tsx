@@ -16,7 +16,39 @@ interface UserDetailModalProps {
   onRefresh?: () => void
 }
 
-// 性别显示函数 - 与types.ts保持一致
+// 🔧 修复：安全获取密钥代码的辅助函数
+const getKeyCode = (record: any, currentAccessKey: any = null): string => {
+  if (!record) return '未知';
+  
+  try {
+    // 如果记录中有access_key对象
+    if (record?.access_key?.key_code) {
+      return record.access_key.key_code;
+    }
+    
+    // 如果有access_key_id
+    if (record?.access_key_id) {
+      return `密钥ID: ${record.access_key_id}`;
+    }
+    
+    // 如果记录中有key_code字段
+    if (record?.key_code) {
+      return record.key_code;
+    }
+    
+    // 如果是当前密钥对象
+    if (currentAccessKey?.key_code) {
+      return currentAccessKey.key_code;
+    }
+    
+    return '未知';
+  } catch (error) {
+    console.error('获取密钥代码出错:', error);
+    return '错误';
+  }
+}
+
+// 性别显示函数
 const getGenderDisplay = (preferences: any): string => {
   if (!preferences || !preferences.gender) return '未设置';
 
@@ -37,24 +69,19 @@ const extractTextFromJson = (data: any): string => {
   if (!data) return '无数据';
   
   try {
-    // 如果已经是字符串
     if (typeof data === 'string') {
-      // 尝试解析为JSON
       if (data.trim().startsWith('{') || data.trim().startsWith('[')) {
         try {
           const parsed = JSON.parse(data);
           return extractTextFromJson(parsed);
         } catch {
-          // 解析失败，返回原始字符串
           return data;
         }
       }
       return data;
     }
     
-    // 如果是对象
     if (typeof data === 'object' && data !== null) {
-      // 优先尝试常见的文本字段
       const textFields = ['content', 'text', 'message', 'input', 'prompt', 'query', 'response', 'answer', 'output'];
       
       for (const field of textFields) {
@@ -66,7 +93,6 @@ const extractTextFromJson = (data: any): string => {
         }
       }
       
-      // 如果没有找到常见字段，返回整个对象的JSON字符串
       try {
         return JSON.stringify(data, null, 2);
       } catch {
@@ -74,7 +100,6 @@ const extractTextFromJson = (data: any): string => {
       }
     }
     
-    // 其他类型直接转为字符串
     return String(data || '');
   } catch (error) {
     console.warn('提取文本失败:', error, '原始数据:', data);
@@ -82,45 +107,12 @@ const extractTextFromJson = (data: any): string => {
   }
 };
 
-// 🔧 新增：获取密钥代码的辅助函数
-const getKeyCode = (record: any): string => {
-  // 优先使用 access_key 中的 key_code
-  if (record?.access_key?.key_code) {
-    return record.access_key.key_code
-  }
-  
-  // 如果没有access_key但有access_key_id，显示ID
-  if (record?.access_key_id) {
-    return `密钥ID: ${record.access_key_id}`
-  }
-  
-  // 如果没有access_key但有key_code字段
-  if (record?.key_code) {
-    return record.key_code
-  }
-  
-  return '未知'
-}
-
-// 🔧 新增：检查是否是当前密钥
-const isCurrentKey = (keyId: number | null, currentKey: any): boolean => {
-  if (!keyId || !currentKey) return false
-  
-  // 比较当前密钥的ID
-  if (currentKey.id === keyId) return true
-  
-  // 如果当前密钥有access_key属性，也比较一下
-  if (currentKey.access_key?.id === keyId) return true
-  
-  return false
-}
-
 export default function UserDetailModal({ isOpen, onClose, userDetail, loading, onRefresh }: UserDetailModalProps) {
   const [activeTab, setActiveTab] = useState<'basic' | 'keys' | 'ai' | 'games'>('basic')
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [expandedAIRecord, setExpandedAIRecord] = useState<number | null>(null)
   
-  // 🔧 新增：AI分页状态
+  // AI分页状态
   const [aiRecords, setAiRecords] = useState<any[]>([]);
   const [aiPagination, setAiPagination] = useState({
     page: 1,
@@ -131,16 +123,18 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   });
   const [loadingMoreAI, setLoadingMoreAI] = useState(false);
 
-  // 🔧 新增：初始化AI记录分页数据
+  // 🔧 修复：初始化AI记录分页数据
   useEffect(() => {
+    console.log('🔄 AI标签页激活:', { activeTab, hasUser: !!userDetail });
     if (userDetail?.id && activeTab === 'ai') {
       console.log('🔄 初始化AI记录分页，用户ID:', userDetail.id);
       loadAIRecords(userDetail.id, 1, true);
     }
   }, [userDetail?.id, activeTab]);
 
-  // 🔧 新增：切换用户时重置AI记录
+  // 🔧 修复：切换用户时重置AI记录
   useEffect(() => {
+    console.log('🔄 切换用户，重置AI记录');
     if (userDetail?.id) {
       setAiRecords([]);
       setAiPagination({
@@ -153,17 +147,18 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     }
   }, [userDetail?.id]);
 
-  // 🔧 新增：加载AI记录函数
+  // 🔧 修复：加载AI记录函数 - 简化版本
   const loadAIRecords = async (userId: string, page: number, isInitial: boolean = false) => {
     try {
       console.log(`🔄 加载AI记录，用户ID: ${userId}, 页数: ${page}, 初始: ${isInitial}`);
       
       // 如果是初始加载，使用已有的数据
       if (isInitial && userDetail?.ai_usage_records) {
-        const records = userDetail.ai_usage_records;
+        const records = userDetail.ai_usage_records || [];
         console.log('✅ 使用现有AI记录:', records.length);
         
-        setAiRecords(records.slice(0, 10));
+        const limitedRecords = records.slice(0, 10);
+        setAiRecords(limitedRecords);
         setAiPagination({
           page: 1,
           limit: 10,
@@ -178,27 +173,33 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       const apiUrl = `/api/admin/users/ai-records?userId=${userId}&page=${page}&limit=10`;
       console.log('📡 调用AI记录API:', apiUrl);
       
-      const response = await fetch(apiUrl, { credentials: 'include' });
+      const response = await fetch(apiUrl, { 
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      });
       
       console.log('📡 AI记录API响应状态:', response.status);
       
       if (response.ok) {
         const result = await response.json();
-        console.log('📡 AI记录API响应数据:', result);
+        console.log('📡 AI记录API响应数据:', { success: result.success, count: result.data?.length });
         
         if (result.success) {
-          console.log(`✅ 获取到AI记录: ${result.data?.length || 0} 条`);
+          const newRecords = result.data || [];
+          console.log(`✅ 获取到AI记录: ${newRecords.length} 条`);
           
           if (page === 1) {
-            setAiRecords(result.data || []);
+            setAiRecords(newRecords);
           } else {
-            setAiRecords(prev => [...prev, ...(result.data || [])]);
+            setAiRecords(prev => [...prev, ...newRecords]);
           }
           
           setAiPagination({
             page: result.pagination?.page || page,
             limit: result.pagination?.limit || 10,
-            total: result.pagination?.total || (result.data?.length || 0),
+            total: result.pagination?.total || 0,
             totalPages: result.pagination?.totalPages || 1,
             hasMore: result.pagination?.hasMore || false
           });
@@ -215,7 +216,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     }
   };
 
-  // 🔧 新增：加载更多AI记录
+  // 🔧 修复：加载更多AI记录
   const handleLoadMoreAI = () => {
     if (userDetail?.id && !loadingMoreAI) {
       loadAIRecords(userDetail.id, aiPagination.page + 1);
@@ -225,37 +226,10 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   // 🔧 修复：安全获取AI使用记录
   const aiUsageRecords = useMemo(() => {
     try {
-      if (!userDetail) {
-        console.log('❌ aiUsageRecords: userDetail为空');
-        return [];
-      }
-
-      // 策略1：优先使用下划线格式的数组
-      let records = userDetail.ai_usage_records;
-      
-      // 策略2：如果下划线格式不存在或不是数组，尝试驼峰格式
-      if (!Array.isArray(records)) {
-        records = userDetail.aiUsageRecords;
-      }
-      
-      // 策略3：如果两者都不是数组，尝试aiRecords字段
-      if (!Array.isArray(records) && typeof userDetail.aiRecords === 'number') {
-        console.warn('⚠️ aiUsageRecords: 只获取到数量而不是数组，尝试重新获取数据');
-        return [];
-      }
-      
-      // 确保是数组
-      if (!Array.isArray(records)) {
-        console.error('❌ aiUsageRecords: 不是数组，类型:', typeof records, '值:', records);
-        return [];
-      }
-      
-      if (process.env.NODE_ENV === 'development') {
-        console.log('✅ aiUsageRecords: 成功获取', records.length, '条记录');
-      }
-      return records;
+      if (!userDetail) return [];
+      return Array.isArray(userDetail.ai_usage_records) ? userDetail.ai_usage_records : [];
     } catch (err) {
-      console.error('❌ 获取aiUsageRecords出错:', err);
+      console.error('获取aiUsageRecords出错:', err);
       return [];
     }
   }, [userDetail]);
@@ -264,15 +238,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   const accessKeys = useMemo(() => {
     try {
       if (!userDetail) return [];
-      
-      // 优先使用下划线格式，然后是驼峰格式
-      const keys = userDetail.access_keys || userDetail.accessKeys || [];
-      
-      if (typeof keys === 'number') {
-        console.warn('⚠️ accessKeys: 获取到数字而不是数组');
-        return [];
-      }
-      
+      const keys = userDetail.access_keys || [];
       return Array.isArray(keys) ? keys : [];
     } catch (err) {
       console.error('获取accessKeys出错:', err);
@@ -284,7 +250,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   const gameHistory = useMemo(() => {
     try {
       if (!userDetail) return [];
-      const history = userDetail.game_history || userDetail.gameHistory || [];
+      const history = userDetail.game_history || [];
       return Array.isArray(history) ? history : [];
     } catch (err) {
       console.error('获取gameHistory出错:', err);
@@ -292,11 +258,11 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     }
   }, [userDetail])
 
-  // 🔧 修复：安全获取密钥使用历史，处理null情况
+  // 🔧 修复：安全获取密钥使用历史
   const keyUsageHistory = useMemo(() => {
     try {
       if (!userDetail) return [];
-      const history = userDetail.key_usage_history || userDetail.keyUsageHistory || [];
+      const history = userDetail.key_usage_history || [];
       return Array.isArray(history) ? history : [];
     } catch (err) {
       console.error('获取keyUsageHistory出错:', err);
@@ -308,12 +274,108 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   const currentAccessKey = useMemo(() => {
     try {
       if (!userDetail) return null;
-      return userDetail.current_access_key || userDetail.currentAccessKey || null;
+      return userDetail.current_access_key || null;
     } catch (err) {
       console.error('获取currentAccessKey出错:', err);
       return null;
     }
   }, [userDetail])
+
+  // 🔧 修复：所有使用过的密钥计算 - 处理空数组情况
+  const allUsedKeys = useMemo(() => {
+    console.log('🔄 计算allUsedKeys:', { 
+      密钥历史长度: keyUsageHistory.length,
+      当前密钥: currentAccessKey 
+    });
+    
+    const result = [];
+    
+    // 如果有当前密钥，先添加
+    if (currentAccessKey) {
+      result.push({
+        id: currentAccessKey.id,
+        key_code: currentAccessKey.key_code || '未知',
+        is_active: currentAccessKey.is_active ?? true,
+        key_expires_at: currentAccessKey.key_expires_at,
+        usage_count: 1,
+        is_current: true,
+        last_used_at: currentAccessKey.used_at || currentAccessKey.created_at
+      });
+    }
+    
+    // 从密钥历史中添加其他密钥
+    const keyMap = new Map();
+    keyUsageHistory.forEach(record => {
+      const keyId = record.access_key_id;
+      if (!keyId) return;
+      
+      if (!keyMap.has(keyId)) {
+        keyMap.set(keyId, {
+          id: keyId,
+          key_code: getKeyCode(record, currentAccessKey),
+          is_active: true,
+          usage_count: 1,
+          is_current: currentAccessKey?.id === keyId,
+          last_used_at: record.used_at,
+          first_used_at: record.used_at,
+          usage_types: new Set([record.usage_type || 'activate'])
+        });
+      } else {
+        const existing = keyMap.get(keyId);
+        existing.usage_count++;
+        if (record.usage_type) {
+          existing.usage_types.add(record.usage_type);
+        }
+      }
+    });
+    
+    // 将其他密钥添加到结果中
+    keyMap.forEach(key => {
+      // 避免重复添加当前密钥
+      if (!result.some(k => k.id === key.id)) {
+        result.push(key);
+      }
+    });
+    
+    // 按最后使用时间排序
+    return result.sort((a, b) => {
+      const dateA = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
+      const dateB = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
+      return dateB - dateA;
+    });
+  }, [keyUsageHistory, currentAccessKey])
+
+  // 🔧 修复：密钥使用历史排序
+  const keyUsageHistorySorted = useMemo(() => {
+    console.log('🔄 排序keyUsageHistory, 原始长度:', keyUsageHistory.length);
+    
+    if (!Array.isArray(keyUsageHistory)) return [];
+    
+    return [...keyUsageHistory]
+      .filter(record => record)
+      .sort((a, b) => {
+        const dateA = a.used_at || 0;
+        const dateB = b.used_at || 0;
+        return new Date(dateB).getTime() - new Date(dateA).getTime();
+      });
+  }, [keyUsageHistory])
+
+  // 🔧 修复：准备密钥统计卡数据
+  const keyStats = useMemo(() => {
+    console.log('🔄 计算keyStats:', { 
+      allUsedKeys长度: allUsedKeys.length,
+      当前密钥: currentAccessKey 
+    });
+    
+    return {
+      totalUniqueKeys: allUsedKeys.length,
+      currentKey: currentAccessKey?.key_code || '无',
+      usageRecords: keyUsageHistory.length,
+      lastUsage: keyUsageHistorySorted.length > 0 
+        ? formatShortDate(keyUsageHistorySorted[0]?.used_at)
+        : '无记录'
+    };
+  }, [allUsedKeys, currentAccessKey, keyUsageHistory, keyUsageHistorySorted])
 
   // 统计数据计算
   const stats = useMemo(() => {
@@ -328,12 +390,12 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
         return expiry && new Date(expiry) < new Date();
       }).length,
       unused: accessKeys.filter(k => !(k.used_at || k.usedAt)).length,
-      currentId: userDetail.access_key_id || userDetail.accessKeyId
+      currentId: userDetail.access_key_id
     }
 
     // 计算AI统计
     const aiStats = {
-      total: aiPagination.total || 0, // 🔧 使用分页的总数
+      total: aiPagination.total || 0,
       success: aiRecords.filter(r => r.success).length,
       recent: aiRecords.filter(r => {
         const created = r.created_at || r.createdAt;
@@ -354,87 +416,6 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
 
     return { keyStats, aiStats, gameStats };
   }, [userDetail, accessKeys, aiRecords, gameHistory, aiPagination.total])
-
-  // 🔧 修复：所有使用过的密钥计算 - 正确处理null access_key
-  const allUsedKeys = useMemo(() => {
-    console.log('🔄 计算allUsedKeys, 密钥历史长度:', keyUsageHistory.length);
-    
-    if (!keyUsageHistory || keyUsageHistory.length === 0) {
-      // 如果没有密钥历史，但是有当前密钥，也显示当前密钥
-      if (currentAccessKey) {
-        return [{
-          id: currentAccessKey.id,
-          key_code: currentAccessKey.key_code || currentAccessKey.keyCode || '未知',
-          is_active: currentAccessKey.is_active ?? currentAccessKey.isActive ?? true,
-          key_expires_at: currentAccessKey.key_expires_at || currentAccessKey.keyExpiresAt,
-          usage_count: 1,
-          is_current: true,
-          last_used_at: currentAccessKey.used_at || currentAccessKey.usedAt
-        }]
-      }
-      return [];
-    }
-    
-    const uniqueKeys = new Map();
-    
-    keyUsageHistory.forEach(record => {
-      const keyId = record.access_key_id;
-      if (!keyId) return; // 跳过没有access_key_id的记录
-      
-      const keyCode = getKeyCode(record);
-      const isCurrent = isCurrentKey(keyId, currentAccessKey);
-      
-      if (!uniqueKeys.has(keyId)) {
-        uniqueKeys.set(keyId, {
-          id: keyId,
-          key_code: keyCode,
-          is_active: record.access_key?.is_active ?? true,
-          key_expires_at: record.access_key?.key_expires_at,
-          usage_count: 1,
-          is_current: isCurrent,
-          last_used_at: record.used_at || record.usedAt,
-          first_used_at: record.used_at || record.usedAt,
-          usage_types: new Set([record.usage_type || 'activate'])
-        })
-      } else {
-        const existing = uniqueKeys.get(keyId);
-        existing.usage_count++;
-        if (record.usage_type) {
-          existing.usage_types.add(record.usage_type);
-        }
-        // 更新最后使用时间
-        const currentUsedAt = record.used_at || record.usedAt;
-        if (currentUsedAt && new Date(currentUsedAt) > new Date(existing.last_used_at || 0)) {
-          existing.last_used_at = currentUsedAt;
-        }
-      }
-    })
-    
-    const keysArray = Array.from(uniqueKeys.values())
-      .sort((a, b) => {
-        const dateA = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
-        const dateB = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
-        return dateB - dateA;
-      })
-    
-    console.log('✅ allUsedKeys计算完成，数量:', keysArray.length);
-    return keysArray;
-  }, [keyUsageHistory, currentAccessKey])
-
-  // 🔧 修复：密钥使用历史排序 - 正确处理null值
-  const keyUsageHistorySorted = useMemo(() => {
-    console.log('🔄 排序keyUsageHistory, 原始长度:', keyUsageHistory.length);
-    
-    if (!keyUsageHistory || !Array.isArray(keyUsageHistory)) return [];
-    
-    return [...keyUsageHistory]
-      .filter(record => record) // 过滤掉null/undefined
-      .sort((a, b) => {
-        const dateA = a.used_at || a.usedAt || 0;
-        const dateB = b.used_at || b.usedAt || 0;
-        return new Date(dateB).getTime() - new Date(dateA).getTime();
-      });
-  }, [keyUsageHistory])
 
   const toggleAIExpanded = (index: number) => {
     setExpandedAIRecord(expandedAIRecord === index ? null : index);
@@ -571,10 +552,6 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   // 🔧 修复：AI记录导出功能
   const handleExportAI = (record: any) => {
     try {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('📤 导出AI记录:', record);
-      }
-      
       const data = {
         id: record.id,
         userId: record.user_id || record.userId,
@@ -602,36 +579,6 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     }
   }
 
-  if (!isOpen) return null;
-
-  const accountStatus = getAccountStatus();
-  const activeStatus = getActiveStatus();
-
-  // 🔧 修复：准备密钥统计卡数据
-  const keyStats = useMemo(() => {
-    console.log('🔄 计算keyStats, allUsedKeys长度:', allUsedKeys.length);
-    
-    const totalUniqueKeys = allUsedKeys.length;
-    const currentKeyCode = currentAccessKey?.key_code || 
-                          currentAccessKey?.keyCode || 
-                          '无';
-    
-    const usageRecords = keyUsageHistory.length || 0;
-    
-    let lastUsage = '无记录';
-    if (keyUsageHistorySorted.length > 0) {
-      const lastRecord = keyUsageHistorySorted[0];
-      lastUsage = formatShortDate(lastRecord.used_at || lastRecord.usedAt);
-    }
-    
-    return {
-      totalUniqueKeys,
-      currentKey: currentKeyCode,
-      usageRecords,
-      lastUsage
-    };
-  }, [allUsedKeys, currentAccessKey, keyUsageHistory, keyUsageHistorySorted])
-
   // 🔧 修复：从AI记录数据中获取显示文本
   const getAIRecordDisplayText = (record: any) => {
     try {
@@ -653,6 +600,11 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       };
     }
   };
+
+  if (!isOpen) return null;
+
+  const accountStatus = getAccountStatus();
+  const activeStatus = getActiveStatus();
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 md:p-6 overflow-y-auto">
@@ -775,7 +727,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 {[
                   { id: 'basic' as const, label: '基本信息', icon: User, count: null },
                   { id: 'keys' as const, label: '密钥记录', icon: Key, count: accessKeys.length },
-                  { id: 'ai' as const, label: 'AI使用', icon: Brain, count: aiPagination.total || 0 }, // 🔧 使用分页总数
+                  { id: 'ai' as const, label: 'AI使用', icon: Brain, count: aiPagination.total || 0 },
                   { id: 'games' as const, label: '游戏记录', icon: Gamepad2, count: gameHistory.length }
                 ].map((tab) => (
                   <button
@@ -1195,12 +1147,12 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                           </thead>
                           <tbody>
                             {keyUsageHistorySorted.map((record, index) => {
-                              const usedAt = record.used_at || record.usedAt || '';
+                              const usedAt = record.used_at || '';
                               const usageType = record.usage_type || 'activate';
                               const operator = record.operator || {};
                               const operatorEmail = operator.email || '系统';
                               const operatorNickname = operator.nickname || '';
-                              const notes = record.notes || record.note || '';
+                              const notes = record.notes || '';
                               
                               const previousKeyId = record.previous_key_id || null;
                               const nextKeyId = record.next_key_id || null;
@@ -1234,7 +1186,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                                   </td>
                                   <td className="py-3 md:py-4 px-4">
                                     <code className="text-xs md:text-sm bg-gray-900 px-2 py-1 rounded-lg font-mono border border-gray-800">
-                                      {getKeyCode(record)}
+                                      {getKeyCode(record, currentAccessKey)}
                                     </code>
                                   </td>
                                   <td className="py-3 md:py-4 px-4">
@@ -1312,12 +1264,14 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                       <p className="text-xs text-yellow-400">
                         调试信息: 当前显示 {aiRecords.length} 条记录，总记录数: {aiPagination.total}，有更多: {aiPagination.hasMore ? '是' : '否'}
                       </p>
-                      <button 
-                        onClick={() => loadAIRecords(userDetail!.id, 1)}
-                        className="mt-2 text-xs text-blue-400 hover:text-blue-300"
-                      >
-                        重新加载
-                      </button>
+                      {userDetail?.id && (
+                        <button 
+                          onClick={() => loadAIRecords(userDetail.id, 1)}
+                          className="mt-2 text-xs text-blue-400 hover:text-blue-300"
+                        >
+                          重新加载
+                        </button>
+                      )}
                     </div>
                   )}
                   
@@ -1491,7 +1445,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                         );
                       })}
 
-                      {/* 🔧 加载更多按钮 */}
+                      {/* 加载更多按钮 */}
                       {aiPagination.hasMore && (
                         <div className="text-center pt-4">
                           <button
