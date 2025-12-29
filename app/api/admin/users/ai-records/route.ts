@@ -34,7 +34,19 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // 3. 创建Supabase管理员客户端
+    // 3. 环境变量验证
+    const requiredEnvVars = ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']
+    const missingEnvVars = requiredEnvVars.filter(env => !process.env[env])
+
+    if (missingEnvVars.length > 0) {
+      console.error('❌ 缺少环境变量:', missingEnvVars)
+      return NextResponse.json(
+        { success: false, error: '服务器配置不完整', missing: missingEnvVars },
+        { status: 500 }
+      )
+    }
+
+    // 4. 创建Supabase管理员客户端
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -44,7 +56,7 @@ export async function GET(request: NextRequest) {
       }
     )
 
-    // 4. 查询总记录数
+    // 5. 查询总记录数
     const { count: totalCount, error: countError } = await supabaseAdmin
       .from('ai_usage_records')
       .select('*', { count: 'exact', head: true })
@@ -58,7 +70,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // 5. 分页查询数据
+    // 6. 分页查询数据
     const { data: aiRecords, error: recordsError } = await supabaseAdmin
       .from('ai_usage_records')
       .select('*')
@@ -74,8 +86,11 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // 6. 构建响应
+    // 7. 构建响应
     const total = totalCount || 0
+    const totalPages = Math.ceil(total / limit)
+    const hasMore = total > offset + limit
+
     const response = {
       success: true,
       data: aiRecords || [],
@@ -83,15 +98,16 @@ export async function GET(request: NextRequest) {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
-        hasMore: total > offset + limit
+        totalPages,
+        hasMore
       }
     }
 
     console.log('✅ AI记录查询成功:', {
       总记录数: total,
       当前页记录数: response.data.length,
-      还有更多: response.pagination.hasMore
+      还有更多: hasMore,
+      总页数: totalPages
     })
 
     return NextResponse.json(response)
@@ -107,4 +123,26 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+// 添加其他HTTP方法支持（可选）
+export async function POST() {
+  return NextResponse.json(
+    { success: false, error: '暂不支持POST方法' },
+    { status: 405 }
+  )
+}
+
+export async function PUT() {
+  return NextResponse.json(
+    { success: false, error: '暂不支持PUT方法' },
+    { status: 405 }
+  )
+}
+
+export async function DELETE() {
+  return NextResponse.json(
+    { success: false, error: '暂不支持DELETE方法' },
+    { status: 405 }
+  )
 }

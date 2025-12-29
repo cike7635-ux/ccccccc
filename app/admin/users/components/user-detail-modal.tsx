@@ -144,6 +144,18 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   });
   const [loadingMoreAI, setLoadingMoreAI] = useState(false);
 
+  // 🔧 修复：获取API返回的总记录数
+  const getTotalRecords = () => {
+    if (!userDetail) return { keyTotal: 0, aiTotal: 0, gameTotal: 0 };
+    
+    return {
+      // 🔧 修复：从API返回的总数中获取
+      keyTotal: userDetail.key_usage_history_total || userDetail.keyUsageHistoryTotal || 0,
+      aiTotal: userDetail.ai_usage_records_total || userDetail.aiUsageRecordsTotal || 0,
+      gameTotal: userDetail.game_history_total || userDetail.gameHistoryTotal || 0
+    };
+  };
+
   // 🔧 调试：打印用户详情数据
   useEffect(() => {
     if (userDetail && isOpen && process.env.NODE_ENV === 'development') {
@@ -152,6 +164,9 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
         keys: Object.keys(userDetail),
         key_usage_history: userDetail.key_usage_history,
         key_usage_history_length: userDetail.key_usage_history?.length,
+        key_usage_history_total: userDetail.key_usage_history_total,
+        ai_usage_records_total: userDetail.ai_usage_records_total,
+        game_history_total: userDetail.game_history_total,
         firstKeyHistory: userDetail.key_usage_history?.[0],
         firstKeyAccessKey: userDetail.key_usage_history?.[0]?.access_key
       });
@@ -180,43 +195,45 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   }, [userDetail?.id]);
 
   // 🔧 修复：加载AI记录函数 - 改进版
- const loadAIRecords = async (userId: string, page: number, isInitial: boolean = false) => {
-  try {
-    console.log(`🔄 加载AI记录，用户ID: ${userId}, 页数: ${page}, 初始: ${isInitial}`);
-    
-    // 如果是初始加载，使用已有的数据
-    if (isInitial && userDetail?.ai_usage_records) {
-      const records = userDetail.ai_usage_records;
-      const total = userDetail.ai_usage_records_total || records.length;
+  const loadAIRecords = async (userId: string, page: number, isInitial: boolean = false) => {
+    try {
+      console.log(`🔄 加载AI记录，用户ID: ${userId}, 页数: ${page}, 初始: ${isInitial}`);
       
-      console.log('✅ 使用现有AI记录:', {
-        现有记录数: records.length,
-        总记录数: total
-      });
-      
-      setAiRecords(records);
-      setAiPagination({
-        page: 1,
-        limit: 10,
-        total: total,
-        totalPages: Math.ceil(total / 10),
-        hasMore: total > 10
-      });
-      
-      // 如果总记录数大于10，立即加载更多
-      if (total > 10) {
-        console.log(`📈 总记录数${total} > 10，立即加载分页数据`);
-        // 稍后加载第2页
-        setTimeout(() => {
-          loadAIRecords(userId, 2);
-        }, 100);
+      // 如果是初始加载，使用已有的数据
+      if (isInitial && userDetail?.ai_usage_records) {
+        const records = userDetail.ai_usage_records;
+        // 🔧 修复：使用API返回的总数
+        const total = getTotalRecords().aiTotal || records.length;
+        
+        console.log('✅ 使用现有AI记录:', {
+          现有记录数: records.length,
+          总记录数: total,
+          还有更多: total > records.length
+        });
+        
+        setAiRecords(records);
+        setAiPagination({
+          page: 1,
+          limit: 10,
+          total: total,
+          totalPages: Math.ceil(total / 10),
+          hasMore: total > records.length
+        });
+        
+        // 🔧 修复：如果总记录数大于当前记录数，自动加载剩余记录
+        if (total > records.length && !loadingMoreAI) {
+          console.log(`📈 需要加载剩余${total - records.length}条记录`);
+          // 立即加载第2页
+          setTimeout(() => {
+            loadAIRecords(userId, 2);
+          }, 100);
+        }
+        return;
       }
-      return;
-    }
 
       setLoadingMoreAI(true);
       
-      // 测试API路径
+      // 使用分页API
       const apiUrl = `/api/admin/users/ai-records?userId=${userId}&page=${page}&limit=10`;
       console.log('📡 调用AI记录API:', apiUrl);
       
@@ -226,18 +243,15 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       
       if (response.ok) {
         const result = await response.json();
-        console.log('📡 AI记录API响应数据:', {
-          success: result.success,
-          dataLength: result.data?.length,
-          pagination: result.pagination
-        });
         
         if (result.success) {
           console.log(`✅ 获取到AI记录: ${result.data?.length || 0} 条`);
           
           if (page === 1) {
+            // 第一页：直接设置数据
             setAiRecords(result.data || []);
           } else {
+            // 后续页：追加数据
             setAiRecords(prev => [...prev, ...(result.data || [])]);
           }
           
@@ -248,11 +262,13 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
             totalPages: result.pagination?.totalPages || 1,
             hasMore: result.pagination?.hasMore || false
           });
-        } else {
-          console.error('❌ AI记录API返回错误:', result.error);
+          
+          console.log('📊 分页状态更新:', {
+            当前记录数: aiRecords.length + (result.data?.length || 0),
+            总记录数: result.pagination?.total,
+            还有更多: result.pagination?.hasMore
+          });
         }
-      } else {
-        console.error('❌ AI记录API请求失败:', response.status);
       }
     } catch (error) {
       console.error('❌ 加载AI记录失败:', error);
@@ -337,6 +353,9 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       return null;
     }
   }, [userDetail])
+
+  // 🔧 修复：使用API返回的总数
+  const totals = useMemo(() => getTotalRecords(), [userDetail]);
 
   // 统计数据计算
   const stats = useMemo(() => {
@@ -794,14 +813,14 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
           </div>
         ) : (
           <>
-            {/* 标签页导航 */}
+            {/* 标签页导航 - 🔧 修复：使用API返回的总数 */}
             <div className="border-b border-gray-800 bg-gray-900/30">
               <div className="flex overflow-x-auto">
                 {[
                   { id: 'basic' as const, label: '基本信息', icon: User, count: null },
-                  { id: 'keys' as const, label: '密钥记录', icon: Key, count: keyUsageHistory.length },
-                  { id: 'ai' as const, label: 'AI使用', icon: Brain, count: aiPagination.total || 0 },
-                  { id: 'games' as const, label: '游戏记录', icon: Gamepad2, count: gameHistory.length }
+                  { id: 'keys' as const, label: '密钥记录', icon: Key, count: totals.keyTotal },
+                  { id: 'ai' as const, label: 'AI使用', icon: Brain, count: totals.aiTotal },
+                  { id: 'games' as const, label: '游戏记录', icon: Gamepad2, count: totals.gameTotal }
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -923,7 +942,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                       {/* 偏好设置 */}
                       {userDetail.preferences && Object.keys(userDetail.preferences).length > 0 && (
                         <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
-                          <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+                          <h3 className="text-lg font-semibold text-white flex items-center">
                             <Activity className="w-5 h-5 mr-2 text-blue-400" />
                             偏好设置
                           </h3>
@@ -994,15 +1013,15 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                         <div className="grid grid-cols-2 gap-3">
                           <div className="bg-gray-800/30 p-3 rounded-lg">
                             <p className="text-xs text-gray-400">密钥总数</p>
-                            <p className="text-lg md:text-xl font-bold text-white">{stats?.keyStats.total || 0}</p>
+                            <p className="text-lg md:text-xl font-bold text-white">{totals.keyTotal}</p>
                           </div>
                           <div className="bg-gray-800/30 p-3 rounded-lg">
                             <p className="text-xs text-gray-400">AI请求</p>
-                            <p className="text-lg md:text-xl font-bold text-blue-400">{stats?.aiStats.total || 0}</p>
+                            <p className="text-lg md:text-xl font-bold text-blue-400">{totals.aiTotal}</p>
                           </div>
                           <div className="bg-gray-800/30 p-3 rounded-lg">
                             <p className="text-xs text-gray-400">游戏场次</p>
-                            <p className="text-lg md:text-xl font-bold text-green-400">{stats?.gameStats.total || 0}</p>
+                            <p className="text-lg md:text-xl font-bold text-green-400">{totals.gameTotal}</p>
                           </div>
                           <div className="bg-gray-800/30 p-3 rounded-lg">
                             <p className="text-xs text-gray-400">胜率</p>
@@ -1551,7 +1570,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                   <div className="mb-4 md:mb-6 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
                     <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
                       <p className="text-xs md:text-sm text-gray-400 mb-2">总场次</p>
-                      <p className="text-xl md:text-2xl font-bold text-white">{stats?.gameStats.total || 0}</p>
+                      <p className="text-xl md:text-2xl font-bold text-white">{totals.gameTotal || 0}</p>
                       <p className="text-xs text-gray-500 mt-1">
                         7天内场次: {stats?.gameStats.recent || 0}
                       </p>
@@ -1674,7 +1693,9 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                     总页数: aiPagination.totalPages,
                     是否还有更多: aiPagination.hasMore
                   },
-                  '密钥记录数量': accessKeys.length,
+                  '密钥记录总数': totals.keyTotal,
+                  'AI记录总数': totals.aiTotal,
+                  '游戏记录总数': totals.gameTotal,
                   '密钥历史数量': keyUsageHistory.length,
                   '第一条密钥历史': keyUsageHistory[0],
                   '第一条密钥代码': getKeyCode(keyUsageHistory[0]),

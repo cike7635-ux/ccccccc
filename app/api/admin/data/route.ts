@@ -68,8 +68,7 @@ export async function GET(request: NextRequest) {
       console.log(`🔍 查询用户详情: ${detailId}`)
 
       try {
-        // 🔧 修复：使用Supabase的内置关联查询
-        // 先查询用户基本信息
+        // 查询用户基本信息
         const { data: profileData, error: profileError } = await supabaseAdmin
           .from('profiles')
           .select('*')
@@ -84,8 +83,8 @@ export async function GET(request: NextRequest) {
           )
         }
 
-        // 🔧 修复：查询密钥使用历史，并关联access_keys表
-        const { data: keyUsageHistory, error: keyUsageHistoryError } = await supabaseAdmin
+        // 🔧 修复：使用Supabase的内置关联查询
+        const { data: keyUsageHistory, error: keyUsageHistoryError, count: keyUsageHistoryCount } = await supabaseAdmin
           .from('key_usage_history')
           .select(`
             id,
@@ -106,15 +105,15 @@ export async function GET(request: NextRequest) {
               key_expires_at,
               created_at
             )
-          `)
+          `, { count: 'exact' })
           .eq('user_id', detailId)
           .order('used_at', { ascending: false })
           .limit(20)
 
-        console.log('🗝️ 密钥使用历史查询结果:', {
+        console.log('🗝️ 密钥使用历史查询结果:', { 
           记录数量: keyUsageHistory?.length || 0,
-          第一条记录: keyUsageHistory?.[0],
-          密钥代码: keyUsageHistory?.[0]?.access_keys?.key_code
+          总记录数: keyUsageHistoryCount || 0,
+          错误: keyUsageHistoryError?.message 
         })
 
         // 🔧 修复：单独查询当前使用的密钥
@@ -131,7 +130,7 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        // 🔧 修复：获取所有相关的密钥ID（previous_key_id, next_key_id）
+        // 🔧 修复：获取所有相关的密钥ID
         const keyIds = new Set<number>()
         if (keyUsageHistory && keyUsageHistory.length > 0) {
           keyUsageHistory.forEach(record => {
@@ -159,33 +158,33 @@ export async function GET(request: NextRequest) {
           keyMap.set(key.id, key)
         })
 
-        // 🔧 修复：AI使用记录查询
+        // 🔧 修复：AI使用记录查询 - 保持分页但返回总数
         const { data: aiUsageRecords, error: aiUsageError, count: aiTotalCount } = await supabaseAdmin
           .from('ai_usage_records')
           .select('*', { count: 'exact' })
           .eq('user_id', detailId)
           .order('created_at', { ascending: false })
-          .limit(10) // 初始只查询10条，用于分页
+          .limit(10)
 
-        console.log('🤖 AI记录查询结果:', {
+        console.log('🤖 AI记录查询结果:', { 
           记录数量: aiUsageRecords?.length || 0,
           总记录数: aiTotalCount || 0,
-          错误: aiUsageError?.message
+          错误: aiUsageError?.message 
         })
 
-        // 游戏历史记录
-        const { data: gameHistory, error: gameHistoryError } = await supabaseAdmin
+        // 🔧 修复：游戏历史记录查询 - 返回总数
+        const { data: gameHistory, error: gameHistoryError, count: gameHistoryCount } = await supabaseAdmin
           .from('game_history')
-          .select('*')
+          .select('*', { count: 'exact' })
           .or(`player1_id.eq.${detailId},player2_id.eq.${detailId}`)
           .order('started_at', { ascending: false })
           .limit(10)
 
         console.log('✅ 用户详情查询成功:', {
           用户: profileData.email,
-          密钥记录数: keyUsageHistory?.length || 0,
-          AI记录数: aiUsageRecords?.length || 0,
-          游戏记录数: gameHistory?.length || 0,
+          密钥记录数: keyUsageHistoryCount || 0,
+          AI记录数: aiTotalCount || 0,
+          游戏记录数: gameHistoryCount || 0,
           当前密钥: currentKey ? currentKey.key_code : '无'
         })
 
@@ -193,7 +192,7 @@ export async function GET(request: NextRequest) {
         const processedKeyUsageHistory = (keyUsageHistory || []).map(record => {
           // 从关联查询中获取access_key信息
           const accessKeyData = record.access_keys || {}
-
+          
           return {
             id: record.id,
             user_id: record.user_id,
@@ -206,7 +205,7 @@ export async function GET(request: NextRequest) {
             notes: record.notes,
             created_at: record.created_at,
             updated_at: record.updated_at,
-
+            
             // 关联的密钥信息
             access_key: {
               id: accessKeyData.id,
@@ -215,7 +214,7 @@ export async function GET(request: NextRequest) {
               key_expires_at: accessKeyData.key_expires_at,
               created_at: accessKeyData.created_at
             },
-
+            
             previous_key: record.previous_key_id ? keyMap.get(record.previous_key_id) : null,
             next_key: record.next_key_id ? keyMap.get(record.next_key_id) : null
           }
@@ -239,6 +238,7 @@ export async function GET(request: NextRequest) {
 
           // 密钥使用历史
           key_usage_history: processedKeyUsageHistory,
+          key_usage_history_total: keyUsageHistoryCount || 0, // 🔧 添加总数
 
           // 当前使用的密钥
           current_access_key: currentKey,
@@ -248,10 +248,11 @@ export async function GET(request: NextRequest) {
 
           // AI使用记录
           ai_usage_records: aiUsageRecords || [],
-          ai_usage_records_total: aiTotalCount || 0, // 添加总记录数
+          ai_usage_records_total: aiTotalCount || 0, // 🔧 添加总数
 
           // 游戏历史记录
-          game_history: gameHistory || []
+          game_history: gameHistory || [],
+          game_history_total: gameHistoryCount || 0 // 🔧 添加总数
         }
 
         return NextResponse.json({
