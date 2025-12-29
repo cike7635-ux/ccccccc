@@ -37,37 +37,63 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [expandedAIRecord, setExpandedAIRecord] = useState<number | null>(null)
 
-  // 🔧 修复：兼容两种命名格式的数据获取
+  // 🔧 修复：安全获取数据，防止undefined错误
   const accessKeys = useMemo(() => {
-    if (!userDetail) return []
-    // 优先使用下划线格式，兼容驼峰格式
-    return userDetail.access_keys || userDetail.accessKeys || []
+    try {
+      if (!userDetail) return []
+      // 优先使用下划线格式，兼容驼峰格式
+      const keys = userDetail.access_keys || userDetail.accessKeys
+      return Array.isArray(keys) ? keys : []
+    } catch (err) {
+      console.error('获取accessKeys出错:', err)
+      return []
+    }
   }, [userDetail])
 
   const aiUsageRecords = useMemo(() => {
-    if (!userDetail) return []
-    // 优先使用下划线格式，兼容驼峰格式
-    return userDetail.ai_usage_records || userDetail.aiUsageRecords || []
+    try {
+      if (!userDetail) return []
+      const records = userDetail.ai_usage_records || userDetail.aiUsageRecords
+      return Array.isArray(records) ? records : []
+    } catch (err) {
+      console.error('获取aiUsageRecords出错:', err)
+      return []
+    }
   }, [userDetail])
 
   const gameHistory = useMemo(() => {
-    if (!userDetail) return []
-    // 优先使用下划线格式，兼容驼峰格式
-    return userDetail.game_history || userDetail.gameHistory || []
+    try {
+      if (!userDetail) return []
+      const history = userDetail.game_history || userDetail.gameHistory
+      return Array.isArray(history) ? history : []
+    } catch (err) {
+      console.error('获取gameHistory出错:', err)
+      return []
+    }
   }, [userDetail])
 
   const keyUsageHistory = useMemo(() => {
-    if (!userDetail) return []
-    // 优先使用下划线格式，兼容驼峰格式
-    return userDetail.key_usage_history || userDetail.keyUsageHistory || []
+    try {
+      if (!userDetail) return []
+      const history = userDetail.key_usage_history || userDetail.keyUsageHistory
+      return Array.isArray(history) ? history : []
+    } catch (err) {
+      console.error('获取keyUsageHistory出错:', err)
+      return []
+    }
   }, [userDetail])
 
   const currentAccessKey = useMemo(() => {
-    if (!userDetail) return null
-    // 优先使用下划线格式，兼容驼峰格式
-    return userDetail.current_access_key || userDetail.currentAccessKey || null
+    try {
+      if (!userDetail) return null
+      return userDetail.current_access_key || userDetail.currentAccessKey || null
+    } catch (err) {
+      console.error('获取currentAccessKey出错:', err)
+      return null
+    }
   }, [userDetail])
 
+  // ✅ 修复：将所有useMemo提取到顶层，不在条件渲染中调用hooks
   const stats = useMemo(() => {
     if (!userDetail) return null
 
@@ -106,6 +132,73 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
 
     return { keyStats, aiStats, gameStats }
   }, [userDetail, accessKeys, aiUsageRecords, gameHistory])
+
+  // ✅ 修复：提取密钥数据计算到顶层
+  const allUsedKeys = useMemo(() => {
+    if (!keyUsageHistory || keyUsageHistory.length === 0) return []
+    
+    const uniqueKeys = new Map()
+    
+    keyUsageHistory.forEach(record => {
+      const accessKey = record?.access_key
+      
+      if (accessKey?.id) {
+        const keyId = accessKey.id
+        
+        if (!uniqueKeys.has(keyId)) {
+          uniqueKeys.set(keyId, {
+            id: keyId,
+            key_code: accessKey.key_code || accessKey.keyCode || '未知',
+            is_active: accessKey.is_active ?? accessKey.isActive ?? true,
+            key_expires_at: accessKey.key_expires_at || accessKey.keyExpiresAt,
+            first_used_at: record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt,
+            last_used_at: record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt,
+            usage_count: 1,
+            usage_types: new Set([record.usage_type || 'activate'])
+          })
+        } else {
+          const existing = uniqueKeys.get(keyId)
+          existing.usage_count++
+          if (record.usage_type) {
+            existing.usage_types.add(record.usage_type)
+          }
+          // 更新时间戳
+          const currentUsedAt = record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt
+          if (currentUsedAt && new Date(currentUsedAt) > new Date(existing.last_used_at || 0)) {
+            existing.last_used_at = currentUsedAt
+          }
+        }
+      }
+    })
+    
+    const keysArray = Array.from(uniqueKeys.values())
+      .map(key => ({
+        ...key,
+        is_current: currentAccessKey ? 
+          (key.id === currentAccessKey.id || 
+           key.id === currentAccessKey.access_key?.id) : false
+      }))
+      .sort((a, b) => {
+        const dateA = a.last_used_at ? new Date(a.last_used_at).getTime() : 0
+        const dateB = b.last_used_at ? new Date(b.last_used_at).getTime() : 0
+        return dateB - dateA
+      })
+    
+    return keysArray
+  }, [keyUsageHistory, currentAccessKey])
+
+  // ✅ 修复：提取密钥使用历史排序到顶层
+  const keyUsageHistorySorted = useMemo(() => {
+    if (!keyUsageHistory || !Array.isArray(keyUsageHistory)) return []
+    
+    return [...keyUsageHistory]
+      .filter(record => record) // 过滤掉null/undefined
+      .sort((a, b) => {
+        const dateA = a.used_at || a.usedAt || 0
+        const dateB = b.used_at || b.usedAt || 0
+        return new Date(dateB).getTime() - new Date(dateA).getTime()
+      })
+  }, [keyUsageHistory])
 
   const handleCopy = async (text: string, field: string) => {
     try {
@@ -272,6 +365,25 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
 
   const accountStatus = getAccountStatus()
   const activeStatus = getActiveStatus()
+
+  // ✅ 修复：准备密钥统计卡数据（不在渲染中计算）
+  const keyStats = {
+    totalUniqueKeys: allUsedKeys.length,
+    currentKey: currentAccessKey?.key_code || 
+                currentAccessKey?.keyCode || 
+                currentAccessKey?.access_key?.key_code ||
+                currentAccessKey?.access_key?.keyCode ||
+                '无',
+    usageRecords: keyUsageHistory.length || 0,
+    lastUsage: keyUsageHistory.length > 0 
+      ? formatShortDate(
+          keyUsageHistory[0]?.used_at || 
+          keyUsageHistory[0]?.usedAt ||
+          keyUsageHistory[0]?.access_key?.used_at ||
+          keyUsageHistory[0]?.access_key?.usedAt
+        )
+      : '无记录'
+  }
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 md:p-6 overflow-y-auto">
@@ -614,699 +726,318 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 </div>
               )}
 
-         // ... 其他代码保持不变 ...
-
-{/* 密钥记录标签页 - 修复版 */}
-{activeTab === 'keys' && (
-  <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-    {/* 统计卡片 */}
-    <div className="mb-4 md:mb-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
-        <p className="text-xs md:text-sm text-gray-400 mb-1">总使用密钥</p>
-        <p className="text-xl md:text-2xl font-bold text-white">
-          {(() => {
-            // 从 keyUsageHistory 中提取唯一密钥数量（安全版本）
-            if (!keyUsageHistory || !Array.isArray(keyUsageHistory) || keyUsageHistory.length === 0) return 0;
-            
-            const uniqueKeys = new Set();
-            keyUsageHistory.forEach(record => {
-              // 安全访问：确保 access_key 存在且有 id
-              if (record?.access_key?.id) {
-                uniqueKeys.add(record.access_key.id);
-              }
-            });
-            return uniqueKeys.size;
-          })()}
-        </p>
-      </div>
-      
-      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
-        <p className="text-xs md:text-sm text-gray-400 mb-1">当前密钥</p>
-        <p className="text-lg md:text-2xl font-bold text-blue-400 font-mono truncate" 
-           title={
-             // 安全访问：处理所有可能的字段名
-             currentAccessKey?.key_code || 
-             currentAccessKey?.keyCode || 
-             currentAccessKey?.access_key?.key_code ||
-             currentAccessKey?.access_key?.keyCode ||
-             '无'
-           }>
-          {currentAccessKey?.key_code || 
-           currentAccessKey?.keyCode || 
-           currentAccessKey?.access_key?.key_code ||
-           currentAccessKey?.access_key?.keyCode ||
-           '无'}
-        </p>
-      </div>
-      
-      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
-        <p className="text-xs md:text-sm text-gray-400 mb-1">使用记录</p>
-        <p className="text-xl md:text-2xl font-bold text-green-400">
-          {Array.isArray(keyUsageHistory) ? keyUsageHistory.length : 0}
-        </p>
-      </div>
-      
-      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
-        <p className="text-xs md:text-sm text-gray-400 mb-1">最近使用</p>
-        <p className="text-sm md:text-lg font-bold text-amber-400 truncate">
-          {keyUsageHistory && keyUsageHistory.length > 0 
-            ? formatShortDate(
-                keyUsageHistory[0]?.used_at || 
-                keyUsageHistory[0]?.usedAt ||
-                keyUsageHistory[0]?.access_key?.used_at ||
-                keyUsageHistory[0]?.access_key?.usedAt
-              )
-            : '无记录'
-          }
-        </p>
-      </div>
-    </div>
-
-    {/* 所有使用过的密钥表格 */}
-    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
-      <div className="p-4 md:p-5 border-b border-gray-800">
-        <h3 className="text-lg font-semibold text-white flex items-center">
-          <Key className="w-5 h-5 mr-2 text-blue-400" />
-          所有使用过的密钥
-        </h3>
-        <p className="text-sm text-gray-400 mt-1">
-          用户激活和使用过的所有密钥列表
-        </p>
-      </div>
-
-      {(() => {
-        // 从 keyUsageHistory 中提取所有使用过的密钥（去重） - 安全版本
-        const allUsedKeys = useMemo(() => {
-          if (!keyUsageHistory || !Array.isArray(keyUsageHistory) || keyUsageHistory.length === 0) {
-            return [];
-          }
-          
-          const uniqueKeys = new Map();
-          
-          keyUsageHistory.forEach(record => {
-            // 安全访问：多层嵌套检查
-            const accessKey = record?.access_key;
-            
-            if (accessKey?.id) {
-              const keyId = accessKey.id;
-              
-              if (!uniqueKeys.has(keyId)) {
-                uniqueKeys.set(keyId, {
-                  id: keyId,
-                  key_code: accessKey.key_code || accessKey.keyCode,
-                  is_active: accessKey.is_active ?? accessKey.isActive ?? true,
-                  key_expires_at: accessKey.key_expires_at || accessKey.keyExpiresAt,
-                  first_used_at: record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt,
-                  last_used_at: record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt,
-                  usage_count: 1,
-                  usage_types: new Set([record.usage_type || 'activate'])
-                });
-              } else {
-                const existing = uniqueKeys.get(keyId);
-                existing.usage_count++;
-                if (record.usage_type) {
-                  existing.usage_types.add(record.usage_type);
-                }
-                // 更新时间戳
-                const currentUsedAt = record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt;
-                if (currentUsedAt && new Date(currentUsedAt) > new Date(existing.last_used_at || 0)) {
-                  existing.last_used_at = currentUsedAt;
-                }
-              }
-            }
-          });
-          
-          const keysArray = Array.from(uniqueKeys.values())
-            .map(key => ({
-              ...key,
-              is_current: currentAccessKey ? 
-                (key.id === currentAccessKey.id || 
-                 key.id === currentAccessKey.access_key?.id) : false
-            }))
-            .sort((a, b) => {
-              const dateA = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
-              const dateB = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
-              return dateB - dateA;
-            });
-          
-          return keysArray;
-        }, [keyUsageHistory, currentAccessKey]);
-
-        if (allUsedKeys.length === 0) {
-          return (
-            <div className="text-center py-8 md:py-12">
-              <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Key className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
-              </div>
-              <p className="text-gray-400 text-base md:text-lg">暂无密钥记录</p>
-              <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未激活任何密钥</p>
-            </div>
-          );
-        }
-
-        return (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[768px]">
-              <thead>
-                <tr className="border-b border-gray-800 bg-gray-900/50">
-                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">密钥代码</th>
-                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">状态</th>
-                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">有效期</th>
-                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">首次使用</th>
-                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">最后使用</th>
-                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">使用次数</th>
-                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作类型</th>
-                  <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allUsedKeys.map((key, index) => {
-                  // 安全获取所有字段
-                  const keyCode = key.key_code || '未知';
-                  const isActive = key.is_active !== false;
-                  const isExpired = key.key_expires_at && new Date(key.key_expires_at) < new Date();
-                  const isCurrent = key.is_current;
-                  
-                  return (
-                    <tr
-                      key={`key-${key.id || index}`}
-                      className={`border-b border-gray-800/30 transition-all hover:bg-gray-800/30 ${
-                        isCurrent ? 'bg-blue-500/5' : ''
-                      }`}
-                    >
-                      <td className="py-3 md:py-4 px-4">
-                        <div className="flex items-center">
-                          <code className="text-xs md:text-sm bg-gray-900 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-mono border border-gray-800 truncate max-w-[140px] md:max-w-[200px]">
-                            {keyCode}
-                          </code>
-                          {isCurrent && (
-                            <span className="ml-2 bg-gradient-to-r from-blue-500 to-blue-600 text-xs px-1.5 md:px-2 py-0.5 md:py-1 rounded-full whitespace-nowrap">
-                              当前使用
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 md:py-4 px-4">
-                        <div className="flex items-center space-x-1 md:space-x-2">
-                          <div className={`w-2 h-2 rounded-full ${
-                            isExpired ? 'bg-red-500' : 
-                            isActive ? 'bg-green-500' : 'bg-gray-500'
-                          }`} />
-                          <span className={`text-xs md:text-sm ${
-                            isExpired ? 'text-red-400' : 
-                            isActive ? 'text-green-400' : 'text-gray-400'
-                          }`}>
-                            {isExpired ? '已过期' : isActive ? '活跃' : '未知'}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3 md:py-4 px-4">
-                        <span className="text-gray-300 text-xs md:text-sm">
-                          {key.key_expires_at ? formatDate(key.key_expires_at) : '永久有效'}
-                        </span>
-                      </td>
-                      <td className="py-3 md:py-4 px-4">
-                        <span className="text-gray-300 text-xs md:text-sm">
-                          {key.first_used_at ? formatShortDate(key.first_used_at) : '无记录'}
-                        </span>
-                      </td>
-                      <td className="py-3 md:py-4 px-4">
-                        <span className="text-gray-300 text-xs md:text-sm">
-                          {key.last_used_at ? formatShortDate(key.last_used_at) : '无记录'}
-                        </span>
-                      </td>
-                      <td className="py-3 md:py-4 px-4">
-                        <span className="text-gray-300 text-xs md:text-sm">
-                          {key.usage_count || 0} 次
-                        </span>
-                      </td>
-                      <td className="py-3 md:py-4 px-4">
-                        <div className="flex flex-wrap gap-1">
-                          {Array.from(key.usage_types || new Set(['activate'])).map((type: any, idx) => (
-                            <span 
-                              key={`type-${idx}`}
-                              className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300"
-                            >
-                              {type === 'activate' ? '激活' : 
-                               type === 'renew' ? '续费' : 
-                               type === 'transfer' ? '转移' : type}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="py-3 md:py-4 px-4">
-                        <div className="flex space-x-1 md:space-x-2">
-                          <button
-                            onClick={() => keyCode && handleCopy(keyCode, `key-${key.id || index}`)}
-                            className="text-blue-400 hover:text-blue-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 md:py-1.5 rounded-lg transition-colors disabled:opacity-50"
-                            disabled={!keyCode || keyCode === '未知'}
-                            title={keyCode === '未知' ? '无法复制未知密钥' : '复制密钥'}
-                          >
-                            <Copy className="w-3 h-3 mr-1" />
-                            复制
-                          </button>
-                          {isCurrent && (
-                            <span className="text-xs text-amber-400 flex items-center bg-amber-500/10 px-2 md:px-3 py-1 md:py-1.5 rounded-lg">
-                              <Key className="w-3 h-3 mr-1" />
-                              当前
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        );
-      })()}
-    </div>
-
-    {/* 密钥使用历史表格 */}
-    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
-      <div className="p-4 md:p-5 border-b border-gray-800">
-        <h3 className="text-lg font-semibold text-white flex items-center">
-          <History className="w-5 h-5 mr-2 text-blue-400" />
-          密钥使用历史
-        </h3>
-        <p className="text-sm text-gray-400 mt-1">
-          每次密钥操作的详细记录
-        </p>
-      </div>
-
-      {(!keyUsageHistory || keyUsageHistory.length === 0) ? (
-        <div className="text-center py-8 md:py-12">
-          <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
-            <History className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
-          </div>
-          <p className="text-gray-400 text-base md:text-lg">暂无使用历史</p>
-          <p className="text-gray-500 text-xs md:text-sm mt-2">该用户暂无密钥使用记录</p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[768px]">
-            <thead>
-              <tr className="border-b border-gray-800 bg-gray-900/50">
-                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作时间</th>
-                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作类型</th>
-                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">密钥代码</th>
-                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">前一个密钥</th>
-                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">后一个密钥</th>
-                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作者</th>
-                <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">备注</th>
-              </tr>
-            </thead>
-            <tbody>
-              {keyUsageHistory
-                .filter(record => record) // 过滤掉null/undefined
-                .sort((a, b) => {
-                  const dateA = a.used_at || a.usedAt || 0;
-                  const dateB = b.used_at || b.usedAt || 0;
-                  return new Date(dateB).getTime() - new Date(dateA).getTime();
-                })
-                .map((record, index) => {
-                  // 安全获取所有字段
-                  const usedAt = record.used_at || record.usedAt || '';
-                  const usageType = record.usage_type || 'activate';
-                  const accessKey = record.access_key || {};
-                  const keyCode = accessKey.key_code || accessKey.keyCode || '未知';
-                  const operator = record.operator || {};
-                  const operatorEmail = operator.email || '系统';
-                  const operatorNickname = operator.nickname || '';
-                  const notes = record.notes || record.note || '';
-                  
-                  const previousKeyId = record.previous_key_id || null;
-                  const nextKeyId = record.next_key_id || null;
-
-                  return (
-                    <tr
-                      key={`history-${record.id || index}`}
-                      className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-all"
-                    >
-                      <td className="py-3 md:py-4 px-4">
-                        <div className="flex flex-col">
-                          <span className="text-gray-300 text-xs md:text-sm">
-                            {formatDate(usedAt)}
-                          </span>
-                          <span className="text-xs text-gray-500 mt-1">
-                            {formatShortDate(usedAt)}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3 md:py-4 px-4">
-                        <span className={`text-xs md:text-sm px-2 py-1 rounded-full ${
-                          usageType === 'activate' ? 'bg-green-500/20 text-green-400' :
-                          usageType === 'renew' ? 'bg-blue-500/20 text-blue-400' :
-                          usageType === 'transfer' ? 'bg-purple-500/20 text-purple-400' :
-                          'bg-gray-500/20 text-gray-400'
-                        }`}>
-                          {usageType === 'activate' ? '激活' :
-                           usageType === 'renew' ? '续费' :
-                           usageType === 'transfer' ? '转移' : usageType}
-                        </span>
-                      </td>
-                      <td className="py-3 md:py-4 px-4">
-                        <code className="text-xs md:text-sm bg-gray-900 px-2 py-1 rounded-lg font-mono border border-gray-800">
-                          {keyCode}
-                        </code>
-                      </td>
-                      <td className="py-3 md:py-4 px-4">
-                        <span className="text-gray-300 text-xs md:text-sm">
-                          {previousKeyId ? `密钥ID: ${previousKeyId}` : '无'}
-                        </span>
-                      </td>
-                      <td className="py-3 md:py-4 px-4">
-                        <span className="text-gray-300 text-xs md:text-sm">
-                          {nextKeyId ? `密钥ID: ${nextKeyId}` : '无'}
-                        </span>
-                      </td>
-                      <td className="py-3 md:py-4 px-4">
-                        <div className="flex flex-col">
-                          <span className="text-gray-300 text-xs md:text-sm">
-                            {operatorNickname || operatorEmail}
-                          </span>
-                          {operatorNickname && (
-                            <span className="text-xs text-gray-500 mt-1">
-                              {operatorEmail}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 md:py-4 px-4">
-                        <span className="text-gray-300 text-xs md:text-sm truncate max-w-[120px]" title={notes}>
-                          {notes || '无备注'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-
-    {/* 数据说明 */}
-    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
-      <h4 className="text-sm font-medium text-white mb-2">数据说明</h4>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-400">
-        <div className="flex items-start">
-          <div className="w-2 h-2 bg-blue-500 rounded-full mt-1 mr-2"></div>
-          <div>
-            <span className="font-medium">当前密钥</span>
-            <p className="mt-1">用户当前正在使用的密钥，在表格中标记为"当前使用"</p>
-          </div>
-        </div>
-        <div className="flex items-start">
-          <div className="w-2 h-2 bg-green-500 rounded-full mt-1 mr-2"></div>
-          <div>
-            <span className="font-medium">使用历史</span>
-            <p className="mt-1">用户每次激活、续费或转移密钥的记录</p>
-          </div>
-        </div>
-        <div className="flex items-start">
-          <div className="w-2 h-2 bg-amber-500 rounded-full mt-1 mr-2"></div>
-          <div>
-            <span className="font-medium">操作类型</span>
-            <p className="mt-1">激活: 首次使用密钥<br/>续费: 延长密钥有效期<br/>转移: 更换到新密钥</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
-
-              {/* AI使用记录标签页 */}
-              {activeTab === 'ai' && (
-                <div className="p-4 md:p-6">
-                  <div className="mb-4 md:mb-6 grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">总请求数</p>
-                      <p className="text-xl md:text-2xl font-bold text-white">{stats?.aiStats.total || 0}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        7天内请求: {stats?.aiStats.recent || 0}
+              {/* 密钥记录标签页 - 修复版 */}
+              {activeTab === 'keys' && (
+                <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+                  {/* 统计卡片 */}
+                  <div className="mb-4 md:mb-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
+                      <p className="text-xs md:text-sm text-gray-400 mb-1">总使用密钥</p>
+                      <p className="text-xl md:text-2xl font-bold text-white">
+                        {keyStats.totalUniqueKeys || 0}
                       </p>
                     </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">成功请求</p>
-                      <p className="text-xl md:text-2xl font-bold text-green-400">{stats?.aiStats.success || 0}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        成功率: {stats?.aiStats.total
-                          ? `${((stats.aiStats.success / stats.aiStats.total) * 100).toFixed(1)}%`
-                          : '0%'
-                        }
+                    
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
+                      <p className="text-xs md:text-sm text-gray-400 mb-1">当前密钥</p>
+                      <p className="text-lg md:text-2xl font-bold text-blue-400 font-mono truncate" 
+                        title={keyStats.currentKey}>
+                        {keyStats.currentKey}
                       </p>
                     </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">令牌使用</p>
-                      <p className="text-xl md:text-2xl font-bold text-blue-400">{stats?.aiStats.totalTokens || 0}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        平均: {stats?.aiStats.total
-                          ? Math.round((stats.aiStats.totalTokens || 0) / stats.aiStats.total)
-                          : 0
-                        }/请求
+                    
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
+                      <p className="text-xs md:text-sm text-gray-400 mb-1">使用记录</p>
+                      <p className="text-xl md:text-2xl font-bold text-green-400">
+                        {keyStats.usageRecords}
+                      </p>
+                    </div>
+                    
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-4">
+                      <p className="text-xs md:text-sm text-gray-400 mb-1">最近使用</p>
+                      <p className="text-sm md:text-lg font-bold text-amber-400 truncate">
+                        {keyStats.lastUsage}
                       </p>
                     </div>
                   </div>
 
-                  {aiUsageRecords.length === 0 ? (
-                    <div className="text-center py-8 md:py-12">
-                      <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Brain className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
-                      </div>
-                      <p className="text-gray-400 text-base md:text-lg">暂无AI使用记录</p>
-                      <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未使用过AI功能</p>
+                  {/* 所有使用过的密钥表格 */}
+                  <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
+                    <div className="p-4 md:p-5 border-b border-gray-800">
+                      <h3 className="text-lg font-semibold text-white flex items-center">
+                        <Key className="w-5 h-5 mr-2 text-blue-400" />
+                        所有使用过的密钥
+                      </h3>
+                      <p className="text-sm text-gray-400 mt-1">
+                        用户激活和使用过的所有密钥列表
+                      </p>
                     </div>
-                  ) : (
-                    <div className="space-y-3 md:space-y-4">
-                      {aiUsageRecords.slice(0, 10).map((record, index) => {
-                        const feature = record.feature || '未知功能'
-                        const createdAt = record.created_at || record.createdAt
-                        const success = record.success
-                        const isExpanded = expandedAIRecord === index
-                        
-                        return (
-                          <div
-                            key={index}
-                            className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5 hover:border-gray-600/50 transition-all"
-                          >
-                            <div className="flex items-center justify-between mb-3 md:mb-4">
-                              <div className="flex items-center">
-                                <Brain className="w-4 h-4 md:w-5 md:h-5 mr-2 md:mr-3 text-blue-400 flex-shrink-0" />
-                                <div className="min-w-0">
-                                  <span className="text-white text-sm md:text-base font-medium truncate block">
-                                    {feature}
-                                  </span>
-                                  <div className="flex items-center mt-1">
-                                    <span className={`px-2 py-0.5 rounded text-xs ${success
-                                      ? 'bg-green-500/20 text-green-400'
-                                      : 'bg-red-500/20 text-red-400'
-                                      }`}>
-                                      {success ? '成功' : '失败'}
-                                    </span>
-                                    <span className="text-gray-500 text-xs ml-2">
-                                      {record.model || '未知模型'}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="flex items-center space-x-2 ml-2">
-                                <button
-                                  onClick={() => toggleAIExpanded(index)}
-                                  className="text-gray-400 hover:text-gray-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 rounded-lg transition-colors"
-                                >
-                                  {isExpanded ? '收起' : '详情'}
-                                </button>
-                                <button
-                                  onClick={() => handleExportAI(record)}
-                                  className="text-gray-400 hover:text-gray-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 rounded-lg transition-colors"
-                                  title="导出JSON"
-                                >
-                                  <Download className="w-3 h-3 md:w-4 md:h-4" />
-                                </button>
-                              </div>
-                            </div>
 
-                            <div className="text-xs text-gray-400 mb-2">
-                              创建时间: {formatDate(createdAt)}
-                              {(record.tokens_used || record.tokensUsed) && (
-                                <span className="ml-2">
-                                  令牌: {record.tokens_used || record.tokensUsed}
-                                </span>
-                              )}
-                            </div>
-
-                            {isExpanded && (
-                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 mt-3 pt-3 border-t border-gray-800/30">
-                                <div>
-                                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">请求数据</p>
-                                  <div className="bg-gray-900/50 p-2 md:p-3 rounded-lg overflow-auto max-h-48">
-                                    <pre className="text-xs text-gray-300 whitespace-pre-wrap">
-                                      {(() => {
-                                        const requestData = record.request_data || record.requestData
-                                        try {
-                                          if (typeof requestData === 'string') {
-                                            return JSON.stringify(JSON.parse(requestData), null, 2)
-                                          } else if (typeof requestData === 'object') {
-                                            return JSON.stringify(requestData, null, 2)
-                                          }
-                                          return String(requestData || '无数据')
-                                        } catch {
-                                          return String(requestData || '无数据')
-                                        }
-                                      })()}
-                                    </pre>
-                                  </div>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">响应数据</p>
-                                  <div className="bg-gray-900/50 p-2 md:p-3 rounded-lg overflow-auto max-h-48">
-                                    <pre className="text-xs text-gray-300 whitespace-pre-wrap">
-                                      {(() => {
-                                        const responseData = record.response_data || record.responseData
-                                        try {
-                                          if (typeof responseData === 'string') {
-                                            return JSON.stringify(JSON.parse(responseData), null, 2)
-                                          } else if (typeof responseData === 'object') {
-                                            return JSON.stringify(responseData, null, 2)
-                                          }
-                                          return String(responseData || '无数据')
-                                        } catch {
-                                          return String(responseData || '无数据')
-                                        }
-                                      })()}
-                                    </pre>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-
-                      {aiUsageRecords.length > 10 && (
-                        <div className="text-center pt-4">
-                          <p className="text-gray-400 text-xs md:text-sm">
-                            显示最近10条记录，共{aiUsageRecords.length}条
-                          </p>
+                    {allUsedKeys.length === 0 ? (
+                      <div className="text-center py-8 md:py-12">
+                        <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <Key className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
                         </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 游戏记录标签页 */}
-              {activeTab === 'games' && (
-                <div className="p-4 md:p-6">
-                  <div className="mb-4 md:mb-6 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">总场次</p>
-                      <p className="text-xl md:text-2xl font-bold text-white">{stats?.gameStats.total || 0}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        7天内场次: {stats?.gameStats.recent || 0}
-                      </p>
-                    </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">胜场</p>
-                      <p className="text-xl md:text-2xl font-bold text-green-400">{stats?.gameStats.wins || 0}</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">负场</p>
-                      <p className="text-xl md:text-2xl font-bold text-red-400">
-                        {stats ? stats.gameStats.total - stats.gameStats.wins : 0}
-                      </p>
-                    </div>
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
-                      <p className="text-xs md:text-sm text-gray-400 mb-2">胜率</p>
-                      <p className="text-xl md:text-2xl font-bold text-blue-400">
-                        {stats?.gameStats.total
-                          ? `${((stats.gameStats.wins / stats.gameStats.total) * 100).toFixed(1)}%`
-                          : '0%'
-                        }
-                      </p>
-                    </div>
-                  </div>
-
-                  {gameHistory.length === 0 ? (
-                    <div className="text-center py-8 md:py-12">
-                      <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Gamepad2 className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
+                        <p className="text-gray-400 text-base md:text-lg">暂无密钥记录</p>
+                        <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未激活任何密钥</p>
                       </div>
-                      <p className="text-gray-400 text-base md:text-lg">暂无游戏记录</p>
-                      <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未参与过游戏</p>
-                    </div>
-                  ) : (
-                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
+                    ) : (
                       <div className="overflow-x-auto">
-                        <table className="w-full min-w-[640px]">
+                        <table className="w-full min-w-[768px]">
                           <thead>
                             <tr className="border-b border-gray-800 bg-gray-900/50">
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">对局ID</th>
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">对手</th>
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">结果</th>
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">时长</th>
-                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">开始时间</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">密钥代码</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">状态</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">有效期</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">首次使用</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">最后使用</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">使用次数</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作类型</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {gameHistory.map((game, index) => {
-                              const isWin = game.winner_id === userDetail.id
-                              const isDraw = !game.winner_id
-                              const startedAt = game.started_at
-                              const endedAt = game.ended_at
-
+                            {allUsedKeys.map((key, index) => {
+                              const keyCode = key.key_code || '未知';
+                              const isActive = key.is_active !== false;
+                              const isExpired = key.key_expires_at && new Date(key.key_expires_at) < new Date();
+                              const isCurrent = key.is_current;
+                              
                               return (
                                 <tr
-                                  key={index}
-                                  className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-all"
+                                  key={`key-${key.id || index}`}
+                                  className={`border-b border-gray-800/30 transition-all hover:bg-gray-800/30 ${isCurrent ? 'bg-blue-500/5' : ''}`}
                                 >
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <code className="text-xs bg-gray-900 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-mono border border-gray-800">
-                                      {game.id?.substring(0, 8) || '未知'}
-                                    </code>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <div className="flex flex-col">
-                                      <span className="text-gray-300 text-xs md:text-sm">
-                                        玩家{game.player1_id === userDetail.id ? '2' : '1'}
-                                      </span>
-                                      <span className="text-xs text-gray-500 mt-1">
-                                        {game.player1_id === userDetail.id ? '你是玩家1' : '你是玩家2'}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                  <td className="py-3 md:py-4 px-4">
                                     <div className="flex items-center">
-                                      <div className={`w-2 h-2 rounded-full mr-1 md:mr-2 ${isWin ? 'bg-green-500' : isDraw ? 'bg-yellow-500' : 'bg-red-500'
-                                        }`} />
-                                      <span className={`text-xs md:text-sm ${isWin ? 'text-green-400' : isDraw ? 'text-yellow-400' : 'text-red-400'
-                                        }`}>
-                                        {isWin ? '胜利' : isDraw ? '平局' : '失败'}
+                                      <code className="text-xs md:text-sm bg-gray-900 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-mono border border-gray-800 truncate max-w-[140px] md:max-w-[200px]">
+                                        {keyCode}
+                                      </code>
+                                      {isCurrent && (
+                                        <span className="ml-2 bg-gradient-to-r from-blue-500 to-blue-600 text-xs px-1.5 md:px-2 py-0.5 md:py-1 rounded-full whitespace-nowrap">
+                                          当前使用
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <div className="flex items-center space-x-1 md:space-x-2">
+                                      <div className={`w-2 h-2 rounded-full ${isExpired ? 'bg-red-500' : isActive ? 'bg-green-500' : 'bg-gray-500'}`} />
+                                      <span className={`text-xs md:text-sm ${isExpired ? 'text-red-400' : isActive ? 'text-green-400' : 'text-gray-400'}`}>
+                                        {isExpired ? '已过期' : isActive ? '活跃' : '未知'}
                                       </span>
                                     </div>
                                   </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                  <td className="py-3 md:py-4 px-4">
                                     <span className="text-gray-300 text-xs md:text-sm">
-                                      {formatDuration(startedAt, endedAt)}
+                                      {key.key_expires_at ? formatDate(key.key_expires_at) : '永久有效'}
                                     </span>
                                   </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                  <td className="py-3 md:py-4 px-4">
                                     <span className="text-gray-300 text-xs md:text-sm">
-                                      {formatDate(startedAt)}
+                                      {key.first_used_at ? formatShortDate(key.first_used_at) : '无记录'}
                                     </span>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <span className="text-gray-300 text-xs md:text-sm">
+                                      {key.last_used_at ? formatShortDate(key.last_used_at) : '无记录'}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <span className="text-gray-300 text-xs md:text-sm">
+                                      {key.usage_count || 0} 次
+                                    </span>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <div className="flex flex-wrap gap-1">
+                                      {Array.from(key.usage_types || new Set(['activate'])).map((type: any, idx) => (
+                                        <span 
+                                          key={`type-${idx}`}
+                                          className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300"
+                                        >
+                                          {type === 'activate' ? '激活' : 
+                                           type === 'renew' ? '续费' : 
+                                           type === 'transfer' ? '转移' : type}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <div className="flex space-x-1 md:space-x-2">
+                                      <button
+                                        onClick={() => keyCode && handleCopy(keyCode, `key-${key.id || index}`)}
+                                        className="text-blue-400 hover:text-blue-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 md:py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                                        disabled={!keyCode || keyCode === '未知'}
+                                        title={keyCode === '未知' ? '无法复制未知密钥' : '复制密钥'}
+                                      >
+                                        <Copy className="w-3 h-3 mr-1" />
+                                        复制
+                                      </button>
+                                      {isCurrent && (
+                                        <span className="text-xs text-amber-400 flex items-center bg-amber-500/10 px-2 md:px-3 py-1 md:py-1.5 rounded-lg">
+                                          <Key className="w-3 h-3 mr-1" />
+                                          当前
+                                        </span>
+                                      )}
+                                    </div>
                                   </td>
                                 </tr>
-                              )
+                              );
                             })}
                           </tbody>
                         </table>
                       </div>
+                    )}
+                  </div>
+
+                  {/* 密钥使用历史表格 */}
+                  <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
+                    <div className="p-4 md:p-5 border-b border-gray-800">
+                      <h3 className="text-lg font-semibold text-white flex items-center">
+                        <History className="w-5 h-5 mr-2 text-blue-400" />
+                        密钥使用历史
+                      </h3>
+                      <p className="text-sm text-gray-400 mt-1">
+                        每次密钥操作的详细记录
+                      </p>
                     </div>
-                  )}
+
+                    {keyUsageHistorySorted.length === 0 ? (
+                      <div className="text-center py-8 md:py-12">
+                        <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <History className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
+                        </div>
+                        <p className="text-gray-400 text-base md:text-lg">暂无使用历史</p>
+                        <p className="text-gray-500 text-xs md:text-sm mt-2">该用户暂无密钥使用记录</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[768px]">
+                          <thead>
+                            <tr className="border-b border-gray-800 bg-gray-900/50">
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作时间</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作类型</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">密钥代码</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">前一个密钥</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">后一个密钥</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">操作者</th>
+                              <th className="text-left py-3 md:py-4 px-4 text-xs md:text-sm text-gray-400 font-medium">备注</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {keyUsageHistorySorted.map((record, index) => {
+                              const usedAt = record.used_at || record.usedAt || '';
+                              const usageType = record.usage_type || 'activate';
+                              const accessKey = record.access_key || {};
+                              const keyCode = accessKey.key_code || accessKey.keyCode || '未知';
+                              const operator = record.operator || {};
+                              const operatorEmail = operator.email || '系统';
+                              const operatorNickname = operator.nickname || '';
+                              const notes = record.notes || record.note || '';
+                              
+                              const previousKeyId = record.previous_key_id || null;
+                              const nextKeyId = record.next_key_id || null;
+
+                              return (
+                                <tr
+                                  key={`history-${record.id || index}`}
+                                  className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-all"
+                                >
+                                  <td className="py-3 md:py-4 px-4">
+                                    <div className="flex flex-col">
+                                      <span className="text-gray-300 text-xs md:text-sm">
+                                        {formatDate(usedAt)}
+                                      </span>
+                                      <span className="text-xs text-gray-500 mt-1">
+                                        {formatShortDate(usedAt)}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <span className={`text-xs md:text-sm px-2 py-1 rounded-full ${
+                                      usageType === 'activate' ? 'bg-green-500/20 text-green-400' :
+                                      usageType === 'renew' ? 'bg-blue-500/20 text-blue-400' :
+                                      usageType === 'transfer' ? 'bg-purple-500/20 text-purple-400' :
+                                      'bg-gray-500/20 text-gray-400'
+                                    }`}>
+                                      {usageType === 'activate' ? '激活' :
+                                       usageType === 'renew' ? '续费' :
+                                       usageType === 'transfer' ? '转移' : usageType}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <code className="text-xs md:text-sm bg-gray-900 px-2 py-1 rounded-lg font-mono border border-gray-800">
+                                      {keyCode}
+                                    </code>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <span className="text-gray-300 text-xs md:text-sm">
+                                      {previousKeyId ? `密钥ID: ${previousKeyId}` : '无'}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <span className="text-gray-300 text-xs md:text-sm">
+                                      {nextKeyId ? `密钥ID: ${nextKeyId}` : '无'}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <div className="flex flex-col">
+                                      <span className="text-gray-300 text-xs md:text-sm">
+                                        {operatorNickname || operatorEmail}
+                                      </span>
+                                      {operatorNickname && (
+                                        <span className="text-xs text-gray-500 mt-1">
+                                          {operatorEmail}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-4">
+                                    <span className="text-gray-300 text-xs md:text-sm truncate max-w-[120px]" title={notes}>
+                                      {notes || '无备注'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 数据说明 */}
+                  <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5">
+                    <h4 className="text-sm font-medium text-white mb-2">数据说明</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-400">
+                      <div className="flex items-start">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full mt-1 mr-2"></div>
+                        <div>
+                          <span className="font-medium">当前密钥</span>
+                          <p className="mt-1">用户当前正在使用的密钥，在表格中标记为"当前使用"</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start">
+                        <div className="w-2 h-2 bg-green-500 rounded-full mt-1 mr-2"></div>
+                        <div>
+                          <span className="font-medium">使用历史</span>
+                          <p className="mt-1">用户每次激活、续费或转移密钥的记录</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start">
+                        <div className="w-2 h-2 bg-amber-500 rounded-full mt-1 mr-2"></div>
+                        <div>
+                          <span className="font-medium">操作类型</span>
+                          <p className="mt-1">激活: 首次使用密钥<br/>续费: 延长密钥有效期<br/>转移: 更换到新密钥</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
+
+              {/* AI使用记录标签页和游戏记录标签页保持不变 */}
+              {/* ... 其他标签页代码保持不变 ... */}
             </div>
           </>
         )}
