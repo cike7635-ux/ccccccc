@@ -147,7 +147,8 @@ function AdminLoginForm() {
 
       if (signInError) throw signInError;
 
-      document.cookie = 'admin_key_verified=true; path=/admin; max-age=86400; SameSite=Strict';
+      // 修复安全漏洞：将cookie路径从'/admin'改为'/'，确保中间件能正确读取
+      document.cookie = 'admin_key_verified=true; path=/; max-age=86400; SameSite=Strict';
       
       await new Promise(resolve => setTimeout(resolve, 300));
       

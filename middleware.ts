@@ -7,18 +7,15 @@ import { NextResponse, type NextRequest } from 'next/server';
  * 从cookie中提取设备ID
  */
 function extractDeviceId(request: NextRequest): string {
-  // 尝试从cookie获取
   const deviceIdCookie = request.cookies.get('love_ludo_device_id');
   if (deviceIdCookie && deviceIdCookie.value) {
     try {
-      // 解码URL编码的设备ID
       return decodeURIComponent(deviceIdCookie.value);
     } catch {
       return deviceIdCookie.value;
     }
   }
   
-  // 如果没有，返回'unknown'
   return 'unknown';
 }
 
@@ -47,7 +44,7 @@ function isProtectedGamePath(path: string): boolean {
 }
 
 function isPublicPath(path: string): boolean {
-  const exactPublicPaths = ['/', '/login', '/account-expired', '/renew', '/admin', '/admin/unauthorized', '/login/expired'];
+  const exactPublicPaths = ['/', '/login', '/account-expired', '/renew', '/admin/unauthorized', '/login/expired'];
   if (exactPublicPaths.includes(path)) return true;
   const prefixPublicPaths = ['/auth/', '/api/auth/'];
   return prefixPublicPaths.some(prefix => path.startsWith(prefix));
@@ -242,8 +239,36 @@ export async function middleware(request: NextRequest) {
       return response;
     }
     
-    // 3. 管理员路径
+    // 3. 管理员路径 - 安全修复：添加身份验证
     if (currentPath.startsWith('/admin')) {
+      // 3.1 排除管理员登录页面
+      if (currentPath === '/admin' || currentPath === '/admin/login') {
+        return response;
+      }
+      
+      // 3.2 检查管理员cookie - 修复：检查根路径的cookie
+      const adminCookie = request.cookies.get('admin_key_verified')?.value;
+      
+      if (!adminCookie) {
+        console.log(`[${requestId}] 🚨 未授权访问管理员页面: ${currentPath}`);
+        
+        // 记录访问尝试
+        console.log({
+          timestamp: new Date().toISOString(),
+          path: currentPath,
+          referer: request.headers.get('referer'),
+          userAgent: request.headers.get('user-agent'),
+          ip: request.headers.get('x-forwarded-for') || request.ip,
+          deviceId: extractDeviceId(request)
+        });
+        
+        // 重定向到管理员登录页
+        const loginUrl = new URL('/admin', request.url);
+        loginUrl.searchParams.set('redirect', currentPath);
+        return NextResponse.redirect(loginUrl);
+      }
+      
+      console.log(`[${requestId}] ✅ 管理员访问: ${currentPath}`);
       return response;
     }
     

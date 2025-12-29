@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
     // 获取请求ID用于日志追踪
     const requestId = Math.random().toString(36).substring(7)
     
-    // 检查管理员cookie
+    // 检查管理员cookie - 注意：现在中间件和心跳API都检查根路径的cookie
     const adminCookie = request.cookies.get('admin_key_verified')?.value
     
     if (!adminCookie) {
