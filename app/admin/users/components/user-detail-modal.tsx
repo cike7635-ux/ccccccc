@@ -32,78 +32,194 @@ const getGenderDisplay = (preferences: any): string => {
   return genderMap[genderKey] || String(preferences.gender);
 }
 
+// 从JSON数据提取文本的辅助函数
+const extractTextFromJson = (data: any): string => {
+  if (!data) return '无数据';
+  
+  try {
+    // 如果已经是字符串
+    if (typeof data === 'string') {
+      // 尝试解析为JSON
+      if (data.trim().startsWith('{') || data.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(data);
+          return extractTextFromJson(parsed);
+        } catch {
+          // 解析失败，返回原始字符串
+          return data;
+        }
+      }
+      return data;
+    }
+    
+    // 如果是对象
+    if (typeof data === 'object' && data !== null) {
+      // 优先尝试常见的文本字段
+      const textFields = ['content', 'text', 'message', 'input', 'prompt', 'query', 'response', 'answer', 'output'];
+      
+      for (const field of textFields) {
+        if (data[field] !== undefined && data[field] !== null) {
+          const extracted = extractTextFromJson(data[field]);
+          if (extracted && extracted.trim()) {
+            return extracted;
+          }
+        }
+      }
+      
+      // 如果没有找到常见字段，返回整个对象的JSON字符串
+      try {
+        return JSON.stringify(data, null, 2);
+      } catch {
+        return String(data);
+      }
+    }
+    
+    // 其他类型直接转为字符串
+    return String(data || '');
+  } catch (error) {
+    console.warn('提取文本失败:', error, '原始数据:', data);
+    return String(data || '');
+  }
+};
+
 export default function UserDetailModal({ isOpen, onClose, userDetail, loading, onRefresh }: UserDetailModalProps) {
   const [activeTab, setActiveTab] = useState<'basic' | 'keys' | 'ai' | 'games'>('basic')
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [expandedAIRecord, setExpandedAIRecord] = useState<number | null>(null)
 
-  // 🔧 修复：安全获取数据，防止undefined错误
-  const accessKeys = useMemo(() => {
-    try {
-      if (!userDetail) return []
-      // 优先使用下划线格式，兼容驼峰格式
-      const keys = userDetail.access_keys || userDetail.accessKeys
-      return Array.isArray(keys) ? keys : []
-    } catch (err) {
-      console.error('获取accessKeys出错:', err)
-      return []
+  // 🔧 调试：打印用户详情数据
+  useEffect(() => {
+    if (userDetail && isOpen && process.env.NODE_ENV === 'development') {
+      console.log('🔍 UserDetailModal - 用户详情数据结构:', {
+        hasUserDetail: !!userDetail,
+        keys: Object.keys(userDetail),
+        ai_usage_records: userDetail.ai_usage_records,
+        aiUsageRecords: userDetail.aiUsageRecords,
+        aiRecords: userDetail.aiRecords,
+        ai_usage_records_type: typeof userDetail.ai_usage_records,
+        ai_usage_records_isArray: Array.isArray(userDetail.ai_usage_records),
+        ai_usage_records_length: userDetail.ai_usage_records?.length || 0,
+        firstAIRecord: userDetail.ai_usage_records?.[0],
+      });
     }
-  }, [userDetail])
+  }, [userDetail, isOpen]);
 
+  // 🔧 修复：安全获取AI使用记录（修复版）
   const aiUsageRecords = useMemo(() => {
     try {
-      if (!userDetail) return []
-      const records = userDetail.ai_usage_records || userDetail.aiUsageRecords
-      return Array.isArray(records) ? records : []
+      if (!userDetail) {
+        console.log('❌ aiUsageRecords: userDetail为空');
+        return [];
+      }
+
+      // 调试：检查AI记录字段
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔍 AI记录字段检查:', {
+          ai_usage_records: userDetail.ai_usage_records,
+          aiUsageRecords: userDetail.aiUsageRecords,
+          aiRecords: userDetail.aiRecords,
+          'ai_usage_records 类型': typeof userDetail.ai_usage_records,
+          'ai_usage_records 是数组': Array.isArray(userDetail.ai_usage_records)
+        });
+      }
+
+      // 策略1：优先使用下划线格式的数组
+      let records = userDetail.ai_usage_records;
+      
+      // 策略2：如果下划线格式不存在或不是数组，尝试驼峰格式
+      if (!Array.isArray(records)) {
+        records = userDetail.aiUsageRecords;
+      }
+      
+      // 策略3：如果两者都不是数组，尝试aiRecords字段
+      if (!Array.isArray(records) && typeof userDetail.aiRecords === 'number') {
+        console.warn('⚠️ aiUsageRecords: 只获取到数量而不是数组，尝试重新获取数据');
+        // 如果只有数量，返回空数组，等待重新获取
+        return [];
+      }
+      
+      // 确保是数组
+      if (!Array.isArray(records)) {
+        console.error('❌ aiUsageRecords: 不是数组，类型:', typeof records, '值:', records);
+        return [];
+      }
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log('✅ aiUsageRecords: 成功获取', records.length, '条记录');
+      }
+      return records;
     } catch (err) {
-      console.error('获取aiUsageRecords出错:', err)
-      return []
+      console.error('❌ 获取aiUsageRecords出错:', err);
+      return [];
+    }
+  }, [userDetail]);
+
+  // 🔧 修复：安全获取访问密钥
+  const accessKeys = useMemo(() => {
+    try {
+      if (!userDetail) return [];
+      
+      // 优先使用下划线格式，然后是驼峰格式
+      const keys = userDetail.access_keys || userDetail.accessKeys || [];
+      
+      if (typeof keys === 'number') {
+        console.warn('⚠️ accessKeys: 获取到数字而不是数组');
+        return [];
+      }
+      
+      return Array.isArray(keys) ? keys : [];
+    } catch (err) {
+      console.error('获取accessKeys出错:', err);
+      return [];
     }
   }, [userDetail])
 
+  // 🔧 修复：安全获取游戏历史
   const gameHistory = useMemo(() => {
     try {
-      if (!userDetail) return []
-      const history = userDetail.game_history || userDetail.gameHistory
-      return Array.isArray(history) ? history : []
+      if (!userDetail) return [];
+      const history = userDetail.game_history || userDetail.gameHistory || [];
+      return Array.isArray(history) ? history : [];
     } catch (err) {
-      console.error('获取gameHistory出错:', err)
-      return []
+      console.error('获取gameHistory出错:', err);
+      return [];
     }
   }, [userDetail])
 
+  // 🔧 修复：安全获取密钥使用历史
   const keyUsageHistory = useMemo(() => {
     try {
-      if (!userDetail) return []
-      const history = userDetail.key_usage_history || userDetail.keyUsageHistory
-      return Array.isArray(history) ? history : []
+      if (!userDetail) return [];
+      const history = userDetail.key_usage_history || userDetail.keyUsageHistory || [];
+      return Array.isArray(history) ? history : [];
     } catch (err) {
-      console.error('获取keyUsageHistory出错:', err)
-      return []
+      console.error('获取keyUsageHistory出错:', err);
+      return [];
     }
   }, [userDetail])
 
+  // 🔧 修复：安全获取当前访问密钥
   const currentAccessKey = useMemo(() => {
     try {
-      if (!userDetail) return null
-      return userDetail.current_access_key || userDetail.currentAccessKey || null
+      if (!userDetail) return null;
+      return userDetail.current_access_key || userDetail.currentAccessKey || null;
     } catch (err) {
-      console.error('获取currentAccessKey出错:', err)
-      return null
+      console.error('获取currentAccessKey出错:', err);
+      return null;
     }
   }, [userDetail])
 
-  // ✅ 修复：将所有useMemo提取到顶层，不在条件渲染中调用hooks
+  // 统计数据计算
   const stats = useMemo(() => {
-    if (!userDetail) return null
+    if (!userDetail) return null;
 
     // 计算密钥统计
     const keyStats = {
       total: accessKeys.length,
       active: accessKeys.filter(k => k.is_active || k.isActive).length,
       expired: accessKeys.filter(k => {
-        const expiry = k.key_expires_at || k.keyExpiresAt
-        return expiry && new Date(expiry) < new Date()
+        const expiry = k.key_expires_at || k.keyExpiresAt;
+        return expiry && new Date(expiry) < new Date();
       }).length,
       unused: accessKeys.filter(k => !(k.used_at || k.usedAt)).length,
       currentId: userDetail.access_key_id || userDetail.accessKeyId
@@ -114,8 +230,8 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       total: aiUsageRecords.length,
       success: aiUsageRecords.filter(r => r.success).length,
       recent: aiUsageRecords.filter(r => {
-        const created = r.created_at || r.createdAt
-        return created && new Date(created) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+        const created = r.created_at || r.createdAt;
+        return created && new Date(created) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       }).length,
       totalTokens: aiUsageRecords.reduce((sum, r) => sum + (r.tokens_used || r.tokensUsed || 0), 0)
     }
@@ -125,25 +241,29 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       total: gameHistory.length,
       wins: gameHistory.filter(g => g.winner_id === userDetail.id).length,
       recent: gameHistory.filter(g => {
-        const started = g.started_at
-        return started && new Date(started) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+        const started = g.started_at;
+        return started && new Date(started) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       }).length
     }
 
-    return { keyStats, aiStats, gameStats }
+    return { keyStats, aiStats, gameStats };
   }, [userDetail, accessKeys, aiUsageRecords, gameHistory])
 
-  // ✅ 修复：提取密钥数据计算到顶层
+  // 🔧 修复：提取所有使用过的密钥（修复useMemo位置问题）
   const allUsedKeys = useMemo(() => {
-    if (!keyUsageHistory || keyUsageHistory.length === 0) return []
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔄 计算allUsedKeys, keyUsageHistory长度:', keyUsageHistory.length);
+    }
     
-    const uniqueKeys = new Map()
+    if (!keyUsageHistory || keyUsageHistory.length === 0) return [];
+    
+    const uniqueKeys = new Map();
     
     keyUsageHistory.forEach(record => {
-      const accessKey = record?.access_key
+      const accessKey = record?.access_key;
       
       if (accessKey?.id) {
-        const keyId = accessKey.id
+        const keyId = accessKey.id;
         
         if (!uniqueKeys.has(keyId)) {
           uniqueKeys.set(keyId, {
@@ -157,15 +277,15 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
             usage_types: new Set([record.usage_type || 'activate'])
           })
         } else {
-          const existing = uniqueKeys.get(keyId)
-          existing.usage_count++
+          const existing = uniqueKeys.get(keyId);
+          existing.usage_count++;
           if (record.usage_type) {
-            existing.usage_types.add(record.usage_type)
+            existing.usage_types.add(record.usage_type);
           }
           // 更新时间戳
-          const currentUsedAt = record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt
+          const currentUsedAt = record.used_at || record.usedAt || accessKey.used_at || accessKey.usedAt;
           if (currentUsedAt && new Date(currentUsedAt) > new Date(existing.last_used_at || 0)) {
-            existing.last_used_at = currentUsedAt
+            existing.last_used_at = currentUsedAt;
           }
         }
       }
@@ -179,42 +299,49 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
            key.id === currentAccessKey.access_key?.id) : false
       }))
       .sort((a, b) => {
-        const dateA = a.last_used_at ? new Date(a.last_used_at).getTime() : 0
-        const dateB = b.last_used_at ? new Date(b.last_used_at).getTime() : 0
-        return dateB - dateA
+        const dateA = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
+        const dateB = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
+        return dateB - dateA;
       })
     
-    return keysArray
+    if (process.env.NODE_ENV === 'development') {
+      console.log('✅ allUsedKeys计算完成，数量:', keysArray.length);
+    }
+    return keysArray;
   }, [keyUsageHistory, currentAccessKey])
 
-  // ✅ 修复：提取密钥使用历史排序到顶层
+  // 🔧 修复：密钥使用历史排序
   const keyUsageHistorySorted = useMemo(() => {
-    if (!keyUsageHistory || !Array.isArray(keyUsageHistory)) return []
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔄 排序keyUsageHistory, 原始长度:', keyUsageHistory.length);
+    }
+    
+    if (!keyUsageHistory || !Array.isArray(keyUsageHistory)) return [];
     
     return [...keyUsageHistory]
       .filter(record => record) // 过滤掉null/undefined
       .sort((a, b) => {
-        const dateA = a.used_at || a.usedAt || 0
-        const dateB = b.used_at || b.usedAt || 0
-        return new Date(dateB).getTime() - new Date(dateA).getTime()
-      })
+        const dateA = a.used_at || a.usedAt || 0;
+        const dateB = b.used_at || b.usedAt || 0;
+        return new Date(dateB).getTime() - new Date(dateA).getTime();
+      });
   }, [keyUsageHistory])
 
   const handleCopy = async (text: string, field: string) => {
     try {
-      await navigator.clipboard.writeText(text)
-      setCopiedField(field)
-      setTimeout(() => setCopiedField(null), 2000)
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
     } catch (error) {
-      console.error('复制失败:', error)
+      console.error('复制失败:', error);
     }
   }
 
   const formatDate = (dateString: string | null | undefined): string => {
-    if (!dateString) return '无记录'
+    if (!dateString) return '无记录';
     try {
-      const date = new Date(dateString)
-      if (isNaN(date.getTime())) return '无效日期'
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return '无效日期';
       
       return date.toLocaleString('zh-CN', {
         year: 'numeric',
@@ -222,151 +349,156 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit'
-      })
+      });
     } catch {
-      return '无效日期'
+      return '无效日期';
     }
   }
 
   const formatShortDate = (dateString: string | null | undefined): string => {
-    if (!dateString) return '无记录'
+    if (!dateString) return '无记录';
     try {
-      const date = new Date(dateString)
-      if (isNaN(date.getTime())) return '无效日期'
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return '无效日期';
       
       return date.toLocaleString('zh-CN', {
         month: 'short',
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit'
-      })
+      });
     } catch {
-      return dateString
+      return dateString;
     }
   }
 
   const formatDuration = (start: string | null | undefined, end: string | null | undefined) => {
-    if (!start || !end) return '未知'
+    if (!start || !end) return '未知';
     try {
-      const startDate = new Date(start)
-      const endDate = new Date(end)
-      const diffMs = endDate.getTime() - startDate.getTime()
+      const startDate = new Date(start);
+      const endDate = new Date(end);
+      const diffMs = endDate.getTime() - startDate.getTime();
       
-      if (diffMs < 0) return '时间错误'
+      if (diffMs < 0) return '时间错误';
       
-      const diffSeconds = Math.floor(diffMs / 1000)
-      const diffMinutes = Math.floor(diffMs / 60000)
-      const diffHours = Math.floor(diffMs / 3600000)
+      const diffSeconds = Math.floor(diffMs / 1000);
+      const diffMinutes = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
       
       if (diffHours > 0) {
-        return `${diffHours}小时${Math.floor((diffMs % 3600000) / 60000)}分钟`
+        return `${diffHours}小时${Math.floor((diffMs % 3600000) / 60000)}分钟`;
       } else if (diffMinutes > 0) {
-        return `${diffMinutes}分钟${Math.floor((diffMs % 60000) / 1000)}秒`
+        return `${diffMinutes}分钟${Math.floor((diffMs % 60000) / 1000)}秒`;
       } else {
-        return `${diffSeconds}秒`
+        return `${diffSeconds}秒`;
       }
     } catch {
-      return '未知'
+      return '未知';
     }
   }
 
   const getAccountStatus = () => {
     if (!userDetail?.account_expires_at) {
-      return { status: '免费用户', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: '🟡' }
+      return { status: '免费用户', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: '🟡' };
     }
     
     try {
-      const expiryDate = new Date(userDetail.account_expires_at)
-      const isExpired = expiryDate < new Date()
+      const expiryDate = new Date(userDetail.account_expires_at);
+      const isExpired = expiryDate < new Date();
       
       if (isExpired) {
-        return { status: '已过期', color: 'text-red-400', bgColor: 'bg-red-500/10', icon: '🔴' }
+        return { status: '已过期', color: 'text-red-400', bgColor: 'bg-red-500/10', icon: '🔴' };
       }
       
       // 如果7天内过期，显示即将过期
-      const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       if (expiryDate < sevenDaysFromNow) {
-        return { status: '即将过期', color: 'text-yellow-400', bgColor: 'bg-yellow-500/10', icon: '🟡' }
+        return { status: '即将过期', color: 'text-yellow-400', bgColor: 'bg-yellow-500/10', icon: '🟡' };
       }
       
-      return { status: '会员中', color: 'text-green-400', bgColor: 'bg-green-500/10', icon: '🟢' }
+      return { status: '会员中', color: 'text-green-400', bgColor: 'bg-green-500/10', icon: '🟢' };
     } catch {
-      return { status: '状态未知', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: '⚫' }
+      return { status: '状态未知', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: '⚫' };
     }
   }
 
   const getGenderIcon = (gender: string) => {
     switch (gender) {
-      case '男': return <Mars className="w-4 h-4 text-blue-400" />
-      case '女': return <Venus className="w-4 h-4 text-pink-400" />
-      case '其他': return <Users className="w-4 h-4 text-purple-400" />
-      case '非二元': return <Users className="w-4 h-4 text-purple-400" />
-      default: return <User className="w-4 h-4 text-gray-400" />
+      case '男': return <Mars className="w-4 h-4 text-blue-400" />;
+      case '女': return <Venus className="w-4 h-4 text-pink-400" />;
+      case '其他': return <Users className="w-4 h-4 text-purple-400" />;
+      case '非二元': return <Users className="w-4 h-4 text-purple-400" />;
+      default: return <User className="w-4 h-4 text-gray-400" />;
     }
   }
 
   const getActiveStatus = () => {
     if (!userDetail?.last_login_at) {
-      return { status: '从未登录', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: <WifiOff className="w-4 h-4" /> }
+      return { status: '从未登录', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: <WifiOff className="w-4 h-4" /> };
     }
     
     try {
-      const lastLogin = new Date(userDetail.last_login_at)
-      const now = new Date()
-      const threeMinutesAgo = new Date(now.getTime() - 3 * 60 * 1000)
-      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+      const lastLogin = new Date(userDetail.last_login_at);
+      const now = new Date();
+      const threeMinutesAgo = new Date(now.getTime() - 3 * 60 * 1000);
+      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
       
       if (lastLogin > threeMinutesAgo) {
-        return { status: '在线', color: 'text-green-400', bgColor: 'bg-green-500/10', icon: <Wifi className="w-4 h-4" /> }
+        return { status: '在线', color: 'text-green-400', bgColor: 'bg-green-500/10', icon: <Wifi className="w-4 h-4" /> };
       } else if (lastLogin > twentyFourHoursAgo) {
-        return { status: '今日活跃', color: 'text-blue-400', bgColor: 'bg-blue-500/10', icon: <Activity className="w-4 h-4" /> }
+        return { status: '今日活跃', color: 'text-blue-400', bgColor: 'bg-blue-500/10', icon: <Activity className="w-4 h-4" /> };
       } else {
-        return { status: '离线', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: <WifiOff className="w-4 h-4" /> }
+        return { status: '离线', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: <WifiOff className="w-4 h-4" /> };
       }
     } catch {
-      return { status: '状态未知', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: <AlertCircle className="w-4 h-4" /> }
+      return { status: '状态未知', color: 'text-gray-400', bgColor: 'bg-gray-500/10', icon: <AlertCircle className="w-4 h-4" /> };
     }
   }
 
+  // 🔧 修复：AI记录导出功能
   const handleExportAI = (record: any) => {
     try {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('📤 导出AI记录:', record);
+      }
+      
       const data = {
         id: record.id,
         userId: record.user_id || record.userId,
-        feature: record.feature,
+        feature: record.feature || 'AI对话',
         createdAt: record.created_at || record.createdAt,
         requestData: record.request_data || record.requestData,
         responseData: record.response_data || record.responseData,
         success: record.success,
-        model: record.model,
-        tokensUsed: record.tokens_used || record.tokensUsed
-      }
+        model: record.model || record.feature || 'gpt-3.5-turbo',
+        tokensUsed: record.tokens_used || record.tokensUsed || 0
+      };
       
-      const json = JSON.stringify(data, null, 2)
-      const blob = new Blob([json], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `ai-record-${record.id}.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ai-record-${record.id}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('导出失败:', error)
+      console.error('导出失败:', error);
     }
   }
 
   const toggleAIExpanded = (index: number) => {
-    setExpandedAIRecord(expandedAIRecord === index ? null : index)
+    setExpandedAIRecord(expandedAIRecord === index ? null : index);
   }
 
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
-  const accountStatus = getAccountStatus()
-  const activeStatus = getActiveStatus()
+  const accountStatus = getAccountStatus();
+  const activeStatus = getActiveStatus();
 
-  // ✅ 修复：准备密钥统计卡数据（不在渲染中计算）
+  // 🔧 修复：准备密钥统计卡数据
   const keyStats = {
     totalUniqueKeys: allUsedKeys.length,
     currentKey: currentAccessKey?.key_code || 
@@ -383,7 +515,29 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
           keyUsageHistory[0]?.access_key?.usedAt
         )
       : '无记录'
-  }
+  };
+
+  // 🔧 修复：从AI记录数据中获取显示文本
+  const getAIRecordDisplayText = (record: any) => {
+    try {
+      const feature = record.feature || record.model || 'AI对话';
+      const requestData = record.request_data || record.requestData || record.input_text || record.inputText || {};
+      const responseData = record.response_data || record.responseData || record.response_text || record.responseText || {};
+      
+      return {
+        feature,
+        inputText: extractTextFromJson(requestData),
+        responseText: extractTextFromJson(responseData)
+      };
+    } catch (error) {
+      console.error('获取AI记录显示文本失败:', error);
+      return {
+        feature: 'AI对话',
+        inputText: '无数据',
+        responseText: '无数据'
+      };
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 md:p-6 overflow-y-auto">
@@ -398,12 +552,12 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                   alt={userDetail.nickname || userDetail.email}
                   className="w-12 h-12 rounded-full ring-2 ring-gray-700 object-cover"
                   onError={(e) => {
-                    e.currentTarget.src = ''
-                    e.currentTarget.className = 'w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center ring-2 ring-gray-700'
-                    const span = document.createElement('span')
-                    span.className = 'text-white font-bold text-lg'
-                    span.textContent = (userDetail?.nickname || userDetail?.email || 'U').charAt(0).toUpperCase()
-                    e.currentTarget.appendChild(span)
+                    e.currentTarget.src = '';
+                    e.currentTarget.className = 'w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center ring-2 ring-gray-700';
+                    const span = document.createElement('span');
+                    span.className = 'text-white font-bold text-lg';
+                    span.textContent = (userDetail?.nickname || userDetail?.email || 'U').charAt(0).toUpperCase();
+                    e.currentTarget.appendChild(span);
                   }}
                 />
               ) : (
@@ -1036,24 +1190,332 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                 </div>
               )}
 
-              {/* AI使用记录标签页和游戏记录标签页保持不变 */}
-              {/* ... 其他标签页代码保持不变 ... */}
+              {/* AI使用记录标签页 - 修复版 */}
+              {activeTab === 'ai' && (
+                <div className="p-4 md:p-6">
+                  <div className="mb-4 md:mb-6 grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">总请求数</p>
+                      <p className="text-xl md:text-2xl font-bold text-white">{stats?.aiStats.total || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        7天内请求: {stats?.aiStats.recent || 0}
+                      </p>
+                    </div>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">成功请求</p>
+                      <p className="text-xl md:text-2xl font-bold text-green-400">{stats?.aiStats.success || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        成功率: {stats?.aiStats.total
+                          ? `${((stats.aiStats.success / stats.aiStats.total) * 100).toFixed(1)}%`
+                          : '0%'
+                        }
+                      </p>
+                    </div>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">令牌使用</p>
+                      <p className="text-xl md:text-2xl font-bold text-blue-400">{stats?.aiStats.totalTokens || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        平均: {stats?.aiStats.total
+                          ? Math.round((stats.aiStats.totalTokens || 0) / stats.aiStats.total)
+                          : 0
+                        }/请求
+                      </p>
+                    </div>
+                  </div>
+
+                  {aiUsageRecords.length === 0 ? (
+                    <div className="text-center py-8 md:py-12">
+                      <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Brain className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
+                      </div>
+                      <p className="text-gray-400 text-base md:text-lg">暂无AI使用记录</p>
+                      <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未使用过AI功能</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 md:space-y-4">
+                      {aiUsageRecords.slice(0, 10).map((record, index) => {
+                        const feature = record.feature || record.model || 'AI对话';
+                        const createdAt = record.created_at || record.createdAt;
+                        const success = record.success;
+                        const isExpanded = expandedAIRecord === index;
+                        
+                        // 获取显示文本
+                        const displayText = getAIRecordDisplayText(record);
+                        
+                        return (
+                          <div
+                            key={index}
+                            className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5 hover:border-gray-600/50 transition-all"
+                          >
+                            <div className="flex items-center justify-between mb-3 md:mb-4">
+                              <div className="flex items-center">
+                                <Brain className="w-4 h-4 md:w-5 md:h-5 mr-2 md:mr-3 text-blue-400 flex-shrink-0" />
+                                <div className="min-w-0">
+                                  <span className="text-white text-sm md:text-base font-medium truncate block">
+                                    {displayText.feature}
+                                  </span>
+                                  <div className="flex items-center mt-1">
+                                    <span className={`px-2 py-0.5 rounded text-xs ${success
+                                      ? 'bg-green-500/20 text-green-400'
+                                      : 'bg-red-500/20 text-red-400'
+                                      }`}>
+                                      {success ? '成功' : '失败'}
+                                    </span>
+                                    <span className="text-gray-500 text-xs ml-2">
+                                      {record.model || record.feature || '未知模型'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-2 ml-2">
+                                <button
+                                  onClick={() => toggleAIExpanded(index)}
+                                  className="text-gray-400 hover:text-gray-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 rounded-lg transition-colors"
+                                >
+                                  {isExpanded ? '收起' : '详情'}
+                                </button>
+                                <button
+                                  onClick={() => handleExportAI(record)}
+                                  className="text-gray-400 hover:text-gray-300 text-xs md:text-sm flex items-center bg-gray-800 hover:bg-gray-700 px-2 md:px-3 py-1 rounded-lg transition-colors"
+                                  title="导出JSON"
+                                >
+                                  <Download className="w-3 h-3 md:w-4 md:h-4" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="text-xs text-gray-400 mb-2">
+                              创建时间: {formatDate(createdAt)}
+                              {(record.tokens_used || record.tokensUsed) && (
+                                <span className="ml-2">
+                                  令牌: {record.tokens_used || record.tokensUsed}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* 简化的请求响应预览 */}
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 mt-3 pt-3 border-t border-gray-800/30">
+                              <div>
+                                <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">请求预览</p>
+                                <div className="bg-gray-900/50 p-2 md:p-3 rounded-lg">
+                                  <p className="text-xs text-gray-300 truncate">
+                                    {displayText.inputText.substring(0, 100)}
+                                    {displayText.inputText.length > 100 ? '...' : ''}
+                                  </p>
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">响应预览</p>
+                                <div className="bg-gray-900/50 p-2 md:p-3 rounded-lg">
+                                  <p className="text-xs text-gray-300 truncate">
+                                    {displayText.responseText.substring(0, 100)}
+                                    {displayText.responseText.length > 100 ? '...' : ''}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+
+                            {isExpanded && (
+                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 mt-3 pt-3 border-t border-gray-800/30">
+                                <div>
+                                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">完整请求数据</p>
+                                  <div className="bg-gray-900/50 p-2 md:p-3 rounded-lg overflow-auto max-h-48">
+                                    <pre className="text-xs text-gray-300 whitespace-pre-wrap">
+                                      {(() => {
+                                        const requestData = record.request_data || record.requestData;
+                                        try {
+                                          if (typeof requestData === 'string') {
+                                            return JSON.stringify(JSON.parse(requestData), null, 2);
+                                          } else if (typeof requestData === 'object') {
+                                            return JSON.stringify(requestData, null, 2);
+                                          }
+                                          return String(requestData || '无数据');
+                                        } catch {
+                                          return String(requestData || '无数据');
+                                        }
+                                      })()}
+                                    </pre>
+                                  </div>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">完整响应数据</p>
+                                  <div className="bg-gray-900/50 p-2 md:p-3 rounded-lg overflow-auto max-h-48">
+                                    <pre className="text-xs text-gray-300 whitespace-pre-wrap">
+                                      {(() => {
+                                        const responseData = record.response_data || record.responseData;
+                                        try {
+                                          if (typeof responseData === 'string') {
+                                            return JSON.stringify(JSON.parse(responseData), null, 2);
+                                          } else if (typeof responseData === 'object') {
+                                            return JSON.stringify(responseData, null, 2);
+                                          }
+                                          return String(responseData || '无数据');
+                                        } catch {
+                                          return String(responseData || '无数据');
+                                        }
+                                      })()}
+                                    </pre>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {aiUsageRecords.length > 10 && (
+                        <div className="text-center pt-4">
+                          <p className="text-gray-400 text-xs md:text-sm">
+                            显示最近10条记录，共{aiUsageRecords.length}条
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 游戏记录标签页 */}
+              {activeTab === 'games' && (
+                <div className="p-4 md:p-6">
+                  <div className="mb-4 md:mb-6 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">总场次</p>
+                      <p className="text-xl md:text-2xl font-bold text-white">{stats?.gameStats.total || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        7天内场次: {stats?.gameStats.recent || 0}
+                      </p>
+                    </div>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">胜场</p>
+                      <p className="text-xl md:text-2xl font-bold text-green-400">{stats?.gameStats.wins || 0}</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">负场</p>
+                      <p className="text-xl md:text-2xl font-bold text-red-400">
+                        {stats ? stats.gameStats.total - stats.gameStats.wins : 0}
+                      </p>
+                    </div>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">胜率</p>
+                      <p className="text-xl md:text-2xl font-bold text-blue-400">
+                        {stats?.gameStats.total
+                          ? `${((stats.gameStats.wins / stats.gameStats.total) * 100).toFixed(1)}%`
+                          : '0%'
+                        }
+                      </p>
+                    </div>
+                  </div>
+
+                  {gameHistory.length === 0 ? (
+                    <div className="text-center py-8 md:py-12">
+                      <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Gamepad2 className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
+                      </div>
+                      <p className="text-gray-400 text-base md:text-lg">暂无游戏记录</p>
+                      <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未参与过游戏</p>
+                    </div>
+                  ) : (
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[640px]">
+                          <thead>
+                            <tr className="border-b border-gray-800 bg-gray-900/50">
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">对局ID</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">对手</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">结果</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">时长</th>
+                              <th className="text-left py-3 md:py-4 px-3 md:px-6 text-xs md:text-sm text-gray-400 font-medium">开始时间</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {gameHistory.map((game, index) => {
+                              const isWin = game.winner_id === userDetail.id;
+                              const isDraw = !game.winner_id;
+                              const startedAt = game.started_at;
+                              const endedAt = game.ended_at;
+
+                              return (
+                                <tr
+                                  key={index}
+                                  className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-all"
+                                >
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <code className="text-xs bg-gray-900 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-mono border border-gray-800">
+                                      {game.id?.substring(0, 8) || '未知'}
+                                    </code>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <div className="flex flex-col">
+                                      <span className="text-gray-300 text-xs md:text-sm">
+                                        玩家{game.player1_id === userDetail.id ? '2' : '1'}
+                                      </span>
+                                      <span className="text-xs text-gray-500 mt-1">
+                                        {game.player1_id === userDetail.id ? '你是玩家1' : '你是玩家2'}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <div className="flex items-center">
+                                      <div className={`w-2 h-2 rounded-full mr-1 md:mr-2 ${isWin ? 'bg-green-500' : isDraw ? 'bg-yellow-500' : 'bg-red-500'
+                                        }`} />
+                                      <span className={`text-xs md:text-sm ${isWin ? 'text-green-400' : isDraw ? 'text-yellow-400' : 'text-red-400'
+                                        }`}>
+                                        {isWin ? '胜利' : isDraw ? '平局' : '失败'}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <span className="text-gray-300 text-xs md:text-sm">
+                                      {formatDuration(startedAt, endedAt)}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 md:py-4 px-3 md:px-6">
+                                    <span className="text-gray-300 text-xs md:text-sm">
+                                      {formatDate(startedAt)}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}
 
         {/* 调试信息（仅在开发环境显示） */}
         {process.env.NODE_ENV === 'development' && userDetail && (
-          <div className="hidden">
-            <pre>{JSON.stringify({
-              userDetailKeys: Object.keys(userDetail),
-              aiRecordsCount: aiUsageRecords.length,
-              firstAIRecord: aiUsageRecords[0],
-              accessKeysCount: accessKeys.length,
-              firstAccessKey: accessKeys[0],
-              gameHistoryCount: gameHistory.length,
-              currentAccessKey: currentAccessKey
-            }, null, 2)}</pre>
+          <div className="mt-4 p-4 border-t border-gray-800 bg-gray-900/30">
+            <details>
+              <summary className="text-sm text-gray-400 cursor-pointer">调试信息</summary>
+              <pre className="text-xs text-gray-500 mt-2 whitespace-pre-wrap max-h-40 overflow-auto">
+                {JSON.stringify({
+                  用户ID: userDetail.id,
+                  'AI记录字段检查': {
+                    'ai_usage_records 存在': !!userDetail.ai_usage_records,
+                    'ai_usage_records 类型': typeof userDetail.ai_usage_records,
+                    'ai_usage_records 是数组': Array.isArray(userDetail.ai_usage_records),
+                    'ai_usage_records 长度': userDetail.ai_usage_records?.length || 0,
+                    'aiUsageRecords 存在': !!userDetail.aiUsageRecords,
+                    'aiUsageRecords 类型': typeof userDetail.aiUsageRecords,
+                    'aiUsageRecords 是数组': Array.isArray(userDetail.aiUsageRecords),
+                    'aiRecords 存在': !!userDetail.aiRecords,
+                    'aiRecords 类型': typeof userDetail.aiRecords,
+                  },
+                  '组件内AI记录数量': aiUsageRecords.length,
+                  '密钥记录数量': accessKeys.length,
+                  '游戏记录数量': gameHistory.length,
+                  '密钥历史数量': keyUsageHistory.length,
+                  '当前密钥': currentAccessKey
+                }, null, 2)}
+              </pre>
+            </details>
           </div>
         )}
       </div>
