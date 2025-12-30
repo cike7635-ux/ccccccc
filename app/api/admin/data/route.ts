@@ -1,4 +1,3 @@
-// /app/api/admin/data/route.ts - 完整修复版
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -83,7 +82,7 @@ export async function GET(request: NextRequest) {
           )
         }
 
-        // 🔧 修复：使用明确的外键约束名称进行关联查询
+        // 🔧 修复：使用明确的外键约束名称进行关联查询，并返回 used_count 字段
         const { data: keyUsageHistory, error: keyUsageHistoryError, count: keyUsageHistoryCount } = await supabaseAdmin
           .from('key_usage_history')
           .select(`
@@ -102,6 +101,7 @@ export async function GET(request: NextRequest) {
               id,
               key_code,
               is_active,
+              used_count,  -- 🔧 添加这个字段
               key_expires_at,
               created_at
             )
@@ -139,7 +139,7 @@ export async function GET(request: NextRequest) {
               .map(record => record.access_key_id)
               .filter(Boolean)
             
-            // 查询关联的密钥信息
+            // 查询关联的密钥信息（包含 used_count）
             let keyMap = new Map()
             if (accessKeyIds.length > 0) {
               const { data: accessKeysData } = await supabaseAdmin
@@ -194,6 +194,7 @@ export async function GET(request: NextRequest) {
                 id: accessKeyData.id,
                 key_code: accessKeyData.key_code || '未知',
                 is_active: accessKeyData.is_active ?? true,
+                used_count: accessKeyData.used_count || 1, // 🔧 返回 used_count
                 key_expires_at: accessKeyData.key_expires_at,
                 created_at: accessKeyData.created_at
               } : null
