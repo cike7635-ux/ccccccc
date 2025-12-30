@@ -440,7 +440,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     return { keyStats, aiStats, gameStats };
   }, [userDetail, accessKeys, aiRecords, gameHistory, aiPagination.total])
 
-  // 🔧 修复：提取所有使用过的密钥 - 改进版
+  // 🔧 修复：提取所有使用过的密钥 - 修复使用次数问题
   const allUsedKeys = useMemo(() => {
     if (process.env.NODE_ENV === 'development') {
       console.log('🔄 计算allUsedKeys, keyUsageHistory长度:', keyUsageHistory.length);
@@ -454,7 +454,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
           key_code: currentAccessKey.key_code || currentAccessKey.keyCode || '未知',
           is_active: currentAccessKey.is_active ?? currentAccessKey.isActive ?? true,
           key_expires_at: currentAccessKey.key_expires_at || currentAccessKey.keyExpiresAt,
-          usage_count: 1,
+          usage_count: currentAccessKey.used_count || 1, // 🔧 使用API返回的used_count
           is_current: true,
           last_used_at: currentAccessKey.used_at || currentAccessKey.usedAt
         }]
@@ -473,13 +473,18 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       
       const isCurrent = isCurrentKey(keyId, currentAccessKey);
       
+      // 🔧 修复：从API返回的数据中获取使用次数
+      // 优先使用 access_key.used_count，如果没有则使用默认值1
+      const usageCount = record.access_key?.used_count || 1;
+      
       if (!uniqueKeys.has(keyId)) {
         uniqueKeys.set(keyId, {
           id: keyId,
           key_code: keyCode,
           is_active: record.access_key?.is_active ?? true,
           key_expires_at: record.access_key?.key_expires_at,
-          usage_count: 1,
+          // 🔧 修复：使用API返回的使用次数，而不是自己统计
+          usage_count: usageCount,
           is_current: isCurrent,
           last_used_at: record.used_at || record.usedAt,
           first_used_at: record.used_at || record.usedAt,
@@ -487,7 +492,12 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
         })
       } else {
         const existing = uniqueKeys.get(keyId);
-        existing.usage_count++;
+        // 🔧 修复：不再累加次数，而是使用API返回的次数
+        // existing.usage_count++; // ❌ 删除这行
+        
+        // 保持已有的usage_count，或者使用更大的值
+        existing.usage_count = Math.max(existing.usage_count, usageCount);
+        
         if (record.usage_type) {
           existing.usage_types.add(record.usage_type);
         }
@@ -508,6 +518,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     
     if (process.env.NODE_ENV === 'development') {
       console.log('✅ allUsedKeys计算完成，数量:', keysArray.length);
+      console.log('🔍 每个密钥的使用次数:', keysArray.map(k => ({ key: k.key_code, count: k.usage_count })));
     }
     return keysArray;
   }, [keyUsageHistory, currentAccessKey])
@@ -1201,7 +1212,7 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                                   </td>
                                   <td className="py-3 md:py-4 px-4">
                                     <span className="text-gray-300 text-xs md:text-sm">
-                                      {key.usage_count || 0} 次
+                                      {key.usage_count || 1} 次
                                     </span>
                                   </td>
                                   <td className="py-3 md:py-4 px-4">
@@ -1748,7 +1759,12 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                   '第一条密钥历史': keyUsageHistory[0],
                   '第一条密钥代码': getKeyCode(keyUsageHistory[0]),
                   '当前密钥': currentAccessKey,
-                  '密钥代码调试': getKeyCode(keyUsageHistory[0])
+                  '密钥代码调试': getKeyCode(keyUsageHistory[0]),
+                  '密钥使用次数调试': {
+                    '第一条记录access_key': keyUsageHistory[0]?.access_key,
+                    '使用次数': keyUsageHistory[0]?.access_key?.used_count,
+                    'allUsedKeys第一条': allUsedKeys[0]?.usage_count
+                  }
                 }, null, 2)}
               </pre>
             </details>
