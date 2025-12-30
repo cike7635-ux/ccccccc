@@ -35,6 +35,8 @@ import { ChevronLeft } from 'lucide-react'
 import { ChevronFirst } from 'lucide-react'
 import { ChevronLast } from 'lucide-react'
 import { BarChart3 } from 'lucide-react'
+import { File } from 'lucide-react'
+import { FileText } from 'lucide-react'
 
 // 2. 导入其他依赖
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -42,9 +44,9 @@ import Link from 'next/link'
 
 // 3. 导入组件和类型
 import ExportModal from './components/ExportModal'
-import { AccessKey, KeyStatus } from './types'
+import { AccessKey } from './types'
 
-// 4. 在组件内部导入状态配置（避免循环依赖）
+// 4. 在组件内部定义状态配置（修复类型定义冲突）
 const statusConfig = {
   unused: { label: '未使用', color: 'text-amber-400', bgColor: 'bg-amber-500/15', icon: Clock },
   used: { label: '已使用', color: 'text-green-400', bgColor: 'bg-green-500/15', icon: Check },
@@ -94,9 +96,9 @@ function KeysContent() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [showExportModal, setShowExportModal] = useState(false)
   
-  // 筛选状态
+  // 筛选状态 - 修正类型定义
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<KeyStatus | 'all'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'unused' | 'used' | 'expired' | 'disabled'>('all')
   const [sortBy, setSortBy] = useState<'created_at' | 'key_code' | 'used_count'>('created_at')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   
@@ -146,7 +148,7 @@ function KeysContent() {
       
       setKeys(keysData)
 
-      // 计算统计数据
+      // 计算统计数据 - 基于数据库查询结果修正
       const now = new Date()
       const today = new Date()
       today.setHours(23, 59, 59, 999)
@@ -154,25 +156,37 @@ function KeysContent() {
       const sevenDaysLater = new Date()
       sevenDaysLater.setDate(sevenDaysLater.getDate() + 7)
       
+      // 修正统计计算逻辑
       const statsData = {
         total: keysData.length,
-        active: keysData.filter(k => k.is_active && (!k.key_expires_at || new Date(k.key_expires_at) > now)).length,
-        used: keysData.filter(k => k.used_count > 0 || k.used_at || k.user_id).length,
-        unused: keysData.filter(k => k.used_count === 0 && !k.used_at && !k.user_id && k.is_active).length,
-        expired: keysData.filter(k => k.key_expires_at && new Date(k.key_expires_at) < now).length,
-        inactive: keysData.filter(k => !k.is_active).length,
-        todayExpiring: keysData.filter(k => {
+        // active: 已激活的密钥（is_active = true）
+        active: keysData.filter(k => k.is_active).length,
+        // used: 已使用的密钥（used_at不为空或user_id不为空）
+        used: keysData.filter(k => k.used_at !== null || k.user_id !== null).length,
+        // unused: 未使用的密钥（used_at为空且user_id为空）
+        unused: keysData.filter(k => k.used_at === null && k.user_id === null).length,
+        // expired: 已过期的密钥（key_expires_at < 当前时间）
+        expired: keysData.filter(k => {
           if (!k.key_expires_at) return false
-          const expiry = new Date(k.key_expires_at)
-          return expiry.toDateString() === today.toDateString()
+          return new Date(k.key_expires_at) < now
         }).length,
-        nearExpiring: keysData.filter(k => {
-          if (!k.key_expires_at) return false
+        // inactive: 已禁用的密钥（is_active = false）
+        inactive: keysData.filter(k => !k.is_active).length,
+        // 今日过期（未过期但今天过期）
+        todayExpiring: keysData.filter(k => {
+          if (!k.key_expires_at || !k.is_active) return false
           const expiry = new Date(k.key_expires_at)
-          return expiry > now && expiry <= sevenDaysLater
+          return expiry > now && expiry.toDateString() === today.toDateString()
+        }).length,
+        // 7天内过期（不包括今天）
+        nearExpiring: keysData.filter(k => {
+          if (!k.key_expires_at || !k.is_active) return false
+          const expiry = new Date(k.key_expires_at)
+          return expiry > now && expiry <= sevenDaysLater && expiry.toDateString() !== today.toDateString()
         }).length
       }
       
+      console.log('📊 统计数据:', statsData)
       setStats(statsData)
 
     } catch (error: any) {
@@ -191,25 +205,26 @@ function KeysContent() {
     setTimeout(() => setCopiedKey(null), 2000)
   }
 
-  // 计算密钥状态
-  const getKeyStatus = (key: AccessKey): KeyStatus => {
+  // 计算密钥状态 - 基于数据库结构修正
+  const getKeyStatus = (key: AccessKey): 'unused' | 'used' | 'expired' | 'disabled' => {
     const now = new Date()
     
+    // 1. 已禁用
     if (!key.is_active) {
       return 'disabled'
     }
     
-    // 检查绝对有效期是否过期
+    // 2. 已过期
     if (key.key_expires_at && new Date(key.key_expires_at) < now) {
       return 'expired'
     }
     
-    // 检查是否已使用
-    if (key.used_count > 0 || key.used_at || key.user_id) {
+    // 3. 已使用（used_at不为空或user_id不为空）
+    if (key.used_at !== null || key.user_id !== null) {
       return 'used'
     }
     
-    // 未使用
+    // 4. 未使用
     return 'unused'
   }
 
@@ -256,7 +271,7 @@ function KeysContent() {
       // 优先使用 original_duration_hours 计算
       let expiryTime
       if (key.original_duration_hours) {
-        expiryTime = new Date(usedDate.getTime() + key.original_duration_hours * 60 * 60 * 1000)
+        expiryTime = new Date(usedDate.getTime() + parseFloat(key.original_duration_hours as any) * 60 * 60 * 1000)
       } else {
         expiryTime = new Date(usedDate.getTime() + key.account_valid_for_days * 24 * 60 * 60 * 1000)
       }
@@ -310,7 +325,7 @@ function KeysContent() {
   const getDurationDisplay = (key: AccessKey): string => {
     // 优先使用 original_duration_hours
     if (key.original_duration_hours) {
-      const hours = key.original_duration_hours
+      const hours = parseFloat(key.original_duration_hours as any)
       
       if (hours < 24) {
         // 显示小时
@@ -358,24 +373,26 @@ function KeysContent() {
     }
   }
 
-  // 过滤密钥
+  // 过滤密钥 - 修正筛选逻辑
   const filteredKeys = useMemo(() => {
     return keys.filter(key => {
       // 搜索过滤
       const searchMatch = search === '' || 
         key.key_code.toLowerCase().includes(search.toLowerCase()) ||
         (key.description && key.description.toLowerCase().includes(search.toLowerCase())) ||
-        (key.user?.email && key.user.email.toLowerCase().includes(search.toLowerCase()))
+        (key.profiles?.email && key.profiles.email.toLowerCase().includes(search.toLowerCase()))
       
-      // 状态过滤
-      let statusMatch = true
-      
-      if (statusFilter !== 'all') {
-        const keyStatus = getKeyStatus(key)
-        statusMatch = keyStatus === statusFilter
+      // 状态过滤 - 修正逻辑
+      if (statusFilter === 'all') {
+        return searchMatch
       }
-
-      return searchMatch && statusMatch
+      
+      // 获取密钥状态
+      const keyStatus = getKeyStatus(key)
+      
+      // 状态匹配
+      return searchMatch && keyStatus === statusFilter
+      
     }).sort((a, b) => {
       // 排序
       let aValue: any, bValue: any
@@ -789,7 +806,6 @@ function KeysContent() {
           <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0">
             {[
               { value: 'all', label: '全部密钥', count: stats.total, color: 'text-gray-400' },
-              { value: 'active', label: '有效', count: stats.active, color: 'text-green-400' },
               { value: 'unused', label: '未使用', count: stats.unused, color: 'text-amber-400' },
               { value: 'used', label: '已使用', count: stats.used, color: 'text-blue-400' },
               { value: 'expired', label: '已过期', count: stats.expired, color: 'text-red-400' },
@@ -1143,14 +1159,14 @@ function KeysContent() {
                         </td>
                         
                         <td className="py-3 px-4 md:px-6">
-                          {key.user ? (
+                          {key.profiles ? (
                             <div className="space-y-1 max-w-[150px]">
                               <div className="flex items-center">
                                 <User className="w-3 h-3 text-gray-500 mr-1" />
-                                <p className="text-gray-300 text-sm truncate">{key.user.email}</p>
+                                <p className="text-gray-300 text-sm truncate">{key.profiles.email}</p>
                               </div>
-                              {key.user.nickname && (
-                                <p className="text-gray-500 text-xs truncate">{key.user.nickname}</p>
+                              {key.profiles.nickname && (
+                                <p className="text-gray-500 text-xs truncate">{key.profiles.nickname}</p>
                               )}
                               {key.used_at && (
                                 <p className="text-gray-600 text-xs">使用于: {new Date(key.used_at).toLocaleDateString('zh-CN')}</p>
