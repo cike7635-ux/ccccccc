@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js'; // 修复这里
 
 export async function PATCH(
   request: NextRequest,
