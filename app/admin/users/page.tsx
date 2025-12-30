@@ -10,12 +10,12 @@ import {
 } from 'lucide-react'
 import UserDetailModal from './components/user-detail-modal'
 import GrowthChart from './components/growth-chart'
-import { 
-  User as UserType, 
-  SortField, 
-  SortDirection, 
-  getGenderDisplay, 
-  getKeyStatus, 
+import {
+  User as UserType,
+  SortField,
+  SortDirection,
+  getGenderDisplay,
+  getKeyStatus,
   normalizeUserDetail,
   isUserActive,
   getActiveStatusConfig,
@@ -30,7 +30,7 @@ const ITEMS_PER_PAGE = 20
 export default function UsersPage() {
   // 使用心跳功能
   useHeartbeat()
-  
+
   // 状态管理
   const [users, setUsers] = useState<UserType[]>([])
   const [loading, setLoading] = useState(true)
@@ -44,7 +44,7 @@ export default function UsersPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [showBatchMenu, setShowBatchMenu] = useState(false)
   const [batchActionLoading, setBatchActionLoading] = useState(false)
-  const [operationMessage, setOperationMessage] = useState<{type: 'success' | 'error', message: string} | null>(null)
+  const [operationMessage, setOperationMessage] = useState<{ type: 'success' | 'error', message: string } | null>(null)
   const [searchDebounce, setSearchDebounce] = useState<NodeJS.Timeout | null>(null)
 
   // 排序状态
@@ -91,7 +91,7 @@ export default function UsersPage() {
 
       const apiUrl = `/api/admin/users/list?${params.toString()}`
       console.log('📡 请求用户列表API:', apiUrl)
-      
+
       const response = await fetch(apiUrl, {
         credentials: 'include',
         cache: forceRefresh ? 'no-cache' : 'default'
@@ -118,13 +118,13 @@ export default function UsersPage() {
           try {
             const date = new Date(dateString)
             if (isNaN(date.getTime())) return '无效日期'
-            
+
             const year = date.getFullYear()
             const month = String(date.getMonth() + 1).padStart(2, '0')
             const day = String(date.getDate()).padStart(2, '0')
             const hours = String(date.getHours()).padStart(2, '0')
             const minutes = String(date.getMinutes()).padStart(2, '0')
-            
+
             return `${year}年${month}月${day}日 ${hours}:${minutes}`
           } catch {
             return '无效日期'
@@ -175,7 +175,7 @@ export default function UsersPage() {
           createdAtRaw: profile.created_at,
           accessKeyId: accessKeyId,
           activeKey: keyCode,
-          isActive: true,
+          isActive: !profile.account_expires_at || new Date(profile.account_expires_at) > new Date(),
           gender: gender,
           keyStatus: keyStatus,
           isUserActive: userActive
@@ -183,7 +183,7 @@ export default function UsersPage() {
       })
 
       console.log(`✅ 格式化后用户数据: ${formattedUsers.length} 条`)
-      
+
       setUsers(formattedUsers)
       setTotalCount(result.pagination?.total || 0)
 
@@ -259,14 +259,14 @@ export default function UsersPage() {
 
       // 🔥 关键修复：确保数据格式正确
       const userDetail = normalizeUserDetail(result.data)
-      
+
       console.log('✅ 归一化后的用户详情:', {
         id: userDetail.id,
         email: userDetail.email,
         aiRecords: userDetail.ai_usage_records?.length || 0,
         accessKeys: userDetail.access_keys?.length || 0
       })
-      
+
       setSelectedUserDetail(userDetail)
 
     } catch (error: any) {
@@ -380,18 +380,18 @@ export default function UsersPage() {
 
     // 🔥 优化确认对话框
     const actionConfigs = {
-      disable: { 
-        text: '禁用', 
+      disable: {
+        text: '禁用',
         confirm: `确定要禁用这 ${selectedUsers.length} 个账户吗？\n\n禁用后用户将无法登录系统。`,
         warning: '此操作会影响用户的登录权限。'
       },
-      enable: { 
-        text: '启用', 
+      enable: {
+        text: '启用',
         confirm: `确定要启用这 ${selectedUsers.length} 个账户吗？\n\n启用后用户将恢复会员权限。`,
         warning: '此操作会恢复用户的会员权限。'
       },
-      delete: { 
-        text: '删除', 
+      delete: {
+        text: '删除',
         confirm: `⚠️ 重要警告：确定要删除这 ${selectedUsers.length} 个账户吗？\n\n此操作会将用户标记为删除，但保留历史数据。\n用户邮箱将被修改为 deleted_ 前缀，无法再登录。`,
         warning: '此操作是软删除，用户数据会保留但无法登录。'
       }
@@ -399,7 +399,7 @@ export default function UsersPage() {
 
     const config = actionConfigs[action]
     const userCount = selectedUsers.length
-    
+
     // 创建更友好的确认消息
     const confirmMessage = `${config.confirm}\n\n操作涉及 ${userCount} 个用户：\n${users
       .filter(u => selectedUsers.includes(u.id))
@@ -431,7 +431,7 @@ export default function UsersPage() {
         showMessage('success', `✅ 成功${config.text}了 ${result.data.affectedCount} 个用户`)
         setSelectedUsers([])
         setShowBatchMenu(false)
-        
+
         // 延迟刷新，给服务器一点时间处理
         setTimeout(() => {
           fetchUsers(true)
@@ -498,7 +498,7 @@ export default function UsersPage() {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-    
+
     showMessage('success', 'CSV导出成功')
   }
 
@@ -610,8 +610,8 @@ export default function UsersPage() {
           <Key className={`w-3.5 h-3.5 mr-2 ${config.iconColor}`} />
           <code
             className={`text-sm px-2.5 py-1.5 rounded font-mono truncate max-w-[120px] hover:opacity-90 transition-opacity cursor-pointer ${isValidKeyCode
-                ? 'bg-gray-800 text-gray-200 border border-gray-700'
-                : 'bg-blue-500/10 text-blue-400'
+              ? 'bg-gray-800 text-gray-200 border border-gray-700'
+              : 'bg-blue-500/10 text-blue-400'
               }`}
             title={`密钥: ${displayKey} (${config.label})`}
             onClick={(e) => {
@@ -661,17 +661,17 @@ export default function UsersPage() {
   // 渲染最后登录时间和活跃状态
   const renderLastLoginCell = (user: UserType) => {
     const config = getActiveStatusConfig(!!user.isUserActive)
-    
+
     return (
       <div className="space-y-2">
         {/* 最后登录时间 */}
         <div className="text-gray-300 text-sm">
           {user.lastLogin}
         </div>
-        
+
         {/* 活跃状态标签 */}
         <div className="flex items-center">
-          <span 
+          <span
             className={`inline-flex items-center px-2 py-1 rounded-full text-xs ${config.bgColor} ${config.color}`}
             title={user.isUserActive ? '3分钟内在线，当前活跃' : '超过3分钟未活动'}
           >
@@ -770,7 +770,7 @@ export default function UsersPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-900 to-gray-950 p-3 md:p-6">
       <style jsx>{styles}</style>
-      
+
       {/* 操作消息 */}
       <OperationMessage />
       <BatchOperationStatus />
@@ -796,7 +796,7 @@ export default function UsersPage() {
               )}
             </p>
           </div>
-          
+
           {/* 操作按钮组 */}
           <div className="flex flex-wrap gap-1 md:gap-2 action-buttons">
             <button
@@ -875,7 +875,7 @@ export default function UsersPage() {
 
             {showSortMenu && (
               <>
-                <div 
+                <div
                   className="fixed inset-0 z-40"
                   onClick={() => setShowSortMenu(false)}
                 />
@@ -1101,8 +1101,8 @@ export default function UsersPage() {
                 </thead>
                 <tbody>
                   {users.map((user) => (
-                    <tr 
-                      key={user.id} 
+                    <tr
+                      key={user.id}
                       className="border-b border-gray-700/30 hover:bg-gray-800/30 transition-colors"
                     >
                       <td className="py-2 md:py-3 px-2 md:px-3 lg:px-4 table-cell">
