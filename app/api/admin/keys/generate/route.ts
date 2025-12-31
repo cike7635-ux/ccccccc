@@ -1,7 +1,6 @@
 // /app/api/admin/keys/generate/route.ts
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
-import { v4 as uuidv4 } from 'uuid'
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,14 +37,7 @@ export async function POST(request: NextRequest) {
     let body
     try {
       body = await request.json()
-      console.log('📦 请求数据:', {
-        count: body.count || 1,
-        prefix: body.prefix,
-        duration: body.duration,
-        max_uses: body.max_uses,
-        description: body.description,
-        absolute_expiry_days: body.absolute_expiry_days
-      })
+      console.log('📦 请求数据:', JSON.stringify(body, null, 2))
     } catch (error) {
       return NextResponse.json(
         { success: false, error: '请求格式错误' },
@@ -56,10 +48,11 @@ export async function POST(request: NextRequest) {
     const { 
       count = 1, 
       prefix = 'XY', 
-      duration = 30, 
+      duration, // 必填，单位：小时
       max_uses = 1, 
       description,
-      absolute_expiry_days = 365 
+      activation_deadline_days = 365, // 激活截止天数（绝对日期）
+      activation_deadline_type = 'relative' // relative 或 absolute
     } = body
 
     // 4. 验证请求数据
@@ -77,7 +70,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (duration <= 0) {
+    if (duration === undefined || duration <= 0) {
       return NextResponse.json(
         { success: false, error: '有效期必须大于0' },
         { status: 400 }
@@ -91,9 +84,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (absolute_expiry_days <= 0) {
+    if (activation_deadline_days <= 0) {
       return NextResponse.json(
-        { success: false, error: '绝对有效期必须大于0天' },
+        { success: false, error: '激活截止时间必须大于0天' },
         { status: 400 }
       )
     }
@@ -105,36 +98,52 @@ export async function POST(request: NextRequest) {
       { auth: { persistSession: false } }
     )
 
-    // 6. 计算日期
+    // 6. 计算激活截止时间（绝对日期）
     const now = new Date()
-    const absoluteExpiryDate = new Date(now.getTime() + absolute_expiry_days * 24 * 60 * 60 * 1000)
+    let keyExpiresAt: Date
+    
+    if (activation_deadline_type === 'absolute' && body.activation_deadline_date) {
+      // 如果提供了具体的绝对日期
+      keyExpiresAt = new Date(body.activation_deadline_date)
+    } else {
+      // 默认使用相对天数
+      keyExpiresAt = new Date(now.getTime() + activation_deadline_days * 24 * 60 * 60 * 1000)
+    }
 
-    // 7. 确定时长单位和原始小时数
-    let durationUnit = 'days'
-    let originalDurationHours: number | null = null
+    // 7. 🔥 关键修复：计算时长单位和原始小时数
+    let durationUnit = 'hours' // 默认单位
+    let originalDurationHours: number = duration // 前端直接传递小时数
     let accountValidForDays: number
 
-    if (duration < 1) {
-      // 小时级别（小于1天）
+    // 确定显示单位
+    if (duration < 24) {
+      // 小于24小时，显示小时
       durationUnit = 'hours'
-      originalDurationHours = duration * 24
-      accountValidForDays = Math.ceil(duration) // 向上取整为天
-    } else if (duration === 1) {
-      // 1天
+      accountValidForDays = 0 // 小时级别的密钥，账户有效天数为0
+    } else if (duration === 24) {
+      // 正好24小时，显示1天
       durationUnit = 'days'
-      originalDurationHours = 24
       accountValidForDays = 1
-    } else if (duration <= 30) {
-      // 天数
+    } else if (duration < 24 * 30) {
+      // 小于30天，显示天数
       durationUnit = 'days'
-      originalDurationHours = duration * 24
-      accountValidForDays = Math.ceil(duration)
+      accountValidForDays = Math.floor(duration / 24)
+    } else if (duration < 24 * 365) {
+      // 小于1年，显示月数
+      durationUnit = 'months'
+      accountValidForDays = Math.floor(duration / 24)
     } else {
-      // 月数或年数（按天计算）
-      durationUnit = 'days'
-      originalDurationHours = duration * 24
-      accountValidForDays = Math.ceil(duration)
+      // 大于等于1年，显示年数
+      durationUnit = 'years'
+      accountValidForDays = Math.floor(duration / 24)
     }
+
+    console.log('📊 时长计算:', {
+      原始小时数: originalDurationHours,
+      显示单位: durationUnit,
+      账户有效期天数: accountValidForDays,
+      激活截止时间: keyExpiresAt.toISOString()
+    })
 
     // 8. 生成密钥
     const keysToInsert = []
@@ -147,21 +156,22 @@ export async function POST(request: NextRequest) {
         characters.charAt(Math.floor(Math.random() * characters.length))
       ).join('')
 
-      // 生成时长代码
+      // 生成时长代码（基于原始小时数）
       let durationCode = ''
-      if (originalDurationHours && originalDurationHours < 24) {
+      if (originalDurationHours < 24) {
         // 小时级别
         durationCode = `${originalDurationHours}H`
-      } else if (accountValidForDays < 30) {
+      } else if (originalDurationHours < 24 * 30) {
         // 天数级别
-        durationCode = `${accountValidForDays}D`
-      } else if (accountValidForDays < 365) {
+        const days = Math.floor(originalDurationHours / 24)
+        durationCode = `${days}D`
+      } else if (originalDurationHours < 24 * 365) {
         // 月数级别
-        const months = Math.round(accountValidForDays / 30)
+        const months = Math.round(originalDurationHours / (24 * 30))
         durationCode = `${months}M`
       } else {
         // 年数级别
-        const years = Math.round(accountValidForDays / 365)
+        const years = Math.round(originalDurationHours / (24 * 365))
         durationCode = `${years}Y`
       }
 
@@ -172,9 +182,9 @@ export async function POST(request: NextRequest) {
         is_active: true,
         used_count: 0,
         max_uses: max_uses,
-        key_expires_at: absoluteExpiryDate.toISOString(),
+        key_expires_at: keyExpiresAt.toISOString(), // 激活截止时间（绝对日期）
         account_valid_for_days: accountValidForDays,
-        original_duration_hours: originalDurationHours,
+        original_duration_hours: originalDurationHours, // 存储原始小时数
         duration_unit: durationUnit,
         user_id: null,
         used_at: null,
@@ -185,16 +195,18 @@ export async function POST(request: NextRequest) {
 
       generatedKeys.push({
         key_code: keyCode,
-        duration: duration,
+        duration_hours: originalDurationHours,
         duration_unit: durationUnit,
-        max_uses: max_uses
+        max_uses: max_uses,
+        key_expires_at: keyExpiresAt.toISOString()
       })
     }
 
     console.log(`📝 准备插入 ${keysToInsert.length} 个密钥`)
     console.log(`   - 前缀: ${prefix}`)
-    console.log(`   - 时长: ${duration} ${durationUnit} (${originalDurationHours}小时)`)
-    console.log(`   - 绝对有效期: ${absolute_expiry_days}天`)
+    console.log(`   - 原始时长: ${originalDurationHours}小时`)
+    console.log(`   - 显示单位: ${durationUnit}`)
+    console.log(`   - 激活截止: ${keyExpiresAt.toLocaleDateString('zh-CN')}`)
     console.log(`   - 使用次数限制: ${max_uses === null ? '无限次' : max_uses + '次'}`)
 
     // 9. 批量插入数据库
@@ -238,9 +250,9 @@ export async function POST(request: NextRequest) {
         })),
         summary: {
           prefix: prefix,
-          duration: `${duration} ${durationUnit}`,
-          original_hours: originalDurationHours,
-          absolute_expiry: absolute_expiry_days + '天',
+          duration_hours: originalDurationHours,
+          duration_unit: durationUnit,
+          activation_deadline: keyExpiresAt.toLocaleDateString('zh-CN'),
           max_uses: max_uses === null ? '无限次' : max_uses + '次'
         }
       },
@@ -251,8 +263,25 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('💥 密钥生成API异常:', error)
     return NextResponse.json(
-      { success: false, error: '服务器内部错误' },
+      { success: false, error: '服务器内部错误: ' + (error.message || '未知错误') },
       { status: 500 }
     )
   }
+}
+
+// GET方法用于测试
+export async function GET(request: NextRequest) {
+  return NextResponse.json({
+    success: true,
+    message: '密钥生成API已就绪',
+    parameters: {
+      count: '生成数量 (1-100)',
+      prefix: '密钥前缀 (2-6字符)',
+      duration: '使用时长 (小时数)',
+      max_uses: '最大使用次数 (null为无限)',
+      description: '描述 (可选)',
+      activation_deadline_days: '激活截止天数 (默认365)',
+      activation_deadline_type: '截止时间类型 (relative/absolute)'
+    }
+  })
 }

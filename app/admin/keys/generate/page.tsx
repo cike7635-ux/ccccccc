@@ -1,11 +1,11 @@
 // /app/admin/keys/generate/page.tsx
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Key, ArrowLeft, Plus, Copy, Check, RefreshCw, Download, 
   Clock, Users, Hash, Tag, AlertCircle, Sparkles, Calendar,
-  Settings, X, Save, AlertTriangle
+  Settings, X, Save, AlertTriangle, CalendarDays, Timer
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -14,34 +14,40 @@ export default function GenerateKeysPage() {
   const router = useRouter()
   
   // 表单状态
-  const [duration, setDuration] = useState<number>(30) // 30天
-  const [maxUses, setMaxUses] = useState<number | null>(1) // 1次使用
-  const [count, setCount] = useState<number>(1) // 生成数量
-  const [prefix, setPrefix] = useState<string>('XY') // 密钥前缀
+  const [durationHours, setDurationHours] = useState<number>(24) // 默认24小时（1天）
+  const [maxUses, setMaxUses] = useState<number | null>(1)
+  const [count, setCount] = useState<number>(1)
+  const [prefix, setPrefix] = useState<string>('XY')
   const [customPrefix, setCustomPrefix] = useState<boolean>(false)
   const [description, setDescription] = useState<string>('')
-  const [generatedKeys, setGeneratedKeys] = useState<string[]>([])
+  
+  // 激活截止时间设置
+  const [activationDeadlineType, setActivationDeadlineType] = useState<'relative' | 'absolute'>('relative')
+  const [activationDeadlineDays, setActivationDeadlineDays] = useState<number>(365)
+  const [activationDeadlineDate, setActivationDeadlineDate] = useState<string>('')
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false)
+  
+  // 结果状态
+  const [generatedKeys, setGeneratedKeys] = useState<any[]>([])
   const [generating, setGenerating] = useState<boolean>(false)
   const [copiedAll, setCopiedAll] = useState<boolean>(false)
-  const [showCustomInput, setShowCustomInput] = useState<boolean>(false)
-  const [customDays, setCustomDays] = useState<number>(30)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  // 时长选项（支持小时级别）
+  // 时长选项（单位：小时）
   const durationOptions = [
-    { value: 1/24, label: '1小时', display: '1小时', key: '1h' },
-    { value: 2/24, label: '2小时', display: '2小时', key: '2h' },
-    { value: 4/24, label: '4小时', display: '4小时', key: '4h' },
-    { value: 12/24, label: '12小时', display: '12小时', key: '12h' },
-    { value: 1, label: '1天', display: '1天', key: '1d' },
-    { value: 2, label: '2天', display: '2天', key: '2d' },
-    { value: 7, label: '7天', display: '7天', key: '7d' },
-    { value: 30, label: '30天', display: '30天', key: '30d' },
-    { value: 90, label: '90天', display: '3个月', key: '90d' },
-    { value: 180, label: '180天', display: '6个月', key: '180d' },
-    { value: 365, label: '365天', display: '1年', key: '365d' },
-    { value: -1, label: 'custom', display: '自定义', key: 'custom' }
+    { hours: 1, label: '1小时', display: '1小时', key: '1h' },
+    { hours: 2, label: '2小时', display: '2小时', key: '2h' },
+    { hours: 4, label: '4小时', display: '4小时', key: '4h' },
+    { hours: 12, label: '12小时', display: '12小时', key: '12h' },
+    { hours: 24, label: '1天', display: '1天', key: '1d' },
+    { hours: 48, label: '2天', display: '2天', key: '2d' },
+    { hours: 168, label: '7天', display: '7天', key: '7d' },
+    { hours: 720, label: '30天', display: '30天', key: '30d' },
+    { hours: 2160, label: '90天', display: '3个月', key: '90d' },
+    { hours: 4320, label: '180天', display: '6个月', key: '180d' },
+    { hours: 8760, label: '365天', display: '1年', key: '365d' },
+    { hours: -1, label: 'custom', display: '自定义', key: 'custom' }
   ]
 
   // 使用次数选项
@@ -62,100 +68,150 @@ export default function GenerateKeysPage() {
     { value: 'LOVE', label: 'LOVE (情侣专用)' }
   ]
 
+  // 激活截止时间选项
+  const activationDeadlineOptions = [
+    { days: 7, label: '7天内必须激活' },
+    { days: 30, label: '30天内必须激活' },
+    { days: 90, label: '90天内必须激活' },
+    { days: 180, label: '半年内必须激活' },
+    { days: 365, label: '1年内必须激活（默认）' },
+    { days: 730, label: '2年内必须激活' }
+  ]
+
   // 处理时长选择
-  const handleDurationSelect = (value: number) => {
-    if (value === -1) {
-      setShowCustomInput(true)
+  const handleDurationSelect = (hours: number) => {
+    if (hours === -1) {
+      // 显示自定义输入框（在高级设置中）
+      setShowAdvancedSettings(true)
     } else {
-      setDuration(value)
-      setShowCustomInput(false)
+      setDurationHours(hours)
     }
   }
 
-  // 处理自定义天数输入
-  const handleCustomDaysChange = (value: number) => {
-    if (value >= 1 && value <= 999) {
-      setCustomDays(value)
-      setDuration(value)
+  // 处理自定义时长输入
+  const handleCustomDurationChange = (hours: number) => {
+    if (hours >= 0.25 && hours <= 87600) { // 15分钟到10年
+      setDurationHours(hours)
     }
   }
 
-  // 取消自定义
-  const handleCancelCustom = () => {
-    setShowCustomInput(false)
-    setDuration(30)
-    setCustomDays(30)
-  }
-
-  // 生成随机密钥
-  const generateRandomKey = (): string => {
-    const characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-    const length = 8
-    let result = ''
-    
-    for (let i = 0; i < length; i++) {
-      result += characters.charAt(Math.floor(Math.random() * characters.length))
-    }
-    
-    // 根据时长生成正确的代码
-    let durationCode = ''
-    if (duration === 1/24) {
-      durationCode = '1H'
-    } else if (duration === 2/24) {
-      durationCode = '2H'
-    } else if (duration === 4/24) {
-      durationCode = '4H'
-    } else if (duration === 12/24) {
-      durationCode = '12H'
-    } else if (duration === 1) {
-      durationCode = '1D'
-    } else if (duration === 2) {
-      durationCode = '2D'
-    } else if (duration === 7) {
-      durationCode = '7D'
-    } else if (duration === 30) {
-      durationCode = '30D'
-    } else if (duration === 90) {
-      durationCode = '90D'
-    } else if (duration === 180) {
-      durationCode = '180D'
-    } else if (duration === 365) {
-      durationCode = '365D'
+  // 格式化时长显示
+  const formatDuration = (hours: number): string => {
+    if (hours < 1) {
+      const minutes = Math.round(hours * 60)
+      return `${minutes}分钟`
+    } else if (hours < 24) {
+      return `${hours}小时`
+    } else if (hours < 24 * 30) {
+      const days = Math.floor(hours / 24)
+      const remainingHours = hours % 24
+      if (remainingHours === 0) {
+        return `${days}天`
+      } else {
+        return `${days}天${remainingHours}小时`
+      }
+    } else if (hours < 24 * 365) {
+      const months = Math.floor(hours / (24 * 30))
+      const remainingDays = Math.floor((hours % (24 * 30)) / 24)
+      if (remainingDays === 0) {
+        return `${months}个月`
+      } else {
+        return `${months}个月${remainingDays}天`
+      }
     } else {
-      // 自定义天数
-      durationCode = `${duration}D`
+      const years = Math.floor(hours / (24 * 365))
+      const remainingMonths = Math.floor((hours % (24 * 365)) / (24 * 30))
+      if (remainingMonths === 0) {
+        return `${years}年`
+      } else {
+        return `${years}年${remainingMonths}个月`
+      }
     }
-    
-    return `${prefix}-${durationCode}-${result}`
+  }
+
+  // 生成时长代码（用于密钥格式）
+  const getDurationCode = (hours: number): string => {
+    if (hours < 24) {
+      return `${hours}H`
+    } else if (hours < 24 * 30) {
+      const days = Math.floor(hours / 24)
+      return `${days}D`
+    } else if (hours < 24 * 365) {
+      const months = Math.round(hours / (24 * 30))
+      return `${months}M`
+    } else {
+      const years = Math.round(hours / (24 * 365))
+      return `${years}Y`
+    }
+  }
+
+  // 清除消息
+  const clearMessages = () => {
+    setError(null)
+    setSuccess(null)
   }
 
   // 生成密钥
-  const handleGenerateKeys = () => {
-    setGenerating(true)
-    setError(null)
+  const handleGenerateKeys = async () => {
+    if (generating) return
     
-    // 模拟API调用延迟
-    setTimeout(() => {
-      try {
-        const newKeys: string[] = []
-        for (let i = 0; i < count; i++) {
-          newKeys.push(generateRandomKey())
-        }
-        
-        setGeneratedKeys(newKeys)
-        setSuccess(`成功生成 ${newKeys.length} 个密钥`)
-        
-      } catch (err) {
-        setError('生成密钥时发生错误')
-      } finally {
-        setGenerating(false)
+    try {
+      setGenerating(true)
+      setError(null)
+      setGeneratedKeys([])
+
+      // 准备请求数据
+      const requestData = {
+        count,
+        prefix,
+        duration: durationHours, // 直接传递小时数
+        max_uses: maxUses,
+        description: description || undefined,
+        activation_deadline_days: activationDeadlineType === 'relative' ? activationDeadlineDays : undefined,
+        activation_deadline_type: activationDeadlineType,
+        ...(activationDeadlineType === 'absolute' && activationDeadlineDate && {
+          activation_deadline_date: activationDeadlineDate
+        })
       }
-    }, 800)
+
+      console.log('📤 发送请求数据:', requestData)
+
+      const response = await fetch('/api/admin/keys/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData),
+        credentials: 'include'
+      })
+
+      const result = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(result.error || `请求失败 (${response.status})`)
+      }
+
+      if (!result.success) {
+        throw new Error(result.error || '生成密钥失败')
+      }
+
+      console.log('✅ 生成结果:', result.data)
+
+      // 保存生成的密钥
+      setGeneratedKeys(result.data.keys || [])
+      setSuccess(result.message || `成功生成 ${result.data.generated_count || 0} 个密钥`)
+
+    } catch (error: any) {
+      console.error('❌ 生成密钥失败:', error)
+      setError(`生成密钥失败: ${error.message}`)
+    } finally {
+      setGenerating(false)
+    }
   }
 
   // 复制所有密钥
   const copyAllKeys = () => {
-    const keysText = generatedKeys.join('\n')
+    if (generatedKeys.length === 0) return
+    
+    const keysText = generatedKeys.map(k => k.key_code).join('\n')
     navigator.clipboard.writeText(keysText)
     setCopiedAll(true)
     setTimeout(() => setCopiedAll(false), 2000)
@@ -163,12 +219,17 @@ export default function GenerateKeysPage() {
 
   // 下载密钥
   const downloadKeys = () => {
-    const keysText = generatedKeys.join('\n')
+    if (generatedKeys.length === 0) return
+    
+    const keysText = generatedKeys.map(k => 
+      `${k.key_code} | ${formatDuration(k.original_duration_hours)} | 激活截止: ${new Date(k.key_expires_at).toLocaleDateString('zh-CN')}`
+    ).join('\n')
+    
     const blob = new Blob([keysText], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `love-ludo-keys_${new Date().toLocaleDateString('zh-CN')}.txt`
+    link.download = `love-ludo-keys_${new Date().toISOString().split('T')[0]}.txt`
     link.click()
     URL.revokeObjectURL(url)
   }
@@ -179,91 +240,13 @@ export default function GenerateKeysPage() {
     setSuccess(null)
   }
 
-  // 提交到数据库
-  const handleSubmit = async () => {
-    if (generatedKeys.length === 0) {
-      setError('请先生成密钥')
-      return
-    }
-
-    try {
-      setGenerating(true)
-      setError(null)
-      
-      // 准备数据
-      const requestData = {
-        keys: generatedKeys,
-        duration_days: duration,
-        max_uses: maxUses,
-        description: description || undefined
-      }
-
-      console.log('提交密钥数据:', requestData)
-      
-      const response = await fetch('/api/admin/keys/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestData),
-        credentials: 'include'
-      })
-
-      const result = await response.json()
-
-      if (result.success) {
-        setSuccess(`✅ 成功创建了 ${generatedKeys.length} 个密钥！`)
-        
-        // 3秒后跳转回密钥列表页
-        setTimeout(() => {
-          router.push('/admin/keys')
-        }, 3000)
-      } else {
-        throw new Error(result.error || '创建密钥失败')
-      }
-    } catch (error: any) {
-      console.error('创建密钥失败:', error)
-      setError(`❌ 创建密钥失败: ${error.message}`)
-    } finally {
-      setGenerating(false)
-    }
-  }
-
-  // 获取显示时长文本
-  const getDurationText = (): string => {
-    if (duration === 1/24) return '1小时'
-    if (duration === 2/24) return '2小时'
-    if (duration === 4/24) return '4小时'
-    if (duration === 12/24) return '12小时'
-    if (duration === 1) return '1天'
-    if (duration === 2) return '2天'
-    if (duration === 7) return '7天'
-    if (duration === 30) return '30天'
-    if (duration === 90) return '3个月'
-    if (duration === 180) return '6个月'
-    if (duration === 365) return '1年'
-    return `${duration}天`
-  }
-
-  // 获取时长代码（用于密钥格式）
-  const getDurationCode = (): string => {
-    if (duration === 1/24) return '1H'
-    if (duration === 2/24) return '2H'
-    if (duration === 4/24) return '4H'
-    if (duration === 12/24) return '12H'
-    if (duration === 1) return '1D'
-    if (duration === 2) return '2D'
-    if (duration === 7) return '7D'
-    if (duration === 30) return '30D'
-    if (duration === 90) return '90D'
-    if (duration === 180) return '180D'
-    if (duration === 365) return '365D'
-    return `${duration}D`
-  }
-
-  // 清除消息
-  const clearMessages = () => {
-    setError(null)
-    setSuccess(null)
-  }
+  // 初始化激活截止日期
+  useEffect(() => {
+    const today = new Date()
+    const oneYearLater = new Date(today)
+    oneYearLater.setFullYear(oneYearLater.getFullYear() + 1)
+    setActivationDeadlineDate(oneYearLater.toISOString().split('T')[0])
+  }, [])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-900 to-gray-950 p-4 md:p-6">
@@ -283,7 +266,7 @@ export default function GenerateKeysPage() {
                 生成新密钥
               </h1>
               <p className="text-gray-400 mt-2">
-                创建带有使用次数限制的访问密钥
+                创建带有激活截止时间和使用时长限制的访问密钥
                 {generatedKeys.length > 0 && (
                   <span className="ml-2 text-amber-400">
                     • 已生成 {generatedKeys.length} 个密钥
@@ -339,17 +322,16 @@ export default function GenerateKeysPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2 flex items-center">
                   <Clock className="w-4 h-4 mr-2 text-blue-400" />
-                  使用有效期
+                  用户使用时长（激活后可使用）
                 </label>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                   {durationOptions.map((option) => (
                     <button
                       key={option.key}
                       type="button"
-                      onClick={() => handleDurationSelect(option.value)}
+                      onClick={() => handleDurationSelect(option.hours)}
                       className={`px-3 py-2 rounded-lg text-sm transition-colors ${
-                        (duration === option.value) || 
-                        (option.value === -1 && showCustomInput)
+                        durationHours === option.hours
                           ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white'
                           : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
                       }`}
@@ -359,72 +341,101 @@ export default function GenerateKeysPage() {
                   ))}
                 </div>
                 
-                {/* 自定义天数输入框 */}
-                {showCustomInput && (
-                  <div className="mt-4 p-4 bg-gray-900/70 rounded-lg border border-blue-500/50">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center">
-                        <Settings className="w-4 h-4 mr-2 text-blue-400" />
-                        <span className="text-sm font-medium text-gray-300">自定义天数</span>
-                      </div>
-                      <button
-                        onClick={handleCancelCustom}
-                        className="p-1 hover:bg-red-500/20 rounded"
-                        title="取消自定义"
-                      >
-                        <X className="w-4 h-4 text-red-400" />
-                      </button>
-                    </div>
-                    
-                    <div className="space-y-3">
-                      <div className="flex items-center space-x-3">
-                        <input
-                          type="number"
-                          min="1"
-                          max="999"
-                          value={customDays}
-                          onChange={(e) => handleCustomDaysChange(parseInt(e.target.value) || 30)}
-                          className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-center"
-                          placeholder="输入天数"
-                        />
-                        <span className="text-gray-300 whitespace-nowrap">天</span>
-                      </div>
-                      
-                      <div className="flex space-x-2 overflow-x-auto pb-2">
-                        {[1, 3, 7, 15, 30, 60, 90, 180].map((day) => (
-                          <button
-                            key={`quick-${day}`}
-                            type="button"
-                            onClick={() => handleCustomDaysChange(day)}
-                            className={`px-3 py-1.5 rounded text-xs ${
-                              customDays === day
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                            }`}
-                          >
-                            {day}天
-                          </button>
-                        ))}
-                      </div>
-                      
-                      <p className="text-gray-500 text-xs">
-                        当前自定义: {customDays} 天
-                      </p>
-                    </div>
-                  </div>
-                )}
-                
                 <div className="mt-3 p-3 bg-gray-900/30 rounded-lg">
                   <p className="text-gray-400 text-sm">
-                    <span className="text-blue-400">当前选择:</span> {getDurationText()}
+                    <span className="text-blue-400">当前选择:</span> {formatDuration(durationHours)}
                   </p>
                   <p className="text-gray-500 text-xs mt-1">
-                    密钥格式: {prefix}-{getDurationCode()}-XXXXXXXX
+                    密钥格式: {prefix}-{getDurationCode(durationHours)}-XXXXXXXX
                   </p>
-                  <div className="mt-2 p-2 bg-blue-900/20 border border-blue-700/30 rounded">
-                    <p className="text-xs text-blue-300">
-                      💡 注意：小时级别密钥将准确存储，支持1小时、2小时、4小时、12小时等
-                    </p>
+                </div>
+              </div>
+
+              {/* 激活截止时间设置 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2 flex items-center">
+                  <Calendar className="w-4 h-4 mr-2 text-purple-400" />
+                  激活截止时间（必须在此时间前激活）
+                </label>
+                
+                <div className="space-y-3">
+                  {/* 类型选择 */}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActivationDeadlineType('relative')}
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm transition-colors ${
+                        activationDeadlineType === 'relative'
+                          ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
+                          : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      }`}
+                    >
+                      相对时间
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActivationDeadlineType('absolute')}
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm transition-colors ${
+                        activationDeadlineType === 'absolute'
+                          ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
+                          : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      }`}
+                    >
+                      绝对日期
+                    </button>
+                  </div>
+
+                  {/* 相对时间选项 */}
+                  {activationDeadlineType === 'relative' && (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {activationDeadlineOptions.map((option) => (
+                        <button
+                          key={option.days}
+                          type="button"
+                          onClick={() => setActivationDeadlineDays(option.days)}
+                          className={`px-3 py-2 rounded-lg text-sm transition-colors ${
+                            activationDeadlineDays === option.days
+                              ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
+                              : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 绝对日期选择 */}
+                  {activationDeadlineType === 'absolute' && (
+                    <div className="space-y-2">
+                      <input
+                        type="date"
+                        value={activationDeadlineDate}
+                        onChange={(e) => setActivationDeadlineDate(e.target.value)}
+                        min={new Date().toISOString().split('T')[0]}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white"
+                      />
+                      <p className="text-gray-500 text-xs">
+                        密钥必须在此日期前激活使用，过期后无法激活
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                  <div className="flex items-start">
+                    <Timer className="w-4 h-4 text-purple-400 mr-2 mt-0.5" />
+                    <div>
+                      <p className="text-sm text-purple-300 mb-1">
+                        {activationDeadlineType === 'relative' 
+                          ? `密钥必须在 ${activationDeadlineDays} 天内激活`
+                          : `密钥必须在 ${new Date(activationDeadlineDate).toLocaleDateString('zh-CN')} 前激活`
+                        }
+                      </p>
+                      <p className="text-xs text-purple-400">
+                        注意：激活截止时间不同于使用时长。密钥必须在此时间前激活，激活后可使用{formatDuration(durationHours)}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -578,10 +589,10 @@ export default function GenerateKeysPage() {
                 </div>
                 <div className="mt-3 p-3 bg-gray-900/30 rounded-lg">
                   <p className="text-gray-500 text-sm">
-                    密钥格式：<code className="text-amber-400">{prefix}-{getDurationCode()}-XXXXXXXX</code>
+                    密钥格式：<code className="text-amber-400">{prefix}-{getDurationCode(durationHours)}-XXXXXXXX</code>
                   </p>
                   <p className="text-gray-500 text-xs mt-1">
-                    示例：{prefix}-{getDurationCode()}-A1B2C3D4
+                    示例：{prefix}-{getDurationCode(durationHours)}-A1B2C3D4
                   </p>
                 </div>
               </div>
@@ -611,11 +622,54 @@ export default function GenerateKeysPage() {
             </div>
           </div>
 
+          {/* 高级设置 */}
+          <button
+            onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+            className="w-full px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-gray-300 flex items-center justify-center"
+          >
+            <Settings className="w-5 h-5 mr-2" />
+            {showAdvancedSettings ? '隐藏高级设置' : '显示高级设置'}
+          </button>
+
+          {showAdvancedSettings && (
+            <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6 animate-slide-down">
+              <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+                <Settings className="w-5 h-5 mr-2 text-blue-400" />
+                高级设置
+              </h3>
+              
+              <div className="space-y-4">
+                {/* 自定义时长（小时） */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    自定义时长（小时）
+                  </label>
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="number"
+                      min="0.25"
+                      max="87600"
+                      step="0.25"
+                      value={durationHours}
+                      onChange={(e) => handleCustomDurationChange(parseFloat(e.target.value))}
+                      className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white"
+                      placeholder="输入小时数（0.25-87600）"
+                    />
+                    <span className="text-gray-300 whitespace-nowrap">小时</span>
+                  </div>
+                  <p className="text-gray-500 text-xs mt-2">
+                    支持小数（如0.5=30分钟，1.5=1.5小时）
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 操作按钮 */}
           <div className="flex flex-col md:flex-row gap-3">
             <button
               onClick={handleGenerateKeys}
-              disabled={generating || (showCustomInput && customDays < 1)}
+              disabled={generating}
               className="flex-1 px-4 py-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:opacity-90 rounded-lg text-white font-medium flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {generating ? (
@@ -630,26 +684,6 @@ export default function GenerateKeysPage() {
                 </>
               )}
             </button>
-            
-            {generatedKeys.length > 0 && (
-              <button
-                onClick={handleSubmit}
-                disabled={generating}
-                className="flex-1 px-4 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:opacity-90 rounded-lg text-white font-medium disabled:opacity-50"
-              >
-                {generating ? (
-                  <>
-                    <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
-                    保存中...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-5 h-5 mr-2" />
-                    保存到数据库
-                  </>
-                )}
-              </button>
-            )}
           </div>
         </div>
 
@@ -671,13 +705,22 @@ export default function GenerateKeysPage() {
                   </span>
                 </div>
                 <code className="font-mono text-lg text-white bg-gray-800 px-4 py-3 rounded-lg block text-center border border-gray-700 hover:border-gray-600 transition-colors">
-                  {prefix}-{getDurationCode()}-A1B2C3D4
+                  {prefix}-{getDurationCode(durationHours)}-A1B2C3D4
                 </code>
                 <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                   <div className="text-gray-500">
-                    <span className="block text-xs mb-1">有效期:</span>
+                    <span className="block text-xs mb-1">使用时长:</span>
                     <span className="text-blue-400 font-medium">
-                      {getDurationText()}
+                      {formatDuration(durationHours)}
+                    </span>
+                  </div>
+                  <div className="text-gray-500">
+                    <span className="block text-xs mb-1">激活截止:</span>
+                    <span className="text-purple-400 font-medium">
+                      {activationDeadlineType === 'relative' 
+                        ? `${activationDeadlineDays}天内`
+                        : new Date(activationDeadlineDate).toLocaleDateString('zh-CN')
+                      }
                     </span>
                   </div>
                   <div className="text-gray-500">
@@ -690,12 +733,6 @@ export default function GenerateKeysPage() {
                     <span className="block text-xs mb-1">前缀:</span>
                     <span className="text-amber-400 font-medium">
                       {prefix}
-                    </span>
-                  </div>
-                  <div className="text-gray-500">
-                    <span className="block text-xs mb-1">格式:</span>
-                    <span className="text-gray-400 font-medium">
-                      {getDurationCode()}
                     </span>
                   </div>
                 </div>
@@ -714,8 +751,8 @@ export default function GenerateKeysPage() {
                   </p>
                 </div>
                 <div className="p-3 bg-gray-900/30 rounded-lg">
-                  <p className="text-gray-400 text-xs">有效期</p>
-                  <p className="text-xl font-bold text-white mt-1">{getDurationText()}</p>
+                  <p className="text-gray-400 text-xs">使用时长</p>
+                  <p className="text-xl font-bold text-white mt-1">{formatDuration(durationHours)}</p>
                 </div>
                 <div className="p-3 bg-gray-900/30 rounded-lg">
                   <p className="text-gray-400 text-xs">前缀代码</p>
@@ -732,18 +769,23 @@ export default function GenerateKeysPage() {
                     <span className="text-amber-400 font-medium mt-1">{prefix}</span>
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-gray-400 text-xs">时长:</span>
-                    <span className="text-blue-400 font-medium mt-1">{getDurationText()}</span>
+                    <span className="text-gray-400 text-xs">使用时长:</span>
+                    <span className="text-blue-400 font-medium mt-1">{formatDuration(durationHours)}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-gray-400 text-xs">激活截止:</span>
+                    <span className="text-purple-400 font-medium mt-1">
+                      {activationDeadlineType === 'relative' 
+                        ? `${activationDeadlineDays}天内`
+                        : new Date(activationDeadlineDate).toLocaleDateString('zh-CN')
+                      }
+                    </span>
                   </div>
                   <div className="flex flex-col">
                     <span className="text-gray-400 text-xs">使用限制:</span>
                     <span className="text-green-400 font-medium mt-1">
                       {maxUses === null ? '无限次' : `${maxUses}次`}
                     </span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-gray-400 text-xs">生成数量:</span>
-                    <span className="text-purple-400 font-medium mt-1">{count}个</span>
                   </div>
                 </div>
                 {description && (
@@ -788,7 +830,7 @@ export default function GenerateKeysPage() {
                     className="p-2 hover:bg-red-500/20 rounded-lg transition-colors"
                     title="清除所有密钥"
                   >
-                    <RefreshCw className="w-5 h-5 text-red-400" />
+                    <X className="w-5 h-5 text-red-400" />
                   </button>
                 </div>
               </div>
@@ -796,7 +838,7 @@ export default function GenerateKeysPage() {
               <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
                 {generatedKeys.map((key, index) => (
                   <div
-                    key={index}
+                    key={key.id || index}
                     className="p-3 bg-gray-900/50 rounded-lg border border-gray-700 hover:border-gray-600 transition-colors group"
                   >
                     <div className="flex items-center justify-between">
@@ -804,11 +846,11 @@ export default function GenerateKeysPage() {
                         <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">
                           #{index + 1}
                         </span>
-                        <code className="font-mono text-sm text-white truncate flex-1">{key}</code>
+                        <code className="font-mono text-sm text-white truncate flex-1">{key.key_code}</code>
                       </div>
                       <button
                         onClick={() => {
-                          navigator.clipboard.writeText(key)
+                          navigator.clipboard.writeText(key.key_code)
                           const buttons = document.querySelectorAll(`[data-key-index="${index}"]`)
                           buttons.forEach(btn => {
                             const icon = btn.querySelector('svg')
@@ -828,6 +870,14 @@ export default function GenerateKeysPage() {
                         <Copy className="w-4 h-4 text-gray-400" />
                       </button>
                     </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                      <div className="text-gray-500">
+                        <span className="text-blue-400">时长:</span> {formatDuration(key.original_duration_hours)}
+                      </div>
+                      <div className="text-gray-500">
+                        <span className="text-purple-400">激活截止:</span> {new Date(key.key_expires_at).toLocaleDateString('zh-CN')}
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -841,9 +891,13 @@ export default function GenerateKeysPage() {
                     </p>
                     <ul className="text-xs text-gray-400 space-y-1">
                       <li>• 请务必复制并保存这些密钥</li>
-                      <li>• 点击"保存到数据库"按钮后，密钥将正式生效</li>
+                      <li>• 密钥已自动保存到数据库</li>
                       <li>• 建议同时下载备份，以防丢失</li>
-                      <li>• 密钥格式: {prefix}-{getDurationCode()}-随机码</li>
+                      <li>• 密钥格式: {prefix}-{getDurationCode(durationHours)}-随机码</li>
+                      <li>• 密钥必须在此时间前激活: {activationDeadlineType === 'relative' 
+                        ? `${activationDeadlineDays}天内`
+                        : new Date(activationDeadlineDate).toLocaleDateString('zh-CN')
+                      }</li>
                     </ul>
                   </div>
                 </div>
@@ -860,7 +914,7 @@ export default function GenerateKeysPage() {
             <div>
               <h4 className="text-sm font-medium text-white mb-1">下一步操作</h4>
               <p className="text-gray-400 text-sm">
-                您已成功生成 {generatedKeys.length} 个密钥，请选择后续操作
+                已成功生成 {generatedKeys.length} 个密钥，请选择后续操作
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -875,13 +929,6 @@ export default function GenerateKeysPage() {
                 className={`px-4 py-2 rounded-lg text-sm text-white ${copiedAll ? 'bg-green-600' : 'bg-blue-600 hover:opacity-90'}`}
               >
                 {copiedAll ? '✓ 已复制' : '复制所有密钥'}
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={generating}
-                className="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:opacity-90 rounded-lg text-sm text-white disabled:opacity-50"
-              >
-                {generating ? '保存中...' : '保存到数据库'}
               </button>
               <Link
                 href="/admin/keys"
@@ -901,7 +948,10 @@ export default function GenerateKeysPage() {
           <div className="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></div>
           <p className="text-xs text-gray-400">
             数据库状态: <span className="text-green-400">连接正常</span> | 
-            当前配置: {getDurationText()} · {maxUses === null ? '无限次' : `${maxUses}次`} · {count}个密钥
+            当前配置: {formatDuration(durationHours)} · {activationDeadlineType === 'relative' 
+              ? `${activationDeadlineDays}天内激活`
+              : `${new Date(activationDeadlineDate).toLocaleDateString('zh-CN')}前激活`
+            } · {maxUses === null ? '无限次' : `${maxUses}次`} · {count}个密钥
           </p>
         </div>
       </div>
