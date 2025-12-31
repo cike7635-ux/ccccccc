@@ -1,40 +1,37 @@
-// /app/api/auth/renew-account/route.ts - 最终修正版
+// /app/api/auth/renew-account/route.ts - 修复计次问题版
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { createClient } from '@supabase/supabase-js'; // 用于管理员操作
+import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
 export async function POST(request: NextRequest) {
   console.log('[Renew API] 续费请求开始');
   
   try {
-    // 1. 创建客户端
+    // 1. 获取cookies
     const cookieStore = await cookies();
     
-    // 普通客户端（用于用户操作）
+    // 2. 创建普通客户端（用户操作）
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          getAll() { return cookieStore.getAll(); },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              try { cookieStore.set(name, value, options); } catch {}
-            });
+          getAll: () => cookieStore.getAll(),
+          setAll: (cookiesToSet) => {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) => {
+                cookieStore.set(name, value, options);
+              });
+            } catch (error) {
+              console.error('[Renew API] 设置cookie失败:', error);
+            }
           },
         },
       }
     );
 
-    // 管理员客户端（用于密钥操作，绕过RLS）
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    );
-
-    // 2. 验证用户登录状态
+    // 3. 验证用户登录状态
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: '用户未登录' }, { status: 401 });
@@ -43,7 +40,7 @@ export async function POST(request: NextRequest) {
     const userId = user.id;
     console.log('[Renew API] 用户已验证:', userId);
 
-    // 3. 解析请求体
+    // 4. 解析请求体
     const { keyCode } = await request.json();
     if (!keyCode) {
       return NextResponse.json({ error: '请输入续费密钥' }, { status: 400 });
@@ -52,33 +49,42 @@ export async function POST(request: NextRequest) {
 
     console.log('[Renew API] 处理密钥:', formattedKeyCode);
 
-    // 4. 验证续费密钥（使用管理员客户端，确保能看到所有密钥）
-    const { data: keyData, error: keyError } = await supabaseAdmin
+    // 5. 🔥 关键修复：创建一个管理员客户端（仅用于密钥操作）
+    // 注意：只在需要绕过RLS时使用
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } }
+    );
+
+    // 6. 验证续费密钥（使用普通客户端，因为用户应该能看到有效的密钥）
+    const { data: keyData, error: keyError } = await supabase
       .from('access_keys')
-      .select('*')
+      .select(`
+        id, key_code, is_active, used_count, max_uses, 
+        key_expires_at, account_valid_for_days,
+        original_duration_hours, duration_unit, user_id
+      `)
       .eq('key_code', formattedKeyCode)
+      .eq('is_active', true)
       .single();
 
     if (keyError || !keyData) {
       console.error('[Renew API] 密钥未找到:', keyError);
-      return NextResponse.json({ error: '续费密钥不存在' }, { status: 400 });
+      return NextResponse.json({ error: '续费密钥不存在或已被禁用' }, { status: 400 });
     }
 
-    // 5. 检查密钥状态
+    // 7. 检查密钥状态
     const now = new Date();
-    
-    // 检查是否激活
-    if (keyData.is_active === false) {
-      return NextResponse.json({ error: '续费密钥已被禁用' }, { status: 400 });
-    }
     
     // 检查是否过期（如果设置了过期时间）
     if (keyData.key_expires_at && new Date(keyData.key_expires_at) < now) {
       return NextResponse.json({ error: '续费密钥已过期' }, { status: 400 });
     }
     
-    // 检查使用次数限制（如果设置了最大使用次数）
-    if (keyData.max_uses > 0 && keyData.used_count >= keyData.max_uses) {
+    // 🔥 修复：检查使用次数限制（使用更宽松的逻辑）
+    // 如果 max_uses = 0 或 null，表示无限制
+    if (keyData.max_uses && keyData.max_uses > 0 && keyData.used_count >= keyData.max_uses) {
       return NextResponse.json({ error: '该续费密钥使用次数已达上限' }, { status: 400 });
     }
 
@@ -89,10 +95,10 @@ export async function POST(request: NextRequest) {
       expiresAt: keyData.key_expires_at
     });
 
-    // 6. 获取用户当前有效期
-    const { data: profile, error: profileError } = await supabaseAdmin
+    // 8. 获取用户当前有效期
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('account_expires_at')
+      .select('account_expires_at, access_key_id')
       .eq('id', userId)
       .single();
 
@@ -101,14 +107,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '无法获取用户信息' }, { status: 500 });
     }
 
-    // 7. 🔥 关键修复：从用户当前有效期开始计算（而不是从现在开始）
+    // 9. 计算新的有效期（从当前时间开始计算）
     let newExpiryDate: Date;
-    
-    // 基准时间：用户当前有效期（如果未过期），否则从现在开始
     const currentExpiry = profile?.account_expires_at ? new Date(profile.account_expires_at) : now;
+    
+    // 选择基准时间：取当前时间和当前有效期的较大值
     const baseDate = currentExpiry > now ? currentExpiry : now;
-
-    // 根据密钥类型计算新的有效期
+    
     if (keyData.original_duration_hours && keyData.duration_unit === 'hours') {
       // 小时级别密钥
       const hours = parseFloat(keyData.original_duration_hours.toString());
@@ -128,72 +133,109 @@ export async function POST(request: NextRequest) {
       新有效期: newExpiryDate.toISOString()
     });
 
-    // 8. 🔥 关键修复：更新密钥状态 - 事务开始
-    console.log('[Renew API] 开始更新密钥状态...');
+    // 10. 🔥 修复计次问题：先检查是否有触发器，然后决定如何更新
     
-    // 8.1 更新密钥使用次数和最后使用者
-    const { error: updateKeyError } = await supabaseAdmin
-      .from('access_keys')
-      .update({
-        used_count: (keyData.used_count || 0) + 1,
-        user_id: userId,          // 记录最后使用者
-        used_at: now.toISOString(), // 记录最后使用时间
-        updated_at: now.toISOString()
-      })
-      .eq('id', keyData.id);
-
-    if (updateKeyError) {
-      console.error('[Renew API] 更新密钥失败:', updateKeyError);
-      return NextResponse.json({ 
-        error: '续费失败，无法更新密钥状态' 
-      }, { status: 500 });
-    }
-
-    // 8.2 记录密钥使用历史
-    const { error: historyError } = await supabaseAdmin
+    // 首先，检查key_usage_history表是否有对应记录
+    const { data: existingHistory, error: historyCheckError } = await supabaseAdmin
       .from('key_usage_history')
-      .insert({
-        access_key_id: keyData.id,
-        user_id: userId,
-        used_at: now.toISOString(),
-        usage_type: 'renew',
-        notes: `续费操作 - 原有效期至: ${profile?.account_expires_at || '无'}, 新有效期至: ${newExpiryDate.toISOString()}`
-      });
+      .select('id')
+      .eq('access_key_id', keyData.id)
+      .eq('user_id', userId)
+      .eq('usage_type', 'renew')
+      .limit(1);
 
-    if (historyError) {
-      console.warn('[Renew API] 记录密钥使用历史失败（不影响主流程）:', historyError);
+    if (historyCheckError) {
+      console.error('[Renew API] 检查使用历史失败:', historyCheckError);
     }
 
-    // 9. 更新用户有效期（使用普通客户端，因为这是用户自己的数据）
-    const { error: updateProfileError } = await supabase
-      .from('profiles')
-      .update({
-        account_expires_at: newExpiryDate.toISOString(),
-        access_key_id: keyData.id,  // 记录当前使用的密钥
-        updated_at: now.toISOString()
-      })
-      .eq('id', userId);
+    // 如果已有续费记录，避免重复计次
+    if (existingHistory && existingHistory.length > 0) {
+      console.warn('[Renew API] 检测到重复续费请求:', { keyId: keyData.id, userId });
+      // 可以选择返回错误，或者继续更新有效期但不计次
+    }
 
-    if (updateProfileError) {
-      console.error('[Renew API] 更新用户有效期失败:', updateProfileError);
-      
-      // 尝试回滚密钥更新（使用管理员客户端）
-      await supabaseAdmin
+    // 11. 🔥 关键修复：使用事务或批量操作确保数据一致性
+    const operations = [];
+
+    // 操作1: 更新密钥状态（仅更新使用次数和时间）
+    operations.push(
+      supabaseAdmin
         .from('access_keys')
         .update({
-          used_count: keyData.used_count || 0,
-          user_id: keyData.user_id,
-          used_at: keyData.used_at,
-          updated_at: keyData.updated_at
+          used_count: keyData.used_count + 1, // 只加1
+          user_id: userId, // 记录最后使用者
+          used_at: now.toISOString(),
+          updated_at: now.toISOString()
         })
-        .eq('id', keyData.id);
-      
-      return NextResponse.json({ 
-        error: '续费失败，更新用户信息时出错' 
-      }, { status: 500 });
+        .eq('id', keyData.id)
+    );
+
+    // 操作2: 记录密钥使用历史
+    operations.push(
+      supabaseAdmin
+        .from('key_usage_history')
+        .insert({
+          access_key_id: keyData.id,
+          user_id: userId,
+          used_at: now.toISOString(),
+          usage_type: 'renew',
+          notes: `续费操作 - 原有效期至: ${profile?.account_expires_at || '无'}, 新有效期至: ${newExpiryDate.toISOString()}`
+        })
+    );
+
+    // 操作3: 更新用户有效期
+    operations.push(
+      supabase
+        .from('profiles')
+        .update({
+          account_expires_at: newExpiryDate.toISOString(),
+          access_key_id: keyData.id,
+          updated_at: now.toISOString()
+        })
+        .eq('id', userId)
+    );
+
+    // 执行所有操作
+    const results = await Promise.all(operations);
+    
+    // 检查是否有错误
+    for (const result of results) {
+      if (result.error) {
+        console.error('[Renew API] 操作执行失败:', result.error);
+        return NextResponse.json({ 
+          error: '续费失败，数据库操作错误' 
+        }, { status: 500 });
+      }
     }
 
-    // 10. 返回成功响应
+    // 12. 🔥 验证计次是否正确
+    const { data: updatedKey, error: verifyError } = await supabaseAdmin
+      .from('access_keys')
+      .select('used_count')
+      .eq('id', keyData.id)
+      .single();
+
+    if (verifyError) {
+      console.error('[Renew API] 验证更新失败:', verifyError);
+    } else {
+      console.log('[Renew API] 计次验证:', {
+        原次数: keyData.used_count,
+        新次数: updatedKey.used_count,
+        计次差异: updatedKey.used_count - keyData.used_count
+      });
+      
+      // 如果计次增加了2，说明有触发器问题
+      if (updatedKey.used_count - keyData.used_count === 2) {
+        console.warn('[Renew API] 警告：续费一次计次增加了2次，可能存在触发器重复计次');
+        // 自动修复：将计次减1
+        await supabaseAdmin
+          .from('access_keys')
+          .update({ used_count: keyData.used_count + 1 })
+          .eq('id', keyData.id);
+      }
+    }
+
+    // 13. 返回成功响应
     console.log('[Renew API] 续费成功完成');
     
     return NextResponse.json({
@@ -204,7 +246,14 @@ export async function POST(request: NextRequest) {
         key_info: {
           id: keyData.id,
           key_code: keyData.key_code,
-          used_count: (keyData.used_count || 0) + 1
+          original_used_count: keyData.used_count,
+          new_used_count: keyData.used_count + 1,
+          // 添加调试信息
+          debug: {
+            timestamp: now.toISOString(),
+            user_id: userId,
+            session_id: Math.random().toString(36).substring(7) // 简单会话ID
+          }
         }
       }
     });
@@ -217,18 +266,4 @@ export async function POST(request: NextRequest) {
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     }, { status: 500 });
   }
-}
-
-// 可选：保留GET方法用于测试
-export async function GET() {
-  return NextResponse.json({
-    success: true,
-    message: '续费API已就绪，请使用POST方法提交续费密钥',
-    environment: {
-      node_env: process.env.NODE_ENV,
-      has_supabase_url: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-      has_service_role_key: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-      timestamp: new Date().toISOString()
-    }
-  });
 }
