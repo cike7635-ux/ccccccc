@@ -1,13 +1,27 @@
-// /app/admin/keys/types.ts
+// /app/admin/keys/types.ts - 向后兼容版本
 import { LucideIcon } from 'lucide-react'
-
-// 从lucide-react导入需要的图标
 import { Clock, Check, AlertCircle, Ban } from 'lucide-react'
 
 // 密钥状态类型
 export type KeyStatus = 'unused' | 'used' | 'expired' | 'disabled'
 
-// 密钥基础类型（对应 access_keys 表）
+// 用户信息接口
+export interface UserProfile {
+  email: string
+  nickname: string | null
+  id?: string
+  created_at?: string
+  last_login_at?: string | null
+  // ... 其他可能的字段
+}
+
+// 向后兼容：为现有代码保留 current_user 类型
+export interface CurrentUser {
+  email: string
+  nickname: string | null
+}
+
+// 密钥基础类型（向后兼容）
 export interface AccessKey {
   // 基础信息
   id: number
@@ -23,41 +37,39 @@ export interface AccessKey {
   max_uses: number | null
   usage_count: number
   
-  // 时间信息 - 关键修复：区分两种有效期
-  account_valid_for_days: number // 相对日期：用户激活后可使用天数
-  original_duration_hours: number | null // 相对日期：用户激活后可使用小时数（精确）
-  duration_unit: string // 显示单位：hours/days/months/years
-  key_expires_at: string | null // 绝对日期：激活截止时间
+  // 时间信息
+  account_valid_for_days: number
+  original_duration_hours: number | null
+  duration_unit: string
+  key_expires_at: string | null
   created_at: string
   updated_at: string
-  used_at: string | null // 首次使用时间
+  used_at: string | null
   last_used_at: string | null
   
-  // 关联信息
+  // 关联信息 - 完全向后兼容
   user_id: string | null
-  current_user: {
-    email: string
-    nickname: string | null
-  } | null
-  profiles?: {
-    email: string
-    nickname: string | null
-  }
+  
+  // ✅ 新字段：符合API实际返回
+  profiles?: UserProfile | null
+  
+  // ✅ 向后兼容：保留旧字段（标记为可选）
+  current_user?: CurrentUser | null
 }
 
-// 生成密钥请求参数
+// 生成密钥请求参数 - 未修改
 export interface GenerateKeysRequest {
-  count: number // 生成数量 (1-100)
-  prefix: string // 密钥前缀 (2-6字符)
-  duration: number // 使用时长 (小时数)
-  max_uses: number | null // 最大使用次数 (null为无限)
-  description?: string // 描述 (可选)
-  activation_deadline_days?: number // 激活截止天数 (相对)
-  activation_deadline_type?: 'relative' | 'absolute' // 截止时间类型
-  activation_deadline_date?: string // 激活截止日期 (绝对，ISO字符串)
+  count: number
+  prefix: string
+  duration: number
+  max_uses: number | null
+  description?: string
+  activation_deadline_days?: number
+  activation_deadline_type?: 'relative' | 'absolute'
+  activation_deadline_date?: string
 }
 
-// 生成密钥响应
+// 生成密钥响应 - 未修改
 export interface GenerateKeysResponse {
   success: boolean
   data?: {
@@ -85,7 +97,7 @@ export interface GenerateKeysResponse {
   error?: string
 }
 
-// 状态配置
+// 状态配置 - 未修改
 export interface StatusConfig {
   label: string
   color: string
@@ -93,7 +105,6 @@ export interface StatusConfig {
   icon: LucideIcon
 }
 
-// 状态配置映射
 export const statusConfig: Record<KeyStatus, StatusConfig> = {
   unused: {
     label: '未使用',
@@ -121,21 +132,21 @@ export const statusConfig: Record<KeyStatus, StatusConfig> = {
   }
 }
 
-// 时长选项
+// 时长选项 - 未修改
 export interface DurationOption {
-  hours: number // 小时数
-  label: string // 显示标签
-  display: string // 显示文本
-  key: string // 唯一键
+  hours: number
+  label: string
+  display: string
+  key: string
 }
 
-// 激活截止选项
+// 激活截止选项 - 未修改
 export interface ActivationDeadlineOption {
-  days: number // 天数
-  label: string // 显示标签
+  days: number
+  label: string
 }
 
-// 导出选项
+// 导出选项 - 未修改
 export interface ExportOptions {
   export_type: 'current_page' | 'filtered' | 'selected'
   filters?: any
@@ -144,7 +155,7 @@ export interface ExportOptions {
   limit?: number
 }
 
-// 筛选参数
+// 筛选参数 - 未修改
 export interface FilterParams {
   page?: number
   limit?: number

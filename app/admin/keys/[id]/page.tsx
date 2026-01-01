@@ -1,8 +1,8 @@
-// /app/admin/keys/[id]/page.tsx - 完整修复版
 'use client'
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { 
   ArrowLeft, Key, Copy, Check, AlertCircle, 
   User, Calendar, Clock, Shield, Loader2,
@@ -12,14 +12,14 @@ import {
   Globe, Cpu, Battery, BatteryCharging, BatteryFull,
   Lock, Unlock, CalendarClock, Timer, TimerReset
 } from 'lucide-react'
-import Link from 'next/link'
 
+// 定义接口（确保与API返回的数据结构一致）
 interface Profile {
-  id: string
   email: string
   nickname: string | null
-  created_at: string
-  last_sign_in_at: string | null
+  id?: string
+  created_at?: string
+  last_login_at?: string | null
 }
 
 interface KeyUsageHistory {
@@ -34,7 +34,7 @@ interface KeyUsageHistory {
   notes: string | null
   created_at: string
   updated_at: string
-  profiles?: Profile
+  profiles?: Profile | null
 }
 
 interface AccessKeyDetail {
@@ -52,7 +52,7 @@ interface AccessKeyDetail {
   updated_at: string | null
   original_duration_hours: number | null
   duration_unit: string | null
-  profiles?: Profile | null
+  profiles?: Profile | null  // API返回的是这个字段
 }
 
 interface KeyData {
@@ -376,15 +376,19 @@ export default function KeyDetailPage() {
   // 格式化日期
   const formatDate = (dateString: string | null) => {
     if (!dateString) return '-'
-    const date = new Date(dateString)
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    })
+    try {
+      const date = new Date(dateString)
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      })
+    } catch (error) {
+      return '格式错误'
+    }
   }
 
   // 格式化使用类型
@@ -574,6 +578,24 @@ export default function KeyDetailPage() {
     }
   }
 
+  // 安全获取用户信息（兼容API返回的数据结构）
+  const getUserInfo = () => {
+    if (!keyData?.key_info) return null
+    
+    const key = keyData.key_info
+    
+    // 优先使用 profiles 字段（API实际返回）
+    if (key.profiles && key.profiles.email) {
+      return {
+        email: key.profiles.email,
+        nickname: key.profiles.nickname,
+        id: key.user_id || key.profiles.id
+      }
+    }
+    
+    return null
+  }
+
   // 初始加载
   useEffect(() => {
     if (keyId) {
@@ -652,6 +674,7 @@ export default function KeyDetailPage() {
   const remaining = getRemainingTime()
   const durationDisplay = getDurationDisplay()
   const StatusIcon = status.icon
+  const userInfo = getUserInfo()
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-900 to-gray-950 p-4 md:p-6">
@@ -817,18 +840,6 @@ export default function KeyDetailPage() {
                     {key.used_count || 0}
                   </span>
                 </div>
-                
-                <div className="pt-3 border-t border-gray-700/50">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400">平均使用时长</span>
-                    <span className="text-purple-400 text-sm">
-                      {keyData.statistics.average_duration_hours > 0 
-                        ? `${Math.round(keyData.statistics.average_duration_hours)}小时`
-                        : '无数据'
-                      }
-                    </span>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -919,7 +930,7 @@ export default function KeyDetailPage() {
         </div>
 
         {/* 使用者信息 */}
-        {key.profiles && (
+        {userInfo && (
           <div className="mb-6">
             <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
               <h2 className="text-lg font-semibold text-white mb-4 flex items-center">
@@ -931,31 +942,35 @@ export default function KeyDetailPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">邮箱</label>
-                    <p className="text-white">{key.profiles.email}</p>
+                    <p className="text-white">{userInfo.email}</p>
                   </div>
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">昵称</label>
-                    <p className="text-white">{key.profiles.nickname || '未设置'}</p>
+                    <p className="text-white">{userInfo.nickname || '未设置'}</p>
                   </div>
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">用户ID</label>
-                    <p className="text-white font-mono text-sm break-all">{key.profiles.id}</p>
+                    <p className="text-white font-mono text-sm break-all">{userInfo.id || '未知'}</p>
                   </div>
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">最后登录</label>
-                    <p className="text-white">{formatDate(key.profiles.last_sign_in_at)}</p>
+                    <p className="text-white">
+                      {key.profiles?.last_login_at ? formatDate(key.profiles.last_login_at) : '从未登录'}
+                    </p>
                   </div>
                 </div>
-                <div className="mt-4 pt-4 border-t border-gray-700/50">
-                  <Link
-                    href={`/admin/users/${key.profiles.id}`}
-                    className="text-blue-400 hover:text-blue-300 inline-flex items-center gap-2"
-                    target="_blank"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    查看用户详情
-                  </Link>
-                </div>
+                {userInfo.id && (
+                  <div className="mt-4 pt-4 border-t border-gray-700/50">
+                    <Link
+                      href={`/admin/users/${userInfo.id}`}
+                      className="text-blue-400 hover:text-blue-300 inline-flex items-center gap-2"
+                      target="_blank"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      查看用户详情
+                    </Link>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -991,73 +1006,58 @@ export default function KeyDetailPage() {
                 </button>
               </div>
               
-              <div className={`overflow-hidden transition-all duration-300 ${showAllUsers ? 'max-h-[1000px]' : 'max-h-[400px]'}`}>
-                <div className="overflow-y-auto pr-2 max-h-[400px] md:max-h-[600px]">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-gray-800/50">
-                        <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">使用时间</th>
-                        <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">用户</th>
-                        <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">使用类型</th>
-                        <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {keyData.usage_history.map((record, index) => (
-                        <tr 
-                          key={record.id} 
-                          className={`border-t border-gray-700/30 ${index === 0 ? 'bg-blue-500/5' : ''}`}
-                        >
-                          <td className="py-3 px-4">
-                            <div className="flex flex-col">
-                              <span className="text-gray-300 text-sm">
-                                {formatDate(record.used_at)}
-                              </span>
-                              {index === 0 && (
-                                <span className="text-green-400 text-xs mt-1">最近使用</span>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-800/50">
+                      <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">使用时间</th>
+                      <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">用户</th>
+                      <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">使用类型</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {keyData.usage_history.map((record, index) => (
+                      <tr 
+                        key={record.id} 
+                        className={`border-t border-gray-700/30 ${index === 0 ? 'bg-blue-500/5' : ''}`}
+                      >
+                        <td className="py-3 px-4">
+                          <div className="flex flex-col">
+                            <span className="text-gray-300 text-sm">
+                              {formatDate(record.used_at)}
+                            </span>
+                            {index === 0 && (
+                              <span className="text-green-400 text-xs mt-1">最近使用</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center">
+                            <User className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-gray-300 text-sm truncate" title={record.profiles?.email || `用户ID: ${record.user_id}`}>
+                                {record.profiles?.email || `用户ID: ${record.user_id}`}
+                              </p>
+                              {record.profiles?.nickname && (
+                                <p className="text-gray-500 text-xs truncate">{record.profiles.nickname}</p>
                               )}
                             </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center">
-                              <User className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
-                              <div className="min-w-0">
-                                <p className="text-gray-300 text-sm truncate" title={record.profiles?.email || `用户ID: ${record.user_id}`}>
-                                  {record.profiles?.email || `用户ID: ${record.user_id}`}
-                                </p>
-                                {record.profiles?.nickname && (
-                                  <p className="text-gray-500 text-xs truncate">{record.profiles.nickname}</p>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              record.usage_type === 'activate' ? 'bg-green-500/20 text-green-400' :
-                              record.usage_type === 'renew' ? 'bg-blue-500/20 text-blue-400' :
-                              record.usage_type === 'transfer' ? 'bg-purple-500/20 text-purple-400' :
-                              'bg-gray-500/20 text-gray-400'
-                            }`}>
-                              {formatUsageType(record.usage_type)}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            {record.profiles?.id && (
-                              <Link
-                                href={`/admin/users/${record.profiles.id}`}
-                                className="text-blue-400 hover:text-blue-300 text-sm flex items-center gap-1"
-                                target="_blank"
-                              >
-                                <ExternalLink className="w-3 h-3" />
-                                查看
-                              </Link>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            record.usage_type === 'activate' ? 'bg-green-500/20 text-green-400' :
+                            record.usage_type === 'renew' ? 'bg-blue-500/20 text-blue-400' :
+                            record.usage_type === 'transfer' ? 'bg-purple-500/20 text-purple-400' :
+                            'bg-gray-500/20 text-gray-400'
+                          }`}>
+                            {formatUsageType(record.usage_type)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
               
               <div className="mt-4 pt-4 border-t border-gray-700/50 flex items-center justify-between">
@@ -1066,13 +1066,13 @@ export default function KeyDetailPage() {
                 </div>
                 <div className="flex gap-2">
                   <span className="px-2 py-1 bg-green-500/20 text-green-400 rounded text-xs">
-                    激活: {keyData.statistics.usage_by_type.activate || 0}
+                    激活: {keyData.statistics.usage_by_type?.activate || 0}
                   </span>
                   <span className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded text-xs">
-                    续期: {keyData.statistics.usage_by_type.renew || 0}
+                    续期: {keyData.statistics.usage_by_type?.renew || 0}
                   </span>
                   <span className="px-2 py-1 bg-purple-500/20 text-purple-400 rounded text-xs">
-                    转移: {keyData.statistics.usage_by_type.transfer || 0}
+                    转移: {keyData.statistics.usage_by_type?.transfer || 0}
                   </span>
                 </div>
               </div>
@@ -1376,21 +1376,6 @@ export default function KeyDetailPage() {
                           </>
                         )}
                       </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-gray-700/50">
-                  <div className="flex items-start p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                    <AlertCircle className="w-4 h-4 text-blue-400 mr-2 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm text-blue-300 mb-1">延长有效期说明</p>
-                      <ul className="text-xs text-gray-400 space-y-1">
-                        <li>• 延长操作将在当前过期时间的基础上增加指定时长</li>
-                        <li>• 如果密钥未设置过期时间，将从当前时间开始计算</li>
-                        <li>• 延长操作会记录日志，便于后续审计</li>
-                        <li>• 建议在延长前备份当前密钥状态</li>
-                      </ul>
                     </div>
                   </div>
                 </div>
