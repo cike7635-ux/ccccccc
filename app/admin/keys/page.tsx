@@ -36,14 +36,12 @@ import { ChevronLast } from 'lucide-react'
 import { BarChart3 } from 'lucide-react'
 import { File } from 'lucide-react'
 import { FileText } from 'lucide-react'
-import { ExternalLink } from 'lucide-react'
 
 // 2. 导入其他依赖
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
 // 3. 导入组件和类型
-import ExportModal from './components/ExportModal'
 import { AccessKey, KeyStatus, RemainingTime, RecentUser } from './types'
 
 // 4. 在组件内部定义状态配置
@@ -83,11 +81,123 @@ function LoadingPage() {
   )
 }
 
+// 优化的使用者列渲染函数 - 方案A（标签式）
+const renderUsers = (key: AccessKey) => {
+  const recentUsers = key.recent_users || []
+  const totalUsers = key.total_users || 0
+  
+  if (totalUsers === 0 && recentUsers.length === 0) {
+    return <span className="text-gray-500 text-sm">-</span>
+  }
+  
+  // 提取邮箱前缀（@之前的部分）用于简洁显示
+  const getEmailPrefix = (email: string) => {
+    const prefix = email.split('@')[0]
+    return prefix.length > 10 ? prefix.substring(0, 10) + '...' : prefix
+  }
+  
+  // 获取用户颜色主题
+  const getUserColor = (index: number) => {
+    const colors = [
+      { bg: 'from-blue-500/20 to-cyan-500/20', border: 'border-blue-500/30', icon: 'text-blue-400' },
+      { bg: 'from-purple-500/20 to-pink-500/20', border: 'border-purple-500/30', icon: 'text-purple-400' },
+      { bg: 'from-amber-500/20 to-orange-500/20', border: 'border-amber-500/30', icon: 'text-amber-400' },
+      { bg: 'from-emerald-500/20 to-teal-500/20', border: 'border-emerald-500/30', icon: 'text-emerald-400' }
+    ]
+    return colors[index % colors.length]
+  }
+  
+  return (
+    <div className="max-w-[200px]">
+      <div className="flex flex-wrap gap-1.5">
+        {/* 用户标签 */}
+        {recentUsers.slice(0, 2).map((user, index) => {
+          const colorTheme = getUserColor(index)
+          return (
+            <div
+              key={index}
+              className="group relative"
+            >
+              <div className={`px-2.5 py-1.5 bg-gradient-to-r ${colorTheme.bg} hover:opacity-90 rounded-lg border ${colorTheme.border} transition-all duration-200 cursor-help shadow-sm hover:shadow-md`}>
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-full bg-gray-800/80 border border-gray-700 flex items-center justify-center flex-shrink-0">
+                    <User className={`w-2.5 h-2.5 ${colorTheme.icon}`} />
+                  </div>
+                  <span className="text-xs font-medium text-gray-200 whitespace-nowrap">
+                    {getEmailPrefix(user.email)}
+                  </span>
+                </div>
+              </div>
+              
+              {/* 悬停提示框 */}
+              <div className="absolute z-50 hidden group-hover:block -top-10 left-1/2 -translate-x-1/2">
+                <div className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 shadow-xl min-w-[180px] backdrop-blur-sm">
+                  <p className="text-xs font-medium text-gray-200 mb-1">用户信息</p>
+                  <p className="text-xs text-gray-300 break-all">{user.email}</p>
+                  {user.nickname && (
+                    <p className="text-xs text-gray-500 mt-1">昵称: {user.nickname}</p>
+                  )}
+                </div>
+                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 border-r border-b border-gray-700 rotate-45"></div>
+              </div>
+            </div>
+          )
+        })}
+        
+        {/* 更多用户计数 */}
+        {totalUsers > 2 && (
+          <div className="group relative">
+            <div className="px-2.5 py-1.5 bg-gradient-to-r from-blue-500/20 to-blue-600/20 hover:from-blue-500/30 hover:to-blue-600/30 rounded-lg border border-blue-500/30 transition-all duration-200 cursor-help shadow-sm hover:shadow-md">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-blue-400" />
+                <span className="text-xs font-medium text-blue-400 whitespace-nowrap">
+                  +{totalUsers - 2}
+                </span>
+              </div>
+            </div>
+            
+            {/* 悬停提示框 */}
+            <div className="absolute z-50 hidden group-hover:block -top-10 left-1/2 -translate-x-1/2">
+              <div className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 shadow-xl backdrop-blur-sm">
+                <p className="text-xs font-medium text-gray-200 mb-1">使用者统计</p>
+                <p className="text-xs text-gray-300">共 {totalUsers} 个使用者</p>
+                <p className="text-xs text-gray-500 mt-1">点击查看详情查看所有用户</p>
+              </div>
+              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 border-r border-b border-gray-700 rotate-45"></div>
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* 当只有一个用户时显示完整邮箱 */}
+      {totalUsers === 1 && recentUsers.length === 1 && (
+        <div className="mt-2">
+          <div className="flex items-center gap-2 px-2 py-1.5 bg-gray-800/30 rounded-lg border border-gray-700/30 hover:bg-gray-800/50 transition-colors">
+            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center flex-shrink-0 border border-amber-500/30">
+              <User className="w-3 h-3 text-amber-400" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-gray-300 truncate" title={recentUsers[0].email}>
+                {recentUsers[0].email}
+              </p>
+              {recentUsers[0].nickname && (
+                <p className="text-xs text-gray-500 truncate mt-0.5">
+                  {recentUsers[0].nickname}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // 主内容组件
 function KeysContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-
+  
   // 状态管理
   const [keys, setKeys] = useState<AccessKey[]>([])
   const [loading, setLoading] = useState(true)
@@ -101,17 +211,17 @@ function KeysContent() {
   const [bulkOperationLoading, setBulkOperationLoading] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [showExportModal, setShowExportModal] = useState(false)
-
+  
   // 筛选状态
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | KeyStatus>('all')
   const [sortBy, setSortBy] = useState<'created_at' | 'key_code' | 'used_count'>('created_at')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
-
+  
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(20)
-
+  
   // 统计信息
   const [stats, setStats] = useState({
     total: 0,
@@ -130,20 +240,20 @@ function KeysContent() {
   const fetchKeys = useCallback(async () => {
     setLoading(true)
     setError(null)
-
+    
     try {
       console.log('📡 开始获取密钥数据（增强版）...')
-
+      
       const response = await fetch('/api/admin/keys/list', {
         credentials: 'include',
-        headers: {
+        headers: { 
           'Cache-Control': 'no-cache',
           'Accept': 'application/json'
         }
       })
 
       console.log('📦 API响应状态:', response.status)
-
+      
       if (!response.ok) {
         if (response.status === 401) {
           router.push('/admin/login')
@@ -153,14 +263,14 @@ function KeysContent() {
       }
 
       const result = await response.json()
-
+      
       if (!result.success) {
         throw new Error(result.error || '获取密钥数据失败')
       }
 
       const keysData: AccessKey[] = result.data || []
       console.log(`✅ 获取到 ${keysData.length} 条密钥数据`)
-
+      
       // 确保每个密钥都有必要的数据
       const processedKeys = keysData.map(key => ({
         ...key,
@@ -172,24 +282,24 @@ function KeysContent() {
         remaining_time: key.remaining_time || { text: '未知', color: 'text-gray-400', isExpired: false },
         duration_display: key.duration_display || '未知',
         // 确保日期格式
-        created_at_formatted: key.created_at_formatted ||
+        created_at_formatted: key.created_at_formatted || 
           (key.created_at ? new Date(key.created_at).toLocaleString('zh-CN') : '未知')
       }))
-
+      
       setKeys(processedKeys)
 
       // 计算统计数据
       const now = new Date()
       const today = new Date()
       today.setHours(23, 59, 59, 999)
-
+      
       const sevenDaysLater = new Date()
       sevenDaysLater.setDate(sevenDaysLater.getDate() + 7)
-
+      
       // 计算总用户数和总使用次数
       const totalUsers = processedKeys.reduce((sum, key) => sum + (key.total_users || 0), 0)
       const totalUses = processedKeys.reduce((sum, key) => sum + (key.usage_count || 0), 0)
-
+      
       const statsData = {
         total: processedKeys.length,
         active: processedKeys.filter(k => k.is_active).length,
@@ -210,7 +320,7 @@ function KeysContent() {
         total_users: totalUsers,
         total_uses: totalUses
       }
-
+      
       console.log('📊 增强统计数据:', statsData)
       setStats(statsData)
 
@@ -236,24 +346,24 @@ function KeysContent() {
     if (key.key_status && key.key_status !== 'unknown') {
       return key.key_status
     }
-
+    
     const now = new Date()
-
+    
     // 1. 已禁用
     if (!key.is_active) {
       return 'disabled'
     }
-
+    
     // 2. 已过期
     if (key.key_expires_at && new Date(key.key_expires_at) < now) {
       return 'expired'
     }
-
+    
     // 3. 已使用（used_at不为空或user_id不为空）
     if (key.used_at !== null || key.user_id !== null) {
       return 'used'
     }
-
+    
     // 4. 未使用
     return 'unused'
   }
@@ -264,45 +374,45 @@ function KeysContent() {
     if (key.remaining_time && key.remaining_time.text !== '未知') {
       return key.remaining_time
     }
-
+    
     const now = new Date()
-
+    
     // 1. 检查绝对有效期（激活截止时间）
     if (key.key_expires_at) {
       const expiryDate = new Date(key.key_expires_at)
       const diffMs = expiryDate.getTime() - now.getTime()
-
+      
       if (diffMs <= 0) {
-        return {
-          text: '已过期',
+        return { 
+          text: '已过期', 
           color: 'text-red-400',
           isExpired: true
         }
       }
-
+      
       // 未激活，显示激活截止时间
       if (!key.used_at && !key.user_id) {
         const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
-
+        
         if (diffDays <= 7) {
-          return {
-            text: `${diffDays}天后激活截止`,
+          return { 
+            text: `${diffDays}天后激活截止`, 
             color: 'text-amber-400',
             isExpired: false
           }
         }
-        return {
-          text: `${diffDays}天后激活截止`,
+        return { 
+          text: `${diffDays}天后激活截止`, 
           color: 'text-blue-400',
           isExpired: false
         }
       }
     }
-
+    
     // 2. 如果已激活，计算使用有效期
     if (key.used_at) {
       const usedDate = new Date(key.used_at)
-
+      
       // 优先使用 original_duration_hours 计算
       let expiryTime
       if (key.original_duration_hours) {
@@ -310,53 +420,53 @@ function KeysContent() {
       } else if (key.account_valid_for_days) {
         expiryTime = new Date(usedDate.getTime() + (key.account_valid_for_days || 30) * 24 * 60 * 60 * 1000)
       } else {
-        return {
-          text: '永不过期',
+        return { 
+          text: '永不过期', 
           color: 'text-green-400',
           isExpired: false
         }
       }
-
+      
       const diffMs = expiryTime.getTime() - now.getTime()
-
+      
       if (diffMs <= 0) {
-        return {
-          text: '已过期',
+        return { 
+          text: '已过期', 
           color: 'text-red-400',
           isExpired: true
         }
       }
-
+      
       // 转换为友好的时间显示
       const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
       const diffDays = Math.floor(diffHours / 24)
       const remainingHours = diffHours % 24
-
+      
       if (diffDays > 0) {
         if (remainingHours > 0) {
-          return {
-            text: `${diffDays}天${remainingHours}小时后过期`,
+          return { 
+            text: `${diffDays}天${remainingHours}小时后过期`, 
             color: diffDays <= 7 ? 'text-amber-400' : 'text-green-400',
             isExpired: false
           }
         }
-        return {
-          text: `${diffDays}天后过期`,
+        return { 
+          text: `${diffDays}天后过期`, 
           color: diffDays <= 7 ? 'text-amber-400' : 'text-green-400',
-          isExpired: false
-        }
+            isExpired: false
+          }
       } else {
-        return {
-          text: `${diffHours}小时后过期`,
+        return { 
+          text: `${diffHours}小时后过期`, 
           color: diffHours <= 24 ? 'text-amber-400' : 'text-blue-400',
           isExpired: false
         }
       }
     }
-
+    
     // 3. 未激活也没有绝对有效期
-    return {
-      text: `有效期${key.account_valid_for_days || 30}天`,
+    return { 
+      text: `有效期${key.account_valid_for_days || 30}天`, 
       color: 'text-green-400',
       isExpired: false
     }
@@ -368,16 +478,16 @@ function KeysContent() {
     if (key.duration_display && key.duration_display !== '未知') {
       return key.duration_display
     }
-
+    
     // 优先使用 original_duration_hours
     if (key.original_duration_hours) {
       const hours = parseFloat(key.original_duration_hours as any)
-
+      
       if (hours < 24) {
         // 显示小时
         const displayHours = Math.floor(hours)
         const displayMinutes = Math.round((hours - displayHours) * 60)
-
+        
         if (displayHours === 0) {
           return `${displayMinutes}分钟`
         } else if (displayMinutes === 0) {
@@ -408,7 +518,7 @@ function KeysContent() {
         }
       }
     }
-
+    
     // 回退到 account_valid_for_days
     const days = key.account_valid_for_days || 30
     if (days < 30) {
@@ -419,131 +529,34 @@ function KeysContent() {
     }
   }
 
-  // 优化的使用者列渲染函数 - 方案A（标签式）
-  const renderUsers = (key: AccessKey) => {
-    const recentUsers = key.recent_users || []
-    const totalUsers = key.total_users || 0
-
-    if (totalUsers === 0 && recentUsers.length === 0) {
-      return <span className="text-gray-500 text-sm">-</span>
-    }
-
-    // 提取邮箱前缀（@之前的部分）用于简洁显示
-    const getEmailPrefix = (email: string) => {
-      const prefix = email.split('@')[0]
-      return prefix.length > 12 ? prefix.substring(0, 12) + '...' : prefix
-    }
-
-    return (
-      <div className="max-w-[200px]">
-        <div className="flex flex-wrap gap-1.5">
-          {/* 用户标签 */}
-          {recentUsers.slice(0, 2).map((user, index) => (
-            <div
-              key={index}
-              className="group relative"
-            >
-              <div className="px-2.5 py-1.5 bg-gray-800/60 hover:bg-gray-700/80 rounded-lg border border-gray-700/50 transition-all duration-200 cursor-help shadow-sm hover:shadow-md">
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-gray-700 to-gray-800 border border-gray-600 flex items-center justify-center flex-shrink-0">
-                    <User className="w-2.5 h-2.5 text-gray-300" />
-                  </div>
-                  <span className="text-xs font-medium text-gray-300">
-                    {getEmailPrefix(user.email)}
-                  </span>
-                </div>
-              </div>
-
-              {/* 悬停提示框 */}
-              <div className="absolute z-50 hidden group-hover:block -top-10 left-1/2 -translate-x-1/2">
-                <div className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 shadow-xl min-w-[180px]">
-                  <p className="text-xs font-medium text-gray-200 mb-1">用户信息</p>
-                  <p className="text-xs text-gray-300 break-all">{user.email}</p>
-                  {user.nickname && (
-                    <p className="text-xs text-gray-500 mt-1">昵称: {user.nickname}</p>
-                  )}
-                </div>
-                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 border-r border-b border-gray-700 rotate-45"></div>
-              </div>
-            </div>
-          ))}
-
-          {/* 更多用户计数 */}
-          {totalUsers > 2 && (
-            <div className="group relative">
-              <div className="px-2.5 py-1.5 bg-gradient-to-r from-blue-500/20 to-blue-600/20 hover:from-blue-500/30 hover:to-blue-600/30 rounded-lg border border-blue-500/30 transition-all duration-200 cursor-help shadow-sm hover:shadow-md">
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-blue-400" />
-                  <span className="text-xs font-medium text-blue-400">
-                    +{totalUsers - 2}
-                  </span>
-                </div>
-              </div>
-
-              {/* 悬停提示框 */}
-              <div className="absolute z-50 hidden group-hover:block -top-10 left-1/2 -translate-x-1/2">
-                <div className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 shadow-xl">
-                  <p className="text-xs font-medium text-gray-200 mb-1">使用者统计</p>
-                  <p className="text-xs text-gray-300">共 {totalUsers} 个使用者</p>
-                  <p className="text-xs text-gray-500 mt-1">点击查看详情查看所有用户</p>
-                </div>
-                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 border-r border-b border-gray-700 rotate-45"></div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* 当只有一个用户时显示完整邮箱 */}
-        {totalUsers === 1 && recentUsers.length === 1 && (
-          <div className="mt-2">
-            <div className="flex items-center gap-2 px-2 py-1.5 bg-gray-800/30 rounded-lg border border-gray-700/30">
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center flex-shrink-0">
-                <User className="w-3 h-3 text-amber-400" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs text-gray-300 truncate" title={recentUsers[0].email}>
-                  {recentUsers[0].email}
-                </p>
-                {recentUsers[0].nickname && (
-                  <p className="text-xs text-gray-500 truncate mt-0.5">
-                    {recentUsers[0].nickname}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
   // 过滤密钥
   const filteredKeys = useMemo(() => {
     return keys.filter(key => {
       // 搜索过滤
-      const searchMatch = search === '' ||
+      const searchMatch = search === '' || 
         key.key_code.toLowerCase().includes(search.toLowerCase()) ||
         (key.description && key.description.toLowerCase().includes(search.toLowerCase())) ||
         (key.profiles?.email && key.profiles.email.toLowerCase().includes(search.toLowerCase())) ||
         // 搜索使用者邮箱
-        (key.recent_users && key.recent_users.some(user =>
+        (key.recent_users && key.recent_users.some(user => 
           user.email.toLowerCase().includes(search.toLowerCase())
         ))
-
+      
       // 状态过滤
       if (statusFilter === 'all') {
         return searchMatch
       }
-
+      
       // 获取密钥状态
       const keyStatus = getKeyStatus(key)
-
+      
       // 状态匹配
       return searchMatch && keyStatus === statusFilter
-
+      
     }).sort((a, b) => {
       // 排序
       let aValue: any, bValue: any
-
+      
       if (sortBy === 'key_code') {
         aValue = a.key_code
         bValue = b.key_code
@@ -554,7 +567,7 @@ function KeysContent() {
         aValue = a.created_at
         bValue = b.created_at
       }
-
+      
       if (sortOrder === 'asc') {
         return aValue > bValue ? 1 : -1
       } else {
@@ -569,6 +582,56 @@ function KeysContent() {
     return filteredKeys.slice(startIndex, startIndex + itemsPerPage)
   }, [filteredKeys, currentPage, itemsPerPage])
 
+  // 全选/取消全选当前页（修复后的函数）
+  const toggleSelectAll = useCallback(() => {
+    const currentPageIds = paginatedKeys.map(key => key.id)
+    
+    // 检查当前页是否已经全部选中
+    const isCurrentPageAllSelected = currentPageIds.length > 0 && 
+      currentPageIds.every(id => selectedKeys.includes(id))
+    
+    if (isCurrentPageAllSelected) {
+      // 取消全选当前页
+      setSelectedKeys(prev => prev.filter(id => !currentPageIds.includes(id)))
+    } else {
+      // 全选当前页（去重）
+      const newSelected = new Set(selectedKeys)
+      currentPageIds.forEach(id => newSelected.add(id))
+      setSelectedKeys(Array.from(newSelected))
+    }
+  }, [paginatedKeys, selectedKeys])
+
+  // 全选/取消全选所有过滤后的密钥
+  const toggleSelectAllFiltered = useCallback(() => {
+    const allFilteredIds = filteredKeys.map(key => key.id)
+    
+    // 检查所有过滤后的密钥是否已经全部选中
+    const isAllFilteredSelected = allFilteredIds.length > 0 && 
+      allFilteredIds.every(id => selectedKeys.includes(id))
+    
+    if (isAllFilteredSelected) {
+      // 取消全选所有
+      setSelectedKeys([])
+    } else {
+      // 全选所有过滤后的密钥
+      setSelectedKeys(allFilteredIds)
+    }
+  }, [filteredKeys, selectedKeys])
+
+  // 计算当前页是否全部选中
+  const isCurrentPageAllSelected = useMemo(() => {
+    const currentPageIds = paginatedKeys.map(key => key.id)
+    return paginatedKeys.length > 0 && 
+      currentPageIds.every(id => selectedKeys.includes(id))
+  }, [paginatedKeys, selectedKeys])
+
+  // 计算所有过滤后的密钥是否全部选中
+  const isAllFilteredSelected = useMemo(() => {
+    const allFilteredIds = filteredKeys.map(key => key.id)
+    return filteredKeys.length > 0 && 
+      allFilteredIds.every(id => selectedKeys.includes(id))
+  }, [filteredKeys, selectedKeys])
+
   // 单个密钥操作
   const handleKeyAction = async (keyId: number, action: 'disable' | 'enable' | 'delete') => {
     const actionText = {
@@ -576,7 +639,7 @@ function KeysContent() {
       enable: '启用',
       delete: '删除'
     }[action]
-
+    
     if (action === 'delete') {
       if (!confirm(`确定要删除此密钥吗？\n此操作不可撤销！`)) {
         return
@@ -586,9 +649,9 @@ function KeysContent() {
         return
       }
     }
-
+    
     setOperationLoading(keyId)
-
+    
     try {
       const response = await fetch(`/api/admin/keys/${keyId}`, {
         method: 'PUT',
@@ -596,16 +659,16 @@ function KeysContent() {
         body: JSON.stringify({ action }),
         credentials: 'include'
       })
-
+      
       const result = await response.json()
-
+      
       if (result.success) {
         setSuccessMessage(`密钥已${actionText}`)
         setTimeout(() => setSuccessMessage(null), 3000)
-
+        
         // 刷新数据
         setRefreshTrigger(prev => prev + 1)
-
+        
         // 如果删除了选中的密钥，从选中列表中移除
         if (action === 'delete') {
           setSelectedKeys(prev => prev.filter(id => id !== keyId))
@@ -623,23 +686,23 @@ function KeysContent() {
   // 批量操作
   const handleBulkAction = async (action: 'disable' | 'enable' | 'delete') => {
     if (selectedKeys.length === 0) return
-
+    
     const actionText = {
       disable: '禁用',
       enable: '启用',
       delete: '删除'
     }[action]
-
+    
     const confirmText = {
       disable: `确定要禁用选中的 ${selectedKeys.length} 个密钥吗？\n禁用后密钥将无法使用。`,
       enable: `确定要启用选中的 ${selectedKeys.length} 个密钥吗？\n启用后密钥可以正常使用。`,
       delete: `确定要删除选中的 ${selectedKeys.length} 个密钥吗？\n此操作不可撤销！`
     }[action]
-
+    
     if (!confirm(confirmText)) return
-
+    
     setBulkOperationLoading(true)
-
+    
     try {
       const response = await fetch('/api/admin/keys/batch', {
         method: 'POST',
@@ -650,13 +713,13 @@ function KeysContent() {
         }),
         credentials: 'include'
       })
-
+      
       const result = await response.json()
-
+      
       if (result.success) {
         setSuccessMessage(`成功${actionText}了 ${selectedKeys.length} 个密钥`)
         setTimeout(() => setSuccessMessage(null), 3000)
-
+        
         // 刷新数据
         setRefreshTrigger(prev => prev + 1)
         setSelectedKeys([])
@@ -671,15 +734,6 @@ function KeysContent() {
     }
   }
 
-  // 全选/取消全选
-  const toggleSelectAll = () => {
-    if (selectedKeys.length === filteredKeys.length) {
-      setSelectedKeys([])
-    } else {
-      setSelectedKeys(filteredKeys.map(key => key.id))
-    }
-  }
-
   // 查看密钥详情
   const viewKeyDetail = (keyId: number) => {
     window.open(`/admin/keys/${keyId}`, '_blank')
@@ -690,9 +744,9 @@ function KeysContent() {
     const selectedKeyCodes = keys
       .filter(key => selectedKeys.includes(key.id))
       .map(key => key.key_code)
-
+    
     if (selectedKeyCodes.length === 0) return
-
+    
     const text = selectedKeyCodes.join('\n')
     navigator.clipboard.writeText(text)
     setSuccessMessage(`已复制 ${selectedKeyCodes.length} 个密钥到剪贴板`)
@@ -703,7 +757,7 @@ function KeysContent() {
   const handleExport = async (format: 'csv' | 'json' | 'txt') => {
     try {
       setBulkOperationLoading(true)
-
+      
       const response = await fetch('/api/admin/keys/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -726,11 +780,11 @@ function KeysContent() {
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
-
+      
       const filename = response.headers.get('Content-Disposition')
         ?.split('filename=')[1]
         ?.replace(/"/g, '') || `love-ludo-keys-export.${format}`
-
+      
       a.href = url
       a.download = filename
       document.body.appendChild(a)
@@ -740,7 +794,7 @@ function KeysContent() {
 
       setSuccessMessage(`导出成功，文件已开始下载`)
       setTimeout(() => setSuccessMessage(null), 3000)
-
+      
     } catch (error: any) {
       alert(`❌ 导出失败: ${error.message}`)
     } finally {
@@ -794,15 +848,15 @@ function KeysContent() {
               密钥管理
             </h1>
             <p className="text-gray-400 mt-2">
-              共 {stats.total} 个密钥 •
-              <span className="mx-2 text-green-400">{stats.active} 个有效</span> •
+              共 {stats.total} 个密钥 • 
+              <span className="mx-2 text-green-400">{stats.active} 个有效</span> • 
               <span className="mx-2 text-amber-400">{stats.unused} 个未使用</span>
               {stats.todayExpiring > 0 && (
                 <span className="ml-2 text-red-400">⚠️ {stats.todayExpiring} 个今日过期</span>
               )}
             </p>
           </div>
-
+          
           <div className="flex flex-wrap gap-2">
             {selectedKeys.length > 0 && (
               <div className="flex gap-2">
@@ -824,7 +878,7 @@ function KeysContent() {
                 </button>
               </div>
             )}
-
+            
             <button
               onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
               className="px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-sm text-gray-300 flex items-center"
@@ -832,7 +886,7 @@ function KeysContent() {
               <Filter className="w-4 h-4 mr-2" />
               高级筛选
             </button>
-
+            
             <div className="relative">
               <button
                 onClick={() => setShowExportModal(!showExportModal)}
@@ -841,7 +895,7 @@ function KeysContent() {
                 <Download className="w-4 h-4 mr-2" />
                 导出数据
               </button>
-
+              
               {showExportModal && (
                 <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50">
                   <button
@@ -871,7 +925,7 @@ function KeysContent() {
                 </div>
               )}
             </div>
-
+            
             <Link
               href="/admin/keys/generate"
               className="px-3 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:opacity-90 rounded-lg text-sm text-white flex items-center"
@@ -977,9 +1031,9 @@ function KeysContent() {
             ].map((item) => (
               <button
                 key={item.value}
-                className={`px-3 py-2 rounded-lg text-sm whitespace-nowrap flex items-center ${statusFilter === item.value
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                className={`px-3 py-2 rounded-lg text-sm whitespace-nowrap flex items-center transition-all ${statusFilter === item.value
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-300'
                   }`}
                 onClick={() => setStatusFilter(item.value)}
               >
@@ -1005,7 +1059,7 @@ function KeysContent() {
                   排序方式
                 </label>
                 <select
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white"
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:ring-2 focus:ring-amber-500"
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
                 >
@@ -1014,7 +1068,7 @@ function KeysContent() {
                   <option value="used_count">使用次数</option>
                 </select>
               </div>
-
+              
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   排序顺序
@@ -1022,25 +1076,25 @@ function KeysContent() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setSortOrder('desc')}
-                    className={`flex-1 px-3 py-2 rounded-lg ${sortOrder === 'desc' ? 'bg-amber-600 text-white' : 'bg-gray-800 text-gray-400'}`}
+                    className={`flex-1 px-3 py-2 rounded-lg transition-all ${sortOrder === 'desc' ? 'bg-amber-600 text-white shadow-md' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
                   >
                     最新优先
                   </button>
                   <button
                     onClick={() => setSortOrder('asc')}
-                    className={`flex-1 px-3 py-2 rounded-lg ${sortOrder === 'asc' ? 'bg-amber-600 text-white' : 'bg-gray-800 text-gray-400'}`}
+                    className={`flex-1 px-3 py-2 rounded-lg transition-all ${sortOrder === 'asc' ? 'bg-amber-600 text-white shadow-md' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
                   >
                     最早优先
                   </button>
                 </div>
               </div>
-
+              
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   每页显示
                 </label>
                 <select
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white"
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:ring-2 focus:ring-amber-500"
                   value={itemsPerPage}
                   onChange={(e) => setItemsPerPage(Number(e.target.value))}
                 >
@@ -1050,7 +1104,7 @@ function KeysContent() {
                   <option value={100}>100 条/页</option>
                 </select>
               </div>
-
+              
               <div className="md:col-span-3">
                 <div className="flex gap-2">
                   <button
@@ -1060,14 +1114,15 @@ function KeysContent() {
                       setSortBy('created_at')
                       setSortOrder('desc')
                       setItemsPerPage(20)
+                      setSelectedKeys([])
                     }}
-                    className="flex-1 px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-300"
+                    className="flex-1 px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-300 transition-colors"
                   >
                     重置所有筛选
                   </button>
                   <button
                     onClick={() => setShowAdvancedFilters(false)}
-                    className="px-3 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-white"
+                    className="px-3 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-white transition-colors"
                   >
                     关闭高级筛选
                   </button>
@@ -1080,65 +1135,81 @@ function KeysContent() {
 
       {/* 统计面板 */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 md:gap-4 mb-6 md:mb-8">
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer group">
           <div className="flex items-center">
-            <Key className="w-5 h-5 mr-2 text-amber-400" />
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+              <Key className="w-4 h-4 text-amber-400" />
+            </div>
             <p className="text-sm text-gray-400">总密钥数</p>
           </div>
           <p className="text-xl md:text-2xl font-bold text-white mt-2">{stats.total}</p>
         </div>
-
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
+        
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer group">
           <div className="flex items-center">
-            <Shield className="w-5 h-5 mr-2 text-green-400" />
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-700/30 to-emerald-800/30 flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+              <Shield className="w-4 h-4 text-green-400" />
+            </div>
             <p className="text-sm text-gray-400">有效密钥</p>
           </div>
           <p className="text-xl md:text-2xl font-bold text-white mt-2">{stats.active}</p>
         </div>
-
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
+        
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer group">
           <div className="flex items-center">
-            <Clock className="w-5 h-5 mr-2 text-amber-400" />
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-700/30 to-orange-800/30 flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+              <Clock className="w-4 h-4 text-amber-400" />
+            </div>
             <p className="text-sm text-gray-400">未使用</p>
           </div>
           <p className="text-xl md:text-2xl font-bold text-amber-400 mt-2">{stats.unused}</p>
         </div>
-
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
+        
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer group">
           <div className="flex items-center">
-            <Check className="w-5 h-5 mr-2 text-blue-400" />
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-700/30 to-cyan-800/30 flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+              <Check className="w-4 h-4 text-blue-400" />
+            </div>
             <p className="text-sm text-gray-400">已使用</p>
           </div>
           <p className="text-xl md:text-2xl font-bold text-blue-400 mt-2">{stats.used}</p>
         </div>
-
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
+        
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer group">
           <div className="flex items-center">
-            <AlertCircle className="w-5 h-5 mr-2 text-red-400" />
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-700/30 to-rose-800/30 flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+              <AlertCircle className="w-4 h-4 text-red-400" />
+            </div>
             <p className="text-sm text-gray-400">已过期</p>
           </div>
           <p className="text-xl md:text-2xl font-bold text-red-400 mt-2">{stats.expired}</p>
         </div>
-
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
+        
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer group">
           <div className="flex items-center">
-            <Ban className="w-5 h-5 mr-2 text-gray-400" />
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-gray-700/30 to-gray-800/30 flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+              <Ban className="w-4 h-4 text-gray-400" />
+            </div>
             <p className="text-sm text-gray-400">已禁用</p>
           </div>
           <p className="text-xl md:text-2xl font-bold text-gray-400 mt-2">{stats.inactive}</p>
         </div>
-
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
+        
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer group">
           <div className="flex items-center">
-            <Users className="w-5 h-5 mr-2 text-green-400" />
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-700/30 to-emerald-800/30 flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+              <Users className="w-4 h-4 text-green-400" />
+            </div>
             <p className="text-sm text-gray-400">总使用者</p>
           </div>
           <p className="text-xl md:text-2xl font-bold text-green-400 mt-2">{stats.total_users}</p>
         </div>
-
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
+        
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer group">
           <div className="flex items-center">
-            <Zap className="w-5 h-5 mr-2 text-amber-400" />
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-700/30 to-orange-800/30 flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+              <Zap className="w-4 h-4 text-amber-400" />
+            </div>
             <p className="text-sm text-gray-400">总使用次数</p>
           </div>
           <p className="text-xl md:text-2xl font-bold text-amber-400 mt-2">{stats.total_uses}</p>
@@ -1153,27 +1224,53 @@ function KeysContent() {
               <h2 className="text-lg font-semibold text-white">密钥列表</h2>
               <p className="text-gray-400 text-sm mt-1">
                 {selectedKeys.length > 0 && (
-                  <span className="text-amber-400 mr-3">已选中 {selectedKeys.length} 个密钥</span>
+                  <span className="text-amber-400 mr-3">
+                    已选中 {selectedKeys.length} 个密钥
+                    {selectedKeys.length !== paginatedKeys.filter(k => 
+                      selectedKeys.includes(k.id)
+                    ).length && (
+                      <span className="text-gray-500 ml-1">
+                        (当前页: {paginatedKeys.filter(k => selectedKeys.includes(k.id)).length})
+                      </span>
+                    )}
+                  </span>
                 )}
-                显示 {paginatedKeys.length} / {filteredKeys.length} 个密钥 • 第 {currentPage} 页，共 {Math.ceil(filteredKeys.length / itemsPerPage)} 页
+                显示 {paginatedKeys.length} / {filteredKeys.length} 个密钥 • 
+                第 {currentPage} 页，共 {Math.ceil(filteredKeys.length / itemsPerPage)} 页
               </p>
             </div>
-
+            
             <div className="flex items-center space-x-2">
               <button
                 onClick={fetchKeys}
-                className="px-3 py-1 bg-gray-800 rounded text-sm hover:bg-gray-700 flex items-center transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-gray-300 flex items-center transition-colors disabled:opacity-50"
                 disabled={loading}
               >
-                <RefreshCw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
                 {loading ? '加载中...' : '刷新数据'}
               </button>
+              
+              {/* 全选当前页按钮 */}
               <button
                 onClick={toggleSelectAll}
-                className="px-3 py-1 bg-gray-800 rounded text-sm hover:bg-gray-700 text-gray-300"
+                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-gray-300 transition-colors"
               >
-                {selectedKeys.length === filteredKeys.length && filteredKeys.length > 0 ? '取消全选' : '全选当前页'}
+                {paginatedKeys.length === 0 ? '全选当前页' : 
+                  isCurrentPageAllSelected ? '取消全选当前页' : 
+                  `全选当前页 (${paginatedKeys.length})`}
               </button>
+              
+              {/* 全选所有页面按钮 */}
+              {filteredKeys.length > itemsPerPage && (
+                <button
+                  onClick={toggleSelectAllFiltered}
+                  className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-gray-300 transition-colors"
+                >
+                  {filteredKeys.length === 0 ? '全选所有' : 
+                    isAllFilteredSelected ? '取消全选所有' : 
+                    `全选所有 (${filteredKeys.length})`}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1185,12 +1282,14 @@ function KeysContent() {
           </div>
         ) : keys.length === 0 ? (
           <div className="p-8 md:p-16 text-center">
-            <Key className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-700 flex items-center justify-center mx-auto mb-4">
+              <Key className="w-8 h-8 text-gray-600" />
+            </div>
             <h3 className="text-lg font-medium text-gray-300 mb-2">暂无密钥数据</h3>
             <p className="text-gray-500 mb-6">数据库中尚未创建密钥，请先生成密钥</p>
             <Link
               href="/admin/keys/generate"
-              className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:opacity-90 rounded-lg text-white"
+              className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:opacity-90 rounded-lg text-white transition-opacity"
             >
               <Plus className="w-4 h-4 mr-2" />
               立即生成密钥
@@ -1198,7 +1297,9 @@ function KeysContent() {
           </div>
         ) : filteredKeys.length === 0 ? (
           <div className="p-8 md:p-16 text-center">
-            <Search className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-700 flex items-center justify-center mx-auto mb-4">
+              <Search className="w-8 h-8 text-gray-600" />
+            </div>
             <h3 className="text-lg font-medium text-gray-300 mb-2">未找到匹配的密钥</h3>
             <p className="text-gray-500 mb-4">请尝试调整搜索条件或筛选状态</p>
             {search && (
@@ -1209,7 +1310,7 @@ function KeysContent() {
                 setSearch('')
                 setStatusFilter('all')
               }}
-              className="inline-flex items-center px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-300"
+              className="inline-flex items-center px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-300 transition-colors"
             >
               清除所有筛选
             </button>
@@ -1223,9 +1324,9 @@ function KeysContent() {
                     <th className="text-left py-3 px-4 md:px-6">
                       <input
                         type="checkbox"
-                        checked={selectedKeys.length === filteredKeys.length && filteredKeys.length > 0}
+                        checked={isCurrentPageAllSelected}
                         onChange={toggleSelectAll}
-                        className="rounded border-gray-600 bg-gray-800"
+                        className="rounded border-gray-600 bg-gray-800 focus:ring-amber-500"
                       />
                     </th>
                     <th className="text-left py-3 px-4 md:px-6 text-gray-400 font-medium text-sm">密钥代码</th>
@@ -1248,10 +1349,10 @@ function KeysContent() {
                     const durationDisplay = key.duration_display || getDurationDisplay(key)
                     const isSelected = selectedKeys.includes(key.id)
                     const isOperationLoading = operationLoading === key.id
-
+                    
                     return (
-                      <tr
-                        key={key.id}
+                      <tr 
+                        key={key.id} 
                         className={`border-b border-gray-700/30 hover:bg-gray-800/30 transition-colors ${isSelected ? 'bg-blue-500/5' : ''}`}
                       >
                         <td className="py-3 px-4 md:px-6">
@@ -1265,15 +1366,15 @@ function KeysContent() {
                                 setSelectedKeys(prev => prev.filter(id => id !== key.id))
                               }
                             }}
-                            className="rounded border-gray-600 bg-gray-800"
+                            className="rounded border-gray-600 bg-gray-800 focus:ring-amber-500"
                             disabled={isOperationLoading}
                           />
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           <div className="flex items-center space-x-2">
-                            <code
-                              className="font-mono text-sm bg-gray-900 px-3 py-2 rounded-lg border border-gray-700 hover:border-gray-600 transition-colors cursor-pointer truncate max-w-[180px]"
+                            <code 
+                              className="font-mono text-sm bg-gray-900 px-3 py-2 rounded-lg border border-gray-700 hover:border-amber-500/50 transition-colors cursor-pointer truncate max-w-[180px] hover:bg-gray-900/80"
                               onClick={() => copyToClipboard(key.key_code)}
                               title="点击复制密钥"
                             >
@@ -1282,29 +1383,29 @@ function KeysContent() {
                             <button
                               onClick={() => copyToClipboard(key.key_code)}
                               disabled={isOperationLoading}
-                              className={`p-1.5 rounded transition-colors ${copiedKey === key.key_code ? 'bg-green-500/20' : 'hover:bg-gray-700'} disabled:opacity-50`}
+                              className={`p-1.5 rounded-lg transition-all ${copiedKey === key.key_code ? 'bg-green-500/20' : 'hover:bg-gray-700/80'} disabled:opacity-50`}
                               title={copiedKey === key.key_code ? '已复制' : '复制密钥'}
                             >
                               {copiedKey === key.key_code ? (
                                 <Check className="w-4 h-4 text-green-400" />
                               ) : (
-                                <Copy className="w-4 h-4 text-gray-400" />
+                                <Copy className="w-4 h-4 text-gray-400 hover:text-amber-400 transition-colors" />
                               )}
                             </button>
                           </div>
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           <div className="max-w-[150px]">
-                            <p className="text-gray-300 text-sm truncate" title={key.description || ''}>
+                            <p className="text-gray-300 text-sm truncate hover:text-gray-200 transition-colors" title={key.description || ''}>
                               {key.description || '-'}
                             </p>
                           </div>
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           <div className="flex flex-col">
-                            <span className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded text-xs font-medium mb-1 w-fit">
+                            <span className="px-2.5 py-1 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 text-blue-400 rounded-lg text-xs font-medium mb-1 w-fit border border-blue-500/30">
                               {durationDisplay}
                             </span>
                             {key.key_expires_at && !key.used_at && !key.user_id && (
@@ -1314,30 +1415,32 @@ function KeysContent() {
                             )}
                           </div>
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
-                          <span className={`inline-flex items-center px-2.5 py-1.5 rounded-full text-xs ${status.bgColor} ${status.color}`}>
+                          <span className={`inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs ${status.bgColor} ${status.color} border ${status.color.replace('text', 'border')}/30`}>
                             <StatusIcon className="w-3 h-3 mr-1.5" />
                             {status.label}
                           </span>
                         </td>
-
-                        {/* 🔥 修改后的使用者列 */}
+                        
+                        {/* 🔥 优化后的使用者列 */}
                         <td className="py-3 px-4 md:px-6">
                           {renderUsers(key)}
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           <div className="flex items-center space-x-2">
-                            <Hash className="w-4 h-4 text-gray-400" />
+                            <div className="w-7 h-7 rounded-lg bg-gray-800/70 flex items-center justify-center border border-gray-700/50">
+                              <Hash className="w-3.5 h-3.5 text-gray-400" />
+                            </div>
                             <div>
                               <span className="text-gray-300 text-sm">
                                 {key.max_uses ? `${key.used_count || 0} / ${key.max_uses}` : '∞ 次'}
                               </span>
                               {key.max_uses && (
-                                <div className="w-full bg-gray-700 rounded-full h-1.5 mt-1">
-                                  <div
-                                    className="bg-green-500 h-1.5 rounded-full"
+                                <div className="w-full bg-gray-700 rounded-full h-1.5 mt-1.5 overflow-hidden">
+                                  <div 
+                                    className="bg-gradient-to-r from-green-500 to-emerald-500 h-1.5 rounded-full transition-all duration-500"
                                     style={{ width: `${Math.min(100, ((key.used_count || 0) / key.max_uses) * 100)}%` }}
                                   ></div>
                                 </div>
@@ -1345,53 +1448,62 @@ function KeysContent() {
                             </div>
                           </div>
                         </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           <div className="flex items-center space-x-2">
-                            <Clock className="w-4 h-4 text-gray-400" />
-                            <span className={`text-sm ${remaining.color}`}>
+                            <div className="w-7 h-7 rounded-lg bg-gray-800/70 flex items-center justify-center border border-gray-700/50">
+                              <Clock className="w-3.5 h-3.5 text-gray-400" />
+                            </div>
+                            <span className={`text-sm font-medium ${remaining.color}`}>
                               {remaining.text}
                             </span>
                           </div>
                         </td>
-
-                        <td className="py-3 px-4 md:px-6 text-gray-300 text-sm">
-                          {key.created_at_formatted || formatDate(key.created_at)}
-                        </td>
-
+                        
                         <td className="py-3 px-4 md:px-6">
                           <div className="flex items-center space-x-2">
+                            <div className="w-7 h-7 rounded-lg bg-gray-800/70 flex items-center justify-center border border-gray-700/50">
+                              <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                            </div>
+                            <span className="text-gray-300 text-sm">
+                              {key.created_at_formatted || formatDate(key.created_at)}
+                            </span>
+                          </div>
+                        </td>
+                        
+                        <td className="py-3 px-4 md:px-6">
+                          <div className="flex items-center space-x-1.5">
                             <button
                               onClick={() => viewKeyDetail(key.id)}
-                              className="p-1.5 hover:bg-blue-500/20 rounded transition-colors"
+                              className="p-1.5 hover:bg-blue-500/20 rounded-lg transition-colors group"
                               title="查看详情"
                             >
-                              <Eye className="w-4 h-4 text-blue-400" />
+                              <Eye className="w-4 h-4 text-blue-400 group-hover:scale-110 transition-transform" />
                             </button>
                             <button
                               onClick={() => handleKeyAction(key.id, key.is_active ? 'disable' : 'enable')}
                               disabled={isOperationLoading}
-                              className="p-1.5 hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+                              className="p-1.5 hover:bg-gray-700/80 rounded-lg transition-colors disabled:opacity-50 group"
                               title={key.is_active ? '禁用密钥' : '启用密钥'}
                             >
                               {isOperationLoading ? (
                                 <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
                               ) : key.is_active ? (
-                                <EyeOff className="w-4 h-4 text-amber-400" />
+                                <EyeOff className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
                               ) : (
-                                <Eye className="w-4 h-4 text-green-400" />
+                                <Eye className="w-4 h-4 text-green-400 group-hover:scale-110 transition-transform" />
                               )}
                             </button>
                             <button
                               onClick={() => handleKeyAction(key.id, 'delete')}
                               disabled={isOperationLoading}
-                              className="p-1.5 hover:bg-red-500/20 rounded transition-colors disabled:opacity-50"
+                              className="p-1.5 hover:bg-red-500/20 rounded-lg transition-colors disabled:opacity-50 group"
                               title="删除密钥"
                             >
                               {isOperationLoading ? (
                                 <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
                               ) : (
-                                <Trash2 className="w-4 h-4 text-red-400" />
+                                <Trash2 className="w-4 h-4 text-red-400 group-hover:scale-110 transition-transform" />
                               )}
                             </button>
                           </div>
@@ -1411,50 +1523,50 @@ function KeysContent() {
                     显示第 {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredKeys.length)} 条，
                     共 {filteredKeys.length} 条记录
                   </div>
-
+                  
                   <div className="flex items-center space-x-2">
                     <select
                       value={itemsPerPage}
                       onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                      className="px-3 py-1 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300"
+                      className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 focus:ring-2 focus:ring-amber-500"
                     >
                       <option value={10}>10 条/页</option>
                       <option value={20}>20 条/页</option>
                       <option value={50}>50 条/页</option>
                       <option value={100}>100 条/页</option>
                     </select>
-
+                    
                     <div className="flex items-center space-x-1">
                       <button
                         onClick={() => setCurrentPage(1)}
                         disabled={currentPage === 1}
-                        className="p-2 rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="p-2 rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
                         <ChevronFirst className="w-4 h-4 text-gray-400" />
                       </button>
                       <button
                         onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                         disabled={currentPage === 1}
-                        className="p-2 rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="p-2 rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
                         <ChevronLeft className="w-4 h-4 text-gray-400" />
                       </button>
-
-                      <span className="px-3 py-1 text-sm text-gray-300">
+                      
+                      <span className="px-3 py-1.5 text-sm text-gray-300 bg-gray-800/50 rounded-lg">
                         {currentPage} / {Math.ceil(filteredKeys.length / itemsPerPage)}
                       </span>
-
+                      
                       <button
                         onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredKeys.length / itemsPerPage), prev + 1))}
                         disabled={currentPage >= Math.ceil(filteredKeys.length / itemsPerPage)}
-                        className="p-2 rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="p-2 rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
                         <ChevronRight className="w-4 h-4 text-gray-400" />
                       </button>
                       <button
                         onClick={() => setCurrentPage(Math.ceil(filteredKeys.length / itemsPerPage))}
                         disabled={currentPage >= Math.ceil(filteredKeys.length / itemsPerPage)}
-                        className="p-2 rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="p-2 rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
                         <ChevronLast className="w-4 h-4 text-gray-400" />
                       </button>
@@ -1470,67 +1582,91 @@ function KeysContent() {
       {/* 底部提示信息 */}
       <div className="mt-6 p-4 bg-gray-800/30 border border-gray-700/50 rounded-lg">
         <div className="flex items-start">
-          <Info className="w-5 h-5 text-blue-400 mr-2 mt-0.5" />
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center mr-3 border border-blue-500/30">
+            <Info className="w-4 h-4 text-blue-400" />
+          </div>
           <div>
-            <h4 className="text-sm font-medium text-white mb-1">操作说明</h4>
-            <ul className="text-gray-400 text-sm space-y-1">
-              <li>• <span className="text-amber-400">禁用</span>：密钥暂时不可用，但保留记录</li>
-              <li>• <span className="text-green-400">启用</span>：恢复禁用的密钥</li>
-              <li>• <span className="text-red-400">删除</span>：永久删除密钥，不可恢复</li>
-              <li>• <span className="text-blue-400">使用者显示</span>：每个密钥显示前两个使用者，点击查看详情可看到所有使用者</li>
-              <li>• 支持批量操作：选中多个密钥后可使用批量功能</li>
-              <li>• 支持高级筛选：点击"高级筛选"按钮查看更多选项</li>
-              <li>• 支持导出功能：可导出CSV、JSON或文本格式</li>
-              <li>• 小时级别密钥：支持1小时、2小时、4小时、12小时等时长</li>
-            </ul>
+            <h4 className="text-sm font-medium text-white mb-2">操作说明</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="flex items-start">
+                <div className="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center mr-2 mt-0.5">
+                  <EyeOff className="w-3 h-3 text-amber-400" />
+                </div>
+                <p className="text-gray-400 text-sm"><span className="text-amber-400">禁用</span>：密钥暂时不可用，但保留记录</p>
+              </div>
+              <div className="flex items-start">
+                <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center mr-2 mt-0.5">
+                  <Eye className="w-3 h-3 text-green-400" />
+                </div>
+                <p className="text-gray-400 text-sm"><span className="text-green-400">启用</span>：恢复禁用的密钥</p>
+              </div>
+              <div className="flex items-start">
+                <div className="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center mr-2 mt-0.5">
+                  <Trash2 className="w-3 h-3 text-red-400" />
+                </div>
+                <p className="text-gray-400 text-sm"><span className="text-red-400">删除</span>：永久删除密钥，不可恢复</p>
+              </div>
+              <div className="flex items-start">
+                <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center mr-2 mt-0.5">
+                  <Users className="w-3 h-3 text-blue-400" />
+                </div>
+                <p className="text-gray-400 text-sm"><span className="text-blue-400">使用者显示</span>：每个密钥显示前两个使用者</p>
+              </div>
+              <div className="flex items-start md:col-span-2">
+                <div className="w-5 h-5 rounded-full bg-gray-500/20 flex items-center justify-center mr-2 mt-0.5">
+                  <MoreVertical className="w-3 h-3 text-gray-400" />
+                </div>
+                <p className="text-gray-400 text-sm">支持批量操作、高级筛选、导出功能，支持小时级别密钥</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       {/* 全局样式 */}
       <style jsx global>{`
-  .animate-fade-in {
-    animation: fadeIn 0.3s ease-in-out;
-  }
-  .animate-slide-down {
-    animation: slideDown 0.3s ease-out;
-  }
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-  @keyframes slideDown {
-    from { 
-      opacity: 0;
-      transform: translateY(-10px);
-    }
-    to { 
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
+        .animate-fade-in {
+          animation: fadeIn 0.3s ease-in-out;
+        }
+        .animate-slide-down {
+          animation: slideDown 0.3s ease-out;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes slideDown {
+          from { 
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to { 
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
 
-  /* 平滑悬停动画 */
-  .group-hover\:block {
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
+        /* 平滑悬停动画 */
+        .group-hover\\:block {
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
 
-  /* 悬停提示框动画 */
-  @keyframes tooltipFadeIn {
-    from {
-      opacity: 0;
-      transform: translate(-50%, 10px);
-    }
-    to {
-      opacity: 1;
-      transform: translate(-50%, 0);
-    }
-  }
+        /* 悬停提示框动画 */
+        @keyframes tooltipFadeIn {
+          from {
+            opacity: 0;
+            transform: translate(-50%, 10px);
+          }
+          to {
+            opacity: 1;
+            transform: translate(-50%, 0);
+          }
+        }
 
-  .group:hover .group-hover\:block {
-    animation: tooltipFadeIn 0.2s ease-out;
-  }
-`}</style>
+        .group:hover .group-hover\\:block {
+          animation: tooltipFadeIn 0.2s ease-out;
+        }
+      `}</style>
     </div>
   )
 }
