@@ -1,3 +1,4 @@
+// /app/admin/keys/[id]/page.tsx - 完整修复版（已添加延长用户会员功能）
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -94,8 +95,15 @@ export default function KeyDetailPage() {
     description: ''
   })
 
-  // 延长表单
+  // 延长表单（用于延长密钥有效期）
   const [extendForm, setExtendForm] = useState({
+    days: '',
+    hours: '',
+    reason: ''
+  })
+
+  // 🔥 新增：延长用户会员表单
+  const [extendUserForm, setExtendUserForm] = useState({
     days: '',
     hours: '',
     reason: ''
@@ -513,7 +521,7 @@ export default function KeyDetailPage() {
     }
   }
 
-  // 延长有效期
+  // 延长密钥有效期
   const handleExtendExpiry = async (type: 'quick' | 'custom', value?: number) => {
     if (!keyData?.key_info) return
     
@@ -568,6 +576,72 @@ export default function KeyDetailPage() {
         // 重置表单
         setExtendForm({ days: '', hours: '', reason: '' })
         setShowExtendOptions(false)
+      } else {
+        throw new Error(result.error || '延长失败')
+      }
+    } catch (error: any) {
+      alert(`❌ 延长失败: ${error.message}`)
+    } finally {
+      setOperationLoading(null)
+    }
+  }
+
+  // 🔥 新增：延长用户会员时间
+  const handleExtendUserAccount = async () => {
+    const userInfo = getUserInfo()
+    if (!userInfo || !userInfo.id) {
+      alert('无法获取用户信息')
+      return
+    }
+    
+    let days: number | undefined
+    let hours: number | undefined
+    
+    if (extendUserForm.days) {
+      days = parseInt(extendUserForm.days)
+    } else if (extendUserForm.hours) {
+      hours = parseInt(extendUserForm.hours)
+    }
+    
+    if (!days && !hours) {
+      alert('请指定延长的天数或小时数')
+      return
+    }
+    
+    const confirmText = days 
+      ? `确定要将用户 "${userInfo.email}" 的会员时间延长${days}天吗？`
+      : `确定要将用户 "${userInfo.email}" 的会员时间延长${hours}小时吗？`
+    
+    if (!confirm(confirmText)) return
+    
+    setOperationLoading('extendUser')
+    
+    try {
+      const response = await fetch(`/api/admin/users/${userInfo.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          extend_days: days,
+          extend_hours: hours,
+          reason: extendUserForm.reason || '管理员手动延长'
+        }),
+        credentials: 'include'
+      })
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        setSuccessMessage(days 
+          ? `用户会员时间已延长${days}天`
+          : `用户会员时间已延长${hours}小时`
+        )
+        setTimeout(() => setSuccessMessage(null), 3000)
+        
+        // 刷新数据
+        fetchKeyDetail()
+        
+        // 重置表单
+        setExtendUserForm({ days: '', hours: '', reason: '' })
       } else {
         throw new Error(result.error || '延长失败')
       }
@@ -923,13 +997,13 @@ export default function KeyDetailPage() {
                 className="mt-2 w-full px-3 py-1.5 bg-amber-600 hover:bg-amber-700 rounded-lg text-white text-sm flex items-center justify-center gap-1"
               >
                 <TimerReset className="w-3 h-3" />
-                延长有效期
+                延长密钥有效期
               </button>
             </div>
           </div>
         </div>
 
-        {/* 使用者信息 */}
+        {/* 🔥 修改后的使用者信息部分（包含延长用户会员功能） */}
         {userInfo && (
           <div className="mb-6">
             <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
@@ -959,6 +1033,97 @@ export default function KeyDetailPage() {
                     </p>
                   </div>
                 </div>
+                
+                {/* 🔥 新增：延长用户会员时间表单 */}
+                <div className="mt-6 pt-6 border-t border-gray-700/50">
+                  <h3 className="text-md font-semibold text-white mb-3 flex items-center">
+                    <CalendarClock className="w-4 h-4 mr-2 text-green-400" />
+                    延长此用户会员时间
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">延长天数</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            max="999"
+                            value={extendUserForm.days}
+                            onChange={(e) => setExtendUserForm(prev => ({ 
+                              ...prev, 
+                              days: e.target.value,
+                              hours: '' // 清空小时输入
+                            }))}
+                            placeholder="输入天数"
+                            className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white"
+                          />
+                          <span className="text-gray-400 text-sm">天</span>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">延长小时数</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            max="720"
+                            value={extendUserForm.hours}
+                            onChange={(e) => setExtendUserForm(prev => ({ 
+                              ...prev, 
+                              hours: e.target.value,
+                              days: '' // 清空天数输入
+                            }))}
+                            placeholder="输入小时数"
+                            className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white"
+                          />
+                          <span className="text-gray-400 text-sm">小时</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">延长原因（可选）</label>
+                      <input
+                        type="text"
+                        value={extendUserForm.reason}
+                        onChange={(e) => setExtendUserForm(prev => ({ ...prev, reason: e.target.value }))}
+                        placeholder="请输入延长原因..."
+                        className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white"
+                        maxLength={100}
+                      />
+                    </div>
+                    
+                    <div className="flex justify-end gap-3">
+                      <button
+                        onClick={() => setExtendUserForm({ days: '', hours: '', reason: '' })}
+                        className="px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-sm text-gray-300"
+                      >
+                        清空
+                      </button>
+                      <button
+                        onClick={handleExtendUserAccount}
+                        disabled={operationLoading === 'extendUser'}
+                        className="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:opacity-90 rounded-lg text-white flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {operationLoading === 'extendUser' ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            延长中...
+                          </>
+                        ) : (
+                          <>
+                            <CalendarClock className="w-4 h-4" />
+                            延长用户会员时间
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
                 {userInfo.id && (
                   <div className="mt-4 pt-4 border-t border-gray-700/50">
                     <Link
@@ -1251,7 +1416,7 @@ export default function KeyDetailPage() {
             </div>
           </div>
 
-          {/* 延长有效期功能 */}
+          {/* 延长密钥有效期功能 */}
           <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-white flex items-center">
