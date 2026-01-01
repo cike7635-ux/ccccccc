@@ -1417,7 +1417,7 @@ function KeysContent() {
                         </td>
                         
                         <td className="py-3 px-4 md:px-6">
-                          <span className={`inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs ${status.bgColor} ${status.color} border ${status.color.replace('text', 'border')}/30`}>
+                          <span className={`inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium ${status.bgColor} ${status.color}`}>
                             <StatusIcon className="w-3 h-3 mr-1.5" />
                             {status.label}
                           </span>
