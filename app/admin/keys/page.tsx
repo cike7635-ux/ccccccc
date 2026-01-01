@@ -1,4 +1,3 @@
-// /app/admin/keys/page.tsx - 完全修复版
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
@@ -37,6 +36,7 @@ import { ChevronLast } from 'lucide-react'
 import { BarChart3 } from 'lucide-react'
 import { File } from 'lucide-react'
 import { FileText } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 
 // 2. 导入其他依赖
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -44,14 +44,20 @@ import Link from 'next/link'
 
 // 3. 导入组件和类型
 import ExportModal from './components/ExportModal'
-import { AccessKey } from './types'
+import { AccessKey, KeyStatus, RemainingTime, RecentUser } from './types'
 
-// 4. 在组件内部定义状态配置（修复类型定义冲突）
-const statusConfig = {
+// 4. 在组件内部定义状态配置
+const statusConfig: Record<KeyStatus, {
+  label: string
+  color: string
+  bgColor: string
+  icon: any
+}> = {
   unused: { label: '未使用', color: 'text-amber-400', bgColor: 'bg-amber-500/15', icon: Clock },
   used: { label: '已使用', color: 'text-green-400', bgColor: 'bg-green-500/15', icon: Check },
   expired: { label: '已过期', color: 'text-red-400', bgColor: 'bg-red-500/15', icon: AlertCircle },
-  disabled: { label: '已禁用', color: 'text-gray-400', bgColor: 'bg-gray-500/15', icon: Ban }
+  disabled: { label: '已禁用', color: 'text-gray-400', bgColor: 'bg-gray-500/15', icon: Ban },
+  unknown: { label: '未知', color: 'text-gray-400', bgColor: 'bg-gray-500/15', icon: AlertCircle }
 }
 
 // 主页面组件
@@ -96,9 +102,9 @@ function KeysContent() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [showExportModal, setShowExportModal] = useState(false)
   
-  // 筛选状态 - 修正类型定义
+  // 筛选状态
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'unused' | 'used' | 'expired' | 'disabled'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | KeyStatus>('all')
   const [sortBy, setSortBy] = useState<'created_at' | 'key_code' | 'used_count'>('created_at')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   
@@ -115,7 +121,9 @@ function KeysContent() {
     expired: 0,
     inactive: 0,
     todayExpiring: 0,
-    nearExpiring: 0
+    nearExpiring: 0,
+    total_users: 0,
+    total_uses: 0
   })
 
   // 获取密钥数据
@@ -124,16 +132,23 @@ function KeysContent() {
     setError(null)
     
     try {
-      console.log('📡 开始获取密钥数据...')
+      console.log('📡 开始获取密钥数据（增强版）...')
       
       const response = await fetch('/api/admin/keys/list', {
         credentials: 'include',
-        headers: { 'Cache-Control': 'no-cache' }
+        headers: { 
+          'Cache-Control': 'no-cache',
+          'Accept': 'application/json'
+        }
       })
 
       console.log('📦 API响应状态:', response.status)
       
       if (!response.ok) {
+        if (response.status === 401) {
+          router.push('/admin/login')
+          return
+        }
         throw new Error(`API请求失败 (${response.status})`)
       }
 
@@ -146,9 +161,24 @@ function KeysContent() {
       const keysData: AccessKey[] = result.data || []
       console.log(`✅ 获取到 ${keysData.length} 条密钥数据`)
       
-      setKeys(keysData)
+      // 确保每个密钥都有必要的数据
+      const processedKeys = keysData.map(key => ({
+        ...key,
+        // 确保数组字段存在
+        recent_users: key.recent_users || [],
+        total_users: key.total_users || 0,
+        // 确保状态字段存在
+        key_status: key.key_status || 'unknown',
+        remaining_time: key.remaining_time || { text: '未知', color: 'text-gray-400', isExpired: false },
+        duration_display: key.duration_display || '未知',
+        // 确保日期格式
+        created_at_formatted: key.created_at_formatted || 
+          (key.created_at ? new Date(key.created_at).toLocaleString('zh-CN') : '未知')
+      }))
+      
+      setKeys(processedKeys)
 
-      // 计算统计数据 - 基于数据库查询结果修正
+      // 计算统计数据
       const now = new Date()
       const today = new Date()
       today.setHours(23, 59, 59, 999)
@@ -156,37 +186,32 @@ function KeysContent() {
       const sevenDaysLater = new Date()
       sevenDaysLater.setDate(sevenDaysLater.getDate() + 7)
       
-      // 修正统计计算逻辑
+      // 计算总用户数和总使用次数
+      const totalUsers = processedKeys.reduce((sum, key) => sum + (key.total_users || 0), 0)
+      const totalUses = processedKeys.reduce((sum, key) => sum + (key.usage_count || 0), 0)
+      
       const statsData = {
-        total: keysData.length,
-        // active: 已激活的密钥（is_active = true）
-        active: keysData.filter(k => k.is_active).length,
-        // used: 已使用的密钥（used_at不为空或user_id不为空）
-        used: keysData.filter(k => k.used_at !== null || k.user_id !== null).length,
-        // unused: 未使用的密钥（used_at为空且user_id为空）
-        unused: keysData.filter(k => k.used_at === null && k.user_id === null).length,
-        // expired: 已过期的密钥（key_expires_at < 当前时间）
-        expired: keysData.filter(k => {
-          if (!k.key_expires_at) return false
-          return new Date(k.key_expires_at) < now
-        }).length,
-        // inactive: 已禁用的密钥（is_active = false）
-        inactive: keysData.filter(k => !k.is_active).length,
-        // 今日过期（未过期但今天过期）
-        todayExpiring: keysData.filter(k => {
+        total: processedKeys.length,
+        active: processedKeys.filter(k => k.is_active).length,
+        used: processedKeys.filter(k => k.key_status === 'used').length,
+        unused: processedKeys.filter(k => k.key_status === 'unused').length,
+        expired: processedKeys.filter(k => k.key_status === 'expired').length,
+        inactive: processedKeys.filter(k => k.key_status === 'disabled').length,
+        todayExpiring: processedKeys.filter(k => {
           if (!k.key_expires_at || !k.is_active) return false
           const expiry = new Date(k.key_expires_at)
           return expiry > now && expiry.toDateString() === today.toDateString()
         }).length,
-        // 7天内过期（不包括今天）
-        nearExpiring: keysData.filter(k => {
+        nearExpiring: processedKeys.filter(k => {
           if (!k.key_expires_at || !k.is_active) return false
           const expiry = new Date(k.key_expires_at)
           return expiry > now && expiry <= sevenDaysLater && expiry.toDateString() !== today.toDateString()
-        }).length
+        }).length,
+        total_users: totalUsers,
+        total_uses: totalUses
       }
       
-      console.log('📊 统计数据:', statsData)
+      console.log('📊 增强统计数据:', statsData)
       setStats(statsData)
 
     } catch (error: any) {
@@ -196,7 +221,7 @@ function KeysContent() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [router])
 
   // 复制密钥到剪贴板
   const copyToClipboard = (keyCode: string) => {
@@ -205,8 +230,13 @@ function KeysContent() {
     setTimeout(() => setCopiedKey(null), 2000)
   }
 
-  // 计算密钥状态 - 基于数据库结构修正
-  const getKeyStatus = (key: AccessKey): 'unused' | 'used' | 'expired' | 'disabled' => {
+  // 计算密钥状态（备用函数）
+  const getKeyStatus = (key: AccessKey): KeyStatus => {
+    // 如果API已经提供了状态，直接使用
+    if (key.key_status && key.key_status !== 'unknown') {
+      return key.key_status
+    }
+    
     const now = new Date()
     
     // 1. 已禁用
@@ -228,8 +258,13 @@ function KeysContent() {
     return 'unused'
   }
 
-  // 计算剩余有效期
-  const getRemainingTime = (key: AccessKey): { text: string; color: string; isExpired: boolean } => {
+  // 计算剩余有效期（备用函数）
+  const getRemainingTime = (key: AccessKey): RemainingTime => {
+    // 如果API已经提供了剩余时间，直接使用
+    if (key.remaining_time && key.remaining_time.text !== '未知') {
+      return key.remaining_time
+    }
+    
     const now = new Date()
     
     // 1. 检查绝对有效期（激活截止时间）
@@ -272,8 +307,14 @@ function KeysContent() {
       let expiryTime
       if (key.original_duration_hours) {
         expiryTime = new Date(usedDate.getTime() + parseFloat(key.original_duration_hours as any) * 60 * 60 * 1000)
+      } else if (key.account_valid_for_days) {
+        expiryTime = new Date(usedDate.getTime() + (key.account_valid_for_days || 30) * 24 * 60 * 60 * 1000)
       } else {
-        expiryTime = new Date(usedDate.getTime() + key.account_valid_for_days * 24 * 60 * 60 * 1000)
+        return { 
+          text: '永不过期', 
+          color: 'text-green-400',
+          isExpired: false
+        }
       }
       
       const diffMs = expiryTime.getTime() - now.getTime()
@@ -315,14 +356,19 @@ function KeysContent() {
     
     // 3. 未激活也没有绝对有效期
     return { 
-      text: `有效期${key.account_valid_for_days}天`, 
+      text: `有效期${key.account_valid_for_days || 30}天`, 
       color: 'text-green-400',
       isExpired: false
     }
   }
 
-  // 获取时长显示
+  // 获取时长显示（备用函数）
   const getDurationDisplay = (key: AccessKey): string => {
+    // 如果API已经提供了时长显示，直接使用
+    if (key.duration_display && key.duration_display !== '未知') {
+      return key.duration_display
+    }
+    
     // 优先使用 original_duration_hours
     if (key.original_duration_hours) {
       const hours = parseFloat(key.original_duration_hours as any)
@@ -364,7 +410,7 @@ function KeysContent() {
     }
     
     // 回退到 account_valid_for_days
-    const days = key.account_valid_for_days
+    const days = key.account_valid_for_days || 30
     if (days < 30) {
       return `${days}天`
     } else {
@@ -373,16 +419,71 @@ function KeysContent() {
     }
   }
 
-  // 过滤密钥 - 修正筛选逻辑
+  // 获取使用者显示组件
+  const renderUsers = (key: AccessKey) => {
+    const recentUsers = key.recent_users || []
+    const totalUsers = key.total_users || 0
+    
+    // 如果没有使用者
+    if (totalUsers === 0 && recentUsers.length === 0) {
+      return <span className="text-gray-500 text-sm">-</span>
+    }
+    
+    return (
+      <div className="max-w-[180px]">
+        {recentUsers.length > 0 ? (
+          <div className="space-y-1">
+            {recentUsers.slice(0, 2).map((user, index) => (
+              <div key={index} className="flex items-start">
+                <User className="w-3 h-3 text-gray-500 mr-1 mt-0.5 flex-shrink-0" />
+                <p 
+                  className="text-gray-300 text-sm truncate flex-1" 
+                  title={`${user.email}${user.nickname ? ` (${user.nickname})` : ''}`}
+                >
+                  {user.email}
+                </p>
+              </div>
+            ))}
+            {totalUsers > 2 && (
+              <div className="flex items-center ml-4 mt-1">
+                <span className="text-gray-500 text-xs">
+                  等{totalUsers - 2}人
+                </span>
+                <div className="ml-1 px-1.5 py-0.5 bg-blue-500/20 rounded text-xs text-blue-400">
+                  {totalUsers}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : key.profiles ? (
+          // 兼容旧数据：如果recent_users为空但profiles存在，显示单个用户
+          <div className="flex items-center">
+            <User className="w-3 h-3 text-gray-500 mr-1" />
+            <p className="text-gray-300 text-sm truncate" title={key.profiles.email}>
+              {key.profiles.email}
+            </p>
+          </div>
+        ) : (
+          <span className="text-gray-500 text-sm">-</span>
+        )}
+      </div>
+    )
+  }
+
+  // 过滤密钥
   const filteredKeys = useMemo(() => {
     return keys.filter(key => {
       // 搜索过滤
       const searchMatch = search === '' || 
         key.key_code.toLowerCase().includes(search.toLowerCase()) ||
         (key.description && key.description.toLowerCase().includes(search.toLowerCase())) ||
-        (key.profiles?.email && key.profiles.email.toLowerCase().includes(search.toLowerCase()))
+        (key.profiles?.email && key.profiles.email.toLowerCase().includes(search.toLowerCase())) ||
+        // 搜索使用者邮箱
+        (key.recent_users && key.recent_users.some(user => 
+          user.email.toLowerCase().includes(search.toLowerCase())
+        ))
       
-      // 状态过滤 - 修正逻辑
+      // 状态过滤
       if (statusFilter === 'all') {
         return searchMatch
       }
@@ -601,7 +702,24 @@ function KeysContent() {
     }
   }
 
-  // 初始化加载
+  // 格式化日期
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return '-'
+    try {
+      const date = new Date(dateString)
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    } catch (error) {
+      return '格式错误'
+    }
+  }
+
+  // 初始加载
   useEffect(() => {
     fetchKeys()
   }, [fetchKeys, refreshTrigger])
@@ -805,11 +923,11 @@ function KeysContent() {
 
           <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0">
             {[
-              { value: 'all', label: '全部密钥', count: stats.total, color: 'text-gray-400' },
-              { value: 'unused', label: '未使用', count: stats.unused, color: 'text-amber-400' },
-              { value: 'used', label: '已使用', count: stats.used, color: 'text-blue-400' },
-              { value: 'expired', label: '已过期', count: stats.expired, color: 'text-red-400' },
-              { value: 'disabled', label: '已禁用', count: stats.inactive, color: 'text-gray-400' }
+              { value: 'all' as const, label: '全部密钥', count: stats.total, color: 'text-gray-400' },
+              { value: 'unused' as const, label: '未使用', count: stats.unused, color: 'text-amber-400' },
+              { value: 'used' as const, label: '已使用', count: stats.used, color: 'text-blue-400' },
+              { value: 'expired' as const, label: '已过期', count: stats.expired, color: 'text-red-400' },
+              { value: 'disabled' as const, label: '已禁用', count: stats.inactive, color: 'text-gray-400' }
             ].map((item) => (
               <button
                 key={item.value}
@@ -817,7 +935,7 @@ function KeysContent() {
                   ? 'bg-amber-600 text-white'
                   : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
                   }`}
-                onClick={() => setStatusFilter(item.value as any)}
+                onClick={() => setStatusFilter(item.value)}
               >
                 <span className={statusFilter !== item.value ? item.color : ''}>
                   {item.label}
@@ -966,18 +1084,18 @@ function KeysContent() {
         
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
           <div className="flex items-center">
-            <Calendar className="w-5 h-5 mr-2 text-red-400" />
-            <p className="text-sm text-gray-400">今日过期</p>
+            <Users className="w-5 h-5 mr-2 text-green-400" />
+            <p className="text-sm text-gray-400">总使用者</p>
           </div>
-          <p className="text-xl md:text-2xl font-bold text-red-400 mt-2">{stats.todayExpiring}</p>
+          <p className="text-xl md:text-2xl font-bold text-green-400 mt-2">{stats.total_users}</p>
         </div>
         
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:bg-gray-800/70 transition-colors cursor-pointer">
           <div className="flex items-center">
             <Zap className="w-5 h-5 mr-2 text-amber-400" />
-            <p className="text-sm text-gray-400">7天内过期</p>
+            <p className="text-sm text-gray-400">总使用次数</p>
           </div>
-          <p className="text-xl md:text-2xl font-bold text-amber-400 mt-2">{stats.nearExpiring}</p>
+          <p className="text-xl md:text-2xl font-bold text-amber-400 mt-2">{stats.total_uses}</p>
         </div>
       </div>
 
@@ -1077,11 +1195,11 @@ function KeysContent() {
                 </thead>
                 <tbody>
                   {paginatedKeys.map((key) => {
-                    const keyStatus = getKeyStatus(key)
+                    const keyStatus = key.key_status || getKeyStatus(key)
                     const status = statusConfig[keyStatus]
                     const StatusIcon = status.icon
-                    const remaining = getRemainingTime(key)
-                    const durationDisplay = getDurationDisplay(key)
+                    const remaining = key.remaining_time || getRemainingTime(key)
+                    const durationDisplay = key.duration_display || getDurationDisplay(key)
                     const isSelected = selectedKeys.includes(key.id)
                     const isOperationLoading = operationLoading === key.id
                     
@@ -1143,7 +1261,7 @@ function KeysContent() {
                             <span className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded text-xs font-medium mb-1 w-fit">
                               {durationDisplay}
                             </span>
-                            {key.key_expires_at && (
+                            {key.key_expires_at && !key.used_at && !key.user_id && (
                               <span className="text-gray-500 text-xs">
                                 激活截止: {new Date(key.key_expires_at).toLocaleDateString('zh-CN')}
                               </span>
@@ -1158,23 +1276,9 @@ function KeysContent() {
                           </span>
                         </td>
                         
+                        {/* 🔥 修改后的使用者列 */}
                         <td className="py-3 px-4 md:px-6">
-                          {key.profiles ? (
-                            <div className="space-y-1 max-w-[150px]">
-                              <div className="flex items-center">
-                                <User className="w-3 h-3 text-gray-500 mr-1" />
-                                <p className="text-gray-300 text-sm truncate">{key.profiles.email}</p>
-                              </div>
-                              {key.profiles.nickname && (
-                                <p className="text-gray-500 text-xs truncate">{key.profiles.nickname}</p>
-                              )}
-                              {key.used_at && (
-                                <p className="text-gray-600 text-xs">使用于: {new Date(key.used_at).toLocaleDateString('zh-CN')}</p>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-gray-500 text-sm">-</span>
-                          )}
+                          {renderUsers(key)}
                         </td>
                         
                         <td className="py-3 px-4 md:px-6">
@@ -1206,7 +1310,7 @@ function KeysContent() {
                         </td>
                         
                         <td className="py-3 px-4 md:px-6 text-gray-300 text-sm">
-                          {new Date(key.created_at).toLocaleString('zh-CN')}
+                          {key.created_at_formatted || formatDate(key.created_at)}
                         </td>
                         
                         <td className="py-3 px-4 md:px-6">
@@ -1327,6 +1431,7 @@ function KeysContent() {
               <li>• <span className="text-amber-400">禁用</span>：密钥暂时不可用，但保留记录</li>
               <li>• <span className="text-green-400">启用</span>：恢复禁用的密钥</li>
               <li>• <span className="text-red-400">删除</span>：永久删除密钥，不可恢复</li>
+              <li>• <span className="text-blue-400">使用者显示</span>：每个密钥显示前两个使用者，点击查看详情可看到所有使用者</li>
               <li>• 支持批量操作：选中多个密钥后可使用批量功能</li>
               <li>• 支持高级筛选：点击"高级筛选"按钮查看更多选项</li>
               <li>• 支持导出功能：可导出CSV、JSON或文本格式</li>

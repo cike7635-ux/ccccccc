@@ -2,7 +2,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
-// 获取密钥详情
+// 获取密钥详情（增强版）
 export async function GET(
   request: NextRequest,
   context: { params: { id: string } }
@@ -10,10 +10,13 @@ export async function GET(
   try {
     const keyId = parseInt(context.params.id)
     if (!keyId || isNaN(keyId)) {
-      return NextResponse.json({ success: false, error: '无效的密钥ID' }, { status: 400 })
+      return NextResponse.json({ 
+        success: false, 
+        error: '无效的密钥ID' 
+      }, { status: 400 })
     }
 
-    console.log(`🔍 获取密钥详情 ID: ${keyId}`)
+    console.log(`🔍 获取密钥详情 ID: ${keyId} (增强版)`)
     
     // 验证管理员权限
     const authMethods = {
@@ -26,75 +29,325 @@ export async function GET(
       (authMethods.referer?.includes('/admin/') && authMethods.userAgent)
 
     if (!isAuthenticated) {
-      return NextResponse.json({ success: false, error: '未授权访问' }, { status: 401 })
+      console.log('❌ 未授权访问')
+      return NextResponse.json({ 
+        success: false, 
+        error: '未授权访问' 
+      }, { status: 401 })
     }
 
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
+      { 
+        auth: { persistSession: false },
+        db: { schema: 'public' }
+      }
     )
 
-    // 获取密钥详情
+    // 1. 获取密钥详情
+    console.log('📦 查询密钥基本信息...')
     const { data: keyData, error: keyError } = await supabaseAdmin
       .from('access_keys')
       .select(`
-        *,
+        id,
+        key_code,
+        description,
+        is_active,
+        used_count,
+        max_uses,
+        key_expires_at,
+        account_valid_for_days,
+        user_id,
+        used_at,
+        created_at,
+        updated_at,
+        original_duration_hours,
+        duration_unit,
         profiles:user_id (
+          id,
           email,
-          nickname
+          nickname,
+          avatar_url,
+          last_login_at
         )
       `)
       .eq('id', keyId)
       .single()
 
     if (keyError) {
-      throw new Error('查询密钥失败: ' + keyError.message)
+      console.error('❌ 查询密钥失败:', keyError)
+      if (keyError.code === 'PGRST116') {
+        return NextResponse.json({ 
+          success: false, 
+          error: '密钥不存在' 
+        }, { status: 404 })
+      }
+      throw new Error(`查询密钥失败: ${keyError.message}`)
     }
 
-    // 获取使用历史
+    // 2. 获取所有使用历史记录
+    console.log('📊 查询使用历史记录...')
     const { data: usageHistory, error: usageError } = await supabaseAdmin
       .from('key_usage_history')
       .select(`
-        *,
+        id,
+        user_id,
+        access_key_id,
+        used_at,
+        usage_type,
+        notes,
+        created_at,
+        updated_at,
         profiles:user_id (
+          id,
           email,
-          nickname
+          nickname,
+          avatar_url
         )
       `)
       .eq('access_key_id', keyId)
       .order('used_at', { ascending: false })
 
     if (usageError) {
-      throw new Error('查询使用历史失败: ' + usageError.message)
+      console.error('❌ 查询使用历史失败:', usageError)
+      // 不抛出错误，但记录警告
+      console.warn('⚠️ 无法获取使用历史记录')
     }
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        key_info: keyData,
-        usage_history: usageHistory || [],
-        statistics: {
-          total_uses: usageHistory?.length || 0,
-          unique_users: new Set(usageHistory?.map(u => u.user_id) || []).size,
-          first_use: usageHistory && usageHistory.length > 0 
-            ? usageHistory[usageHistory.length - 1].used_at 
-            : null,
-          last_use: usageHistory && usageHistory.length > 0 
-            ? usageHistory[0].used_at 
-            : null
+    // 3. 获取所有使用者（去重）
+    console.log('👥 分析所有使用者...')
+    const uniqueUserMap = new Map()
+    const usageByType = {
+      activate: 0,
+      renew: 0,
+      transfer: 0,
+      admin_extend: 0,
+      other: 0
+    }
+
+    usageHistory?.forEach(record => {
+      // 统计使用类型
+      const type = record.usage_type || 'other'
+      if (usageByType.hasOwnProperty(type)) {
+        usageByType[type as keyof typeof usageByType]++
+      } else {
+        usageByType.other++
+      }
+
+      // 收集用户信息
+      if (record.user_id && record.profiles) {
+        if (!uniqueUserMap.has(record.user_id)) {
+          uniqueUserMap.set(record.user_id, {
+            user_id: record.user_id,
+            email: record.profiles.email || `用户ID: ${record.user_id}`,
+            nickname: record.profiles.nickname,
+            avatar_url: record.profiles.avatar_url,
+            first_used: record.used_at,
+            last_used: record.used_at,
+            usage_count: 1
+          })
+        } else {
+          const existing = uniqueUserMap.get(record.user_id)
+          // 更新最后使用时间和使用次数
+          if (existing) {
+            existing.usage_count++
+            if (new Date(record.used_at) > new Date(existing.last_used)) {
+              existing.last_used = record.used_at
+            }
+          }
         }
       }
     })
 
+    const allUsers = Array.from(uniqueUserMap.values())
+      .sort((a, b) => new Date(b.last_used).getTime() - new Date(a.last_used).getTime())
+
+    // 4. 计算统计信息
+    console.log('📈 计算统计信息...')
+    const statistics = {
+      total_uses: usageHistory?.length || 0,
+      unique_users: allUsers.length,
+      usage_by_type: usageByType,
+      first_use: usageHistory && usageHistory.length > 0 
+        ? usageHistory[usageHistory.length - 1].used_at 
+        : null,
+      last_use: usageHistory && usageHistory.length > 0 
+        ? usageHistory[0].used_at 
+        : null,
+      average_use_interval: null as string | null,
+      usage_trend: 'stable' as 'increasing' | 'decreasing' | 'stable'
+    }
+
+    // 计算平均使用间隔（如果有多次使用）
+    if (usageHistory && usageHistory.length >= 2) {
+      const firstUse = new Date(usageHistory[usageHistory.length - 1].used_at).getTime()
+      const lastUse = new Date(usageHistory[0].used_at).getTime()
+      const totalInterval = lastUse - firstUse
+      const averageIntervalMs = totalInterval / (usageHistory.length - 1)
+      
+      const days = Math.floor(averageIntervalMs / (1000 * 60 * 60 * 24))
+      const hours = Math.floor((averageIntervalMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+      
+      if (days > 0) {
+        statistics.average_use_interval = `${days}天${hours}小时`
+      } else {
+        statistics.average_use_interval = `${hours}小时`
+      }
+
+      // 判断使用趋势（最近7天的使用次数 vs 之前7天）
+      const now = new Date()
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+      const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
+      
+      const recentUsage = usageHistory.filter(r => 
+        new Date(r.used_at) >= weekAgo
+      ).length
+      
+      const previousUsage = usageHistory.filter(r => 
+        new Date(r.used_at) >= twoWeeksAgo && new Date(r.used_at) < weekAgo
+      ).length
+      
+      if (recentUsage > previousUsage) {
+        statistics.usage_trend = 'increasing'
+      } else if (recentUsage < previousUsage) {
+        statistics.usage_trend = 'decreasing'
+      }
+    }
+
+    // 5. 准备返回数据
+    const responseData = {
+      key_info: {
+        ...keyData,
+        // 计算状态
+        key_status: (() => {
+          const now = new Date()
+          if (!keyData.is_active) return 'disabled'
+          if (keyData.key_expires_at && new Date(keyData.key_expires_at) < now) return 'expired'
+          if (keyData.used_at || keyData.user_id) return 'used'
+          return 'unused'
+        })(),
+        // 计算剩余时间
+        remaining_time: (() => {
+          const now = new Date()
+          if (keyData.key_expires_at) {
+            const expiry = new Date(keyData.key_expires_at)
+            const diffMs = expiry.getTime() - now.getTime()
+            
+            if (diffMs <= 0) {
+              return { text: '已过期', color: 'text-red-400', isExpired: true }
+            }
+            
+            const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
+            const diffHours = Math.ceil(diffMs / (1000 * 60 * 60))
+            
+            if (diffDays > 30) {
+              const months = Math.floor(diffDays / 30)
+              return { text: `${months}个月后过期`, color: 'text-green-400', isExpired: false }
+            } else if (diffDays > 7) {
+              return { text: `${diffDays}天后过期`, color: 'text-blue-400', isExpired: false }
+            } else if (diffDays > 1) {
+              return { text: `${diffDays}天后过期`, color: 'text-amber-400', isExpired: false }
+            } else {
+              return { text: `${diffHours}小时后过期`, color: 'text-red-400', isExpired: false }
+            }
+          }
+          return { text: '永不过期', color: 'text-green-400', isExpired: false }
+        })(),
+        // 计算时长显示
+        duration_display: (() => {
+          if (keyData.original_duration_hours) {
+            const hours = parseFloat(keyData.original_duration_hours.toString())
+            if (hours < 24) {
+              return `${hours}小时`
+            } else if (hours < 24 * 30) {
+              const days = Math.round(hours / 24)
+              return `${days}天`
+            } else {
+              const months = Math.round(hours / (24 * 30))
+              return `${months}个月`
+            }
+          }
+          if (keyData.account_valid_for_days) {
+            if (keyData.account_valid_for_days < 30) {
+              return `${keyData.account_valid_for_days}天`
+            } else {
+              const months = Math.round(keyData.account_valid_for_days / 30)
+              return `${months}个月`
+            }
+          }
+          return '永不过期'
+        })()
+      },
+      usage_history: usageHistory || [],
+      all_users: allUsers,
+      statistics
+    }
+
+    console.log(`✅ 密钥详情获取成功: ID ${keyId}, ${allUsers.length} 个使用者`)
+
+    return NextResponse.json({
+      success: true,
+      data: responseData,
+      meta: {
+        key_id: keyId,
+        timestamp: new Date().toISOString(),
+        has_usage_history: !!usageHistory,
+        user_count: allUsers.length
+      }
+    })
+
   } catch (error: any) {
-    console.error('获取密钥详情失败:', error)
+    console.error('❌ 获取密钥详情失败:', error)
+    
+    // 尝试返回基础数据
+    try {
+      const supabaseAdmin = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { persistSession: false } }
+      )
+      
+      const { data: basicKey } = await supabaseAdmin
+        .from('access_keys')
+        .select('*')
+        .eq('id', parseInt(context.params.id))
+        .single()
+      
+      if (basicKey) {
+        return NextResponse.json({
+          success: true,
+          data: {
+            key_info: basicKey,
+            usage_history: [],
+            all_users: [],
+            statistics: {
+              total_uses: 0,
+              unique_users: 0,
+              usage_by_type: {},
+              first_use: null,
+              last_use: null
+            }
+          },
+          warning: '无法获取完整的使用者信息，只返回基础数据'
+        })
+      }
+    } catch (fallbackError) {
+      // 忽略fallback错误
+    }
+    
     return NextResponse.json(
-      { success: false, error: error.message },
+      { 
+        success: false, 
+        error: error.message || '获取密钥详情失败',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      },
       { status: 500 }
     )
   }
 }
+
+// 原有的 PUT 和 PATCH 方法保持不变...
 
 // 更新密钥（禁用/启用/删除）
 export async function PUT(

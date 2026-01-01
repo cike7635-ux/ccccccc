@@ -4,8 +4,8 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { 
-  ArrowLeft, Key, Copy, Check, AlertCircle, 
+import {
+  ArrowLeft, Key, Copy, Check, AlertCircle,
   User, Calendar, Clock, Shield, Loader2,
   ExternalLink, Ban, Eye, EyeOff, Trash2, Edit,
   Users, Plus, Save, RefreshCw, ChevronDown, ChevronUp,
@@ -73,19 +73,19 @@ export default function KeyDetailPage() {
   const params = useParams()
   const router = useRouter()
   const keyId = params.id as string
-  
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [keyData, setKeyData] = useState<KeyData | null>(null)
   const [copied, setCopied] = useState(false)
   const [operationLoading, setOperationLoading] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
-  
+
   // 展开/收起状态
   const [showAllUsers, setShowAllUsers] = useState(false)
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
   const [showExtendOptions, setShowExtendOptions] = useState(false)
-  
+
   // 自定义期限表单
   const [customDuration, setCustomDuration] = useState({
     original_duration_hours: '',
@@ -114,7 +114,7 @@ export default function KeyDetailPage() {
     try {
       setLoading(true)
       setError(null)
-      
+
       console.log(`🔍 获取密钥详情 ID: ${keyId}`)
       const response = await fetch(`/api/admin/keys/${keyId}`, {
         credentials: 'include',
@@ -123,7 +123,7 @@ export default function KeyDetailPage() {
           'Pragma': 'no-cache'
         }
       })
-      
+
       if (!response.ok) {
         if (response.status === 401) {
           router.push('/admin/login')
@@ -134,20 +134,20 @@ export default function KeyDetailPage() {
         }
         throw new Error(`获取密钥详情失败 (${response.status})`)
       }
-      
+
       const result = await response.json()
-      
+
       if (result.success && result.data) {
         console.log('✅ 密钥详情数据:', result.data)
         setKeyData(result.data)
-        
+
         // 初始化表单数据
         const key = result.data.key_info
         setCustomDuration({
           original_duration_hours: key.original_duration_hours?.toString() || '',
           account_valid_for_days: key.account_valid_for_days?.toString() || '30',
           max_uses: key.max_uses?.toString() || '1',
-          key_expires_at: key.key_expires_at ? 
+          key_expires_at: key.key_expires_at ?
             new Date(key.key_expires_at).toISOString().slice(0, 16) : '',
           description: key.description || ''
         })
@@ -172,16 +172,16 @@ export default function KeyDetailPage() {
 
   // 获取密钥状态
   const getKeyStatus = () => {
-    if (!keyData?.key_info) return { 
-      label: '未知', 
-      color: 'text-gray-400', 
+    if (!keyData?.key_info) return {
+      label: '未知',
+      color: 'text-gray-400',
       bgColor: 'bg-gray-400/10',
       icon: AlertCircle
     }
-    
+
     const key = keyData.key_info
     const now = new Date()
-    
+
     // 已禁用
     if (!key.is_active) {
       return {
@@ -191,7 +191,7 @@ export default function KeyDetailPage() {
         icon: Ban
       }
     }
-    
+
     // 已过期
     if (key.key_expires_at && new Date(key.key_expires_at) < now) {
       return {
@@ -201,7 +201,7 @@ export default function KeyDetailPage() {
         icon: AlertCircle
       }
     }
-    
+
     // 已使用（有使用记录或使用者）
     const hasUsage = keyData.statistics.total_uses > 0 || key.used_at || key.user_id
     if (hasUsage) {
@@ -212,7 +212,7 @@ export default function KeyDetailPage() {
         icon: Check
       }
     }
-    
+
     // 未使用
     return {
       label: '未使用',
@@ -225,15 +225,15 @@ export default function KeyDetailPage() {
   // 计算剩余有效期
   const getRemainingTime = () => {
     if (!keyData?.key_info) return { text: '未知', color: 'text-gray-400', isExpired: false }
-    
+
     const key = keyData.key_info
     const now = new Date()
-    
+
     // 如果有绝对过期时间
     if (key.key_expires_at) {
       const expiry = new Date(key.key_expires_at)
       const diffMs = expiry.getTime() - now.getTime()
-      
+
       if (diffMs <= 0) {
         return {
           text: '已过期',
@@ -241,10 +241,10 @@ export default function KeyDetailPage() {
           isExpired: true
         }
       }
-      
+
       const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
       const diffHours = Math.ceil(diffMs / (1000 * 60 * 60))
-      
+
       if (diffDays > 30) {
         const months = Math.floor(diffDays / 30)
         return {
@@ -272,12 +272,12 @@ export default function KeyDetailPage() {
         }
       }
     }
-    
+
     // 计算基于使用时间的有效期
     if (key.used_at) {
       const usedDate = new Date(key.used_at)
       let expiryTime: Date
-      
+
       if (key.original_duration_hours) {
         expiryTime = new Date(usedDate.getTime() + (parseFloat(key.original_duration_hours.toString()) * 60 * 60 * 1000))
       } else if (key.account_valid_for_days) {
@@ -289,9 +289,9 @@ export default function KeyDetailPage() {
           isExpired: false
         }
       }
-      
+
       const diffMs = expiryTime.getTime() - now.getTime()
-      
+
       if (diffMs <= 0) {
         return {
           text: '已过期',
@@ -299,10 +299,10 @@ export default function KeyDetailPage() {
           isExpired: true
         }
       }
-      
+
       const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
       const diffHours = Math.ceil(diffMs / (1000 * 60 * 60))
-      
+
       if (diffDays > 30) {
         const months = Math.floor(diffDays / 30)
         return {
@@ -330,7 +330,7 @@ export default function KeyDetailPage() {
         }
       }
     }
-    
+
     // 未激活也没有过期时间
     if (key.account_valid_for_days) {
       return {
@@ -339,7 +339,7 @@ export default function KeyDetailPage() {
         isExpired: false
       }
     }
-    
+
     return {
       text: '永不过期',
       color: 'text-green-400',
@@ -350,13 +350,13 @@ export default function KeyDetailPage() {
   // 格式化时长显示
   const getDurationDisplay = () => {
     if (!keyData?.key_info) return '未知'
-    
+
     const key = keyData.key_info
-    
+
     // 优先显示原始时长（小时）
     if (key.original_duration_hours) {
       const hours = parseFloat(key.original_duration_hours.toString())
-      
+
       if (hours < 24) {
         return `${hours}小时`
       } else if (hours < 24 * 30) {
@@ -367,7 +367,7 @@ export default function KeyDetailPage() {
         return `${months}个月`
       }
     }
-    
+
     // 回退到账户有效期天数
     if (key.account_valid_for_days) {
       if (key.account_valid_for_days < 30) {
@@ -377,7 +377,7 @@ export default function KeyDetailPage() {
         return `${months}个月`
       }
     }
-    
+
     return '永不过期'
   }
 
@@ -419,17 +419,17 @@ export default function KeyDetailPage() {
       enable: '启用',
       delete: '删除'
     }[action]
-    
+
     const confirmText = {
       disable: `确定要禁用此密钥吗？禁用后密钥将无法使用。`,
       enable: `确定要启用此密钥吗？启用后密钥可以正常使用。`,
       delete: `确定要删除此密钥吗？此操作不可撤销！`
     }[action]
-    
+
     if (!confirm(confirmText)) return
-    
+
     setOperationLoading(action)
-    
+
     try {
       const response = await fetch(`/api/admin/keys/${keyId}`, {
         method: 'PUT',
@@ -437,13 +437,13 @@ export default function KeyDetailPage() {
         body: JSON.stringify({ action }),
         credentials: 'include'
       })
-      
+
       const result = await response.json()
-      
+
       if (result.success) {
         setSuccessMessage(`密钥已${actionText}`)
         setTimeout(() => setSuccessMessage(null), 3000)
-        
+
         // 刷新数据
         if (action !== 'delete') {
           fetchKeyDetail()
@@ -466,37 +466,37 @@ export default function KeyDetailPage() {
   // 更新自定义期限
   const handleUpdateDuration = async () => {
     if (!keyData?.key_info) return
-    
+
     const updates: any = {}
-    
+
     // 只发送有变化的字段
     if (customDuration.original_duration_hours !== '') {
       updates.original_duration_hours = parseFloat(customDuration.original_duration_hours)
     }
-    
+
     if (customDuration.account_valid_for_days !== '') {
       updates.account_valid_for_days = parseInt(customDuration.account_valid_for_days)
     }
-    
+
     if (customDuration.max_uses !== '') {
       updates.max_uses = parseInt(customDuration.max_uses)
     }
-    
+
     if (customDuration.key_expires_at !== '') {
       updates.key_expires_at = new Date(customDuration.key_expires_at).toISOString()
     }
-    
+
     if (customDuration.description !== keyData.key_info.description) {
       updates.description = customDuration.description
     }
-    
+
     if (Object.keys(updates).length === 0) {
       alert('没有需要更新的字段')
       return
     }
-    
+
     setOperationLoading('update')
-    
+
     try {
       const response = await fetch(`/api/admin/keys/${keyId}`, {
         method: 'PATCH',
@@ -504,9 +504,9 @@ export default function KeyDetailPage() {
         body: JSON.stringify(updates),
         credentials: 'include'
       })
-      
+
       const result = await response.json()
-      
+
       if (result.success) {
         setSuccessMessage('密钥期限已更新')
         setTimeout(() => setSuccessMessage(null), 3000)
@@ -524,10 +524,10 @@ export default function KeyDetailPage() {
   // 延长密钥有效期
   const handleExtendExpiry = async (type: 'quick' | 'custom', value?: number) => {
     if (!keyData?.key_info) return
-    
+
     let days: number | undefined
     let hours: number | undefined
-    
+
     if (type === 'quick' && value) {
       days = value
     } else if (type === 'custom') {
@@ -537,42 +537,42 @@ export default function KeyDetailPage() {
         hours = parseInt(extendForm.hours)
       }
     }
-    
+
     if (!days && !hours) {
       alert('请指定延长的天数或小时数')
       return
     }
-    
-    const confirmText = days 
+
+    const confirmText = days
       ? `确定要将密钥有效期延长${days}天吗？`
       : `确定要将密钥有效期延长${hours}小时吗？`
-    
+
     if (!confirm(confirmText)) return
-    
+
     setOperationLoading('extend')
-    
+
     try {
       const response = await fetch(`/api/admin/keys/${keyId}/extend-expiry`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          days, 
-          hours, 
-          reason: extendForm.reason || '管理员手动延长' 
+        body: JSON.stringify({
+          days,
+          hours,
+          reason: extendForm.reason || '管理员手动延长'
         }),
         credentials: 'include'
       })
-      
+
       const result = await response.json()
-      
+
       if (result.success) {
-        setSuccessMessage(days 
+        setSuccessMessage(days
           ? `密钥有效期已延长${days}天`
           : `密钥有效期已延长${hours}小时`
         )
         setTimeout(() => setSuccessMessage(null), 3000)
         fetchKeyDetail() // 刷新数据
-        
+
         // 重置表单
         setExtendForm({ days: '', hours: '', reason: '' })
         setShowExtendOptions(false)
@@ -593,53 +593,53 @@ export default function KeyDetailPage() {
       alert('无法获取用户信息')
       return
     }
-    
+
     let days: number | undefined
     let hours: number | undefined
-    
+
     if (extendUserForm.days) {
       days = parseInt(extendUserForm.days)
     } else if (extendUserForm.hours) {
       hours = parseInt(extendUserForm.hours)
     }
-    
+
     if (!days && !hours) {
       alert('请指定延长的天数或小时数')
       return
     }
-    
-    const confirmText = days 
+
+    const confirmText = days
       ? `确定要将用户 "${userInfo.email}" 的会员时间延长${days}天吗？`
       : `确定要将用户 "${userInfo.email}" 的会员时间延长${hours}小时吗？`
-    
+
     if (!confirm(confirmText)) return
-    
+
     setOperationLoading('extendUser')
-    
+
     try {
       const response = await fetch(`/api/admin/users/${userInfo.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           extend_days: days,
           extend_hours: hours,
           reason: extendUserForm.reason || '管理员手动延长'
         }),
         credentials: 'include'
       })
-      
+
       const result = await response.json()
-      
+
       if (result.success) {
-        setSuccessMessage(days 
+        setSuccessMessage(days
           ? `用户会员时间已延长${days}天`
           : `用户会员时间已延长${hours}小时`
         )
         setTimeout(() => setSuccessMessage(null), 3000)
-        
+
         // 刷新数据
         fetchKeyDetail()
-        
+
         // 重置表单
         setExtendUserForm({ days: '', hours: '', reason: '' })
       } else {
@@ -655,9 +655,9 @@ export default function KeyDetailPage() {
   // 安全获取用户信息（兼容API返回的数据结构）
   const getUserInfo = () => {
     if (!keyData?.key_info) return null
-    
+
     const key = keyData.key_info
-    
+
     // 优先使用 profiles 字段（API实际返回）
     if (key.profiles && key.profiles.email) {
       return {
@@ -666,7 +666,7 @@ export default function KeyDetailPage() {
         id: key.user_id || key.profiles.id
       }
     }
-    
+
     return null
   }
 
@@ -785,7 +785,7 @@ export default function KeyDetailPage() {
                 查看和编辑此密钥的详细信息，管理使用者和有效期
               </p>
             </div>
-            
+
             <div className="flex gap-2">
               <button
                 onClick={() => copyToClipboard(key.key_code || `ID: ${key.id}`)}
@@ -803,7 +803,7 @@ export default function KeyDetailPage() {
                   </>
                 )}
               </button>
-              
+
               <button
                 onClick={fetchKeyDetail}
                 className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-300 flex items-center gap-2"
@@ -824,7 +824,7 @@ export default function KeyDetailPage() {
                 <Shield className="w-5 h-5 mr-2 text-blue-400" />
                 密钥信息
               </h2>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">密钥代码</label>
@@ -845,14 +845,14 @@ export default function KeyDetailPage() {
                     </button>
                   </div>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">描述</label>
                   <p className="text-white bg-gray-900/50 px-3 py-2 rounded-lg">
                     {key.description || '无描述'}
                   </p>
                 </div>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">状态</label>
@@ -863,7 +863,7 @@ export default function KeyDetailPage() {
                       </span>
                     </div>
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">激活状态</label>
                     <div className="flex items-center gap-2">
@@ -885,7 +885,7 @@ export default function KeyDetailPage() {
                 <Zap className="w-5 h-5 mr-2 text-amber-400" />
                 使用统计
               </h2>
-              
+
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-400">总使用次数</span>
@@ -893,21 +893,21 @@ export default function KeyDetailPage() {
                     {keyData.statistics.total_uses}
                   </span>
                 </div>
-                
+
                 <div className="flex justify-between items-center">
                   <span className="text-gray-400">唯一用户数</span>
                   <span className="text-blue-400 text-lg font-bold">
                     {keyData.statistics.unique_users}
                   </span>
                 </div>
-                
+
                 <div className="flex justify-between items-center">
                   <span className="text-gray-400">最大使用次数</span>
                   <span className="text-green-400 text-lg font-bold">
                     {key.max_uses || '∞'}
                   </span>
                 </div>
-                
+
                 <div className="flex justify-between items-center">
                   <span className="text-gray-400">当前使用次数</span>
                   <span className="text-amber-400 text-lg font-bold">
@@ -943,7 +943,7 @@ export default function KeyDetailPage() {
               )}
             </div>
           </div>
-          
+
           <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
             <h3 className="text-sm font-medium text-gray-400 mb-2 flex items-center">
               <Timer className="w-4 h-4 mr-2 text-green-400" />
@@ -966,7 +966,7 @@ export default function KeyDetailPage() {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
             <h3 className="text-sm font-medium text-gray-400 mb-2 flex items-center">
               <Battery className="w-4 h-4 mr-2 text-amber-400" />
@@ -1011,7 +1011,7 @@ export default function KeyDetailPage() {
                 <User className="w-5 h-5 mr-2 text-blue-400" />
                 当前使用者
               </h2>
-              
+
               <div className="p-4 bg-gray-900/50 rounded-lg">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -1033,14 +1033,14 @@ export default function KeyDetailPage() {
                     </p>
                   </div>
                 </div>
-                
+
                 {/* 🔥 新增：延长用户会员时间表单 */}
                 <div className="mt-6 pt-6 border-t border-gray-700/50">
                   <h3 className="text-md font-semibold text-white mb-3 flex items-center">
                     <CalendarClock className="w-4 h-4 mr-2 text-green-400" />
                     延长此用户会员时间
                   </h3>
-                  
+
                   <div className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
@@ -1051,8 +1051,8 @@ export default function KeyDetailPage() {
                             min="1"
                             max="999"
                             value={extendUserForm.days}
-                            onChange={(e) => setExtendUserForm(prev => ({ 
-                              ...prev, 
+                            onChange={(e) => setExtendUserForm(prev => ({
+                              ...prev,
                               days: e.target.value,
                               hours: '' // 清空小时输入
                             }))}
@@ -1062,7 +1062,7 @@ export default function KeyDetailPage() {
                           <span className="text-gray-400 text-sm">天</span>
                         </div>
                       </div>
-                      
+
                       <div>
                         <label className="block text-sm text-gray-400 mb-1">延长小时数</label>
                         <div className="flex items-center gap-2">
@@ -1071,8 +1071,8 @@ export default function KeyDetailPage() {
                             min="1"
                             max="720"
                             value={extendUserForm.hours}
-                            onChange={(e) => setExtendUserForm(prev => ({ 
-                              ...prev, 
+                            onChange={(e) => setExtendUserForm(prev => ({
+                              ...prev,
                               hours: e.target.value,
                               days: '' // 清空天数输入
                             }))}
@@ -1083,7 +1083,7 @@ export default function KeyDetailPage() {
                         </div>
                       </div>
                     </div>
-                    
+
                     <div>
                       <label className="block text-sm text-gray-400 mb-1">延长原因（可选）</label>
                       <input
@@ -1095,7 +1095,7 @@ export default function KeyDetailPage() {
                         maxLength={100}
                       />
                     </div>
-                    
+
                     <div className="flex justify-end gap-3">
                       <button
                         onClick={() => setExtendUserForm({ days: '', hours: '', reason: '' })}
@@ -1123,7 +1123,7 @@ export default function KeyDetailPage() {
                     </div>
                   </div>
                 </div>
-                
+
                 {userInfo.id && (
                   <div className="mt-4 pt-4 border-t border-gray-700/50">
                     <Link
@@ -1141,93 +1141,91 @@ export default function KeyDetailPage() {
           </div>
         )}
 
-        {/* 所有使用者历史 */}
-        {keyData.usage_history.length > 0 && (
+       // 修改"所有使用者"部分（大约第742行）：
+
+        {/* 所有使用者 */}
+        {keyData.all_users && keyData.all_users.length > 0 && (
           <div className="mb-6">
             <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-white flex items-center">
-                  <Users className="w-5 h-5 mr-2 text-purple-400" />
-                  所有使用者历史
-                  <span className="ml-3 bg-purple-500/20 text-purple-400 px-3 py-1 rounded-full text-sm">
-                    {keyData.usage_history.length} 次使用记录
-                  </span>
-                </h2>
-                <button
-                  onClick={() => setShowAllUsers(!showAllUsers)}
-                  className="text-gray-400 hover:text-white flex items-center gap-1"
-                >
-                  {showAllUsers ? (
-                    <>
-                      收起
-                      <ChevronUp className="w-4 h-4" />
-                    </>
-                  ) : (
-                    <>
-                      展开所有
-                      <ChevronDown className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </div>
-              
+              <h2 className="text-lg font-semibold text-white mb-4 flex items-center">
+                <Users className="w-5 h-5 mr-2 text-purple-400" />
+                所有使用者
+                <span className="ml-3 bg-purple-500/20 text-purple-400 px-3 py-1 rounded-full text-sm">
+                  {keyData.all_users.length} 个用户
+                </span>
+              </h2>
+
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
                     <tr className="bg-gray-800/50">
-                      <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">使用时间</th>
                       <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">用户</th>
-                      <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">使用类型</th>
+                      <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">使用次数</th>
+                      <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">首次使用</th>
+                      <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">最后使用</th>
+                      <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm">操作</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {keyData.usage_history.map((record, index) => (
-                      <tr 
-                        key={record.id} 
+                    {keyData.all_users.map((user, index) => (
+                      <tr
+                        key={user.user_id}
                         className={`border-t border-gray-700/30 ${index === 0 ? 'bg-blue-500/5' : ''}`}
                       >
                         <td className="py-3 px-4">
-                          <div className="flex flex-col">
-                            <span className="text-gray-300 text-sm">
-                              {formatDate(record.used_at)}
-                            </span>
-                            {index === 0 && (
-                              <span className="text-green-400 text-xs mt-1">最近使用</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4">
                           <div className="flex items-center">
-                            <User className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
+                            {user.avatar_url ? (
+                              <img
+                                src={user.avatar_url}
+                                alt={user.nickname || user.email}
+                                className="w-8 h-8 rounded-full mr-3"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center mr-3">
+                                <User className="w-4 h-4 text-gray-400" />
+                              </div>
+                            )}
                             <div className="min-w-0">
-                              <p className="text-gray-300 text-sm truncate" title={record.profiles?.email || `用户ID: ${record.user_id}`}>
-                                {record.profiles?.email || `用户ID: ${record.user_id}`}
+                              <p className="text-gray-300 text-sm truncate" title={user.email}>
+                                {user.email}
                               </p>
-                              {record.profiles?.nickname && (
-                                <p className="text-gray-500 text-xs truncate">{record.profiles.nickname}</p>
+                              {user.nickname && (
+                                <p className="text-gray-500 text-xs truncate">{user.nickname}</p>
                               )}
                             </div>
                           </div>
                         </td>
                         <td className="py-3 px-4">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            record.usage_type === 'activate' ? 'bg-green-500/20 text-green-400' :
-                            record.usage_type === 'renew' ? 'bg-blue-500/20 text-blue-400' :
-                            record.usage_type === 'transfer' ? 'bg-purple-500/20 text-purple-400' :
-                            'bg-gray-500/20 text-gray-400'
-                          }`}>
-                            {formatUsageType(record.usage_type)}
+                          <span className="px-2 py-1 bg-amber-500/20 text-amber-400 rounded text-xs">
+                            {user.usage_count} 次
                           </span>
+                        </td>
+                        <td className="py-3 px-4 text-gray-300 text-sm">
+                          {formatDate(user.first_used)}
+                        </td>
+                        <td className="py-3 px-4 text-gray-300 text-sm">
+                          {formatDate(user.last_used)}
+                        </td>
+                        <td className="py-3 px-4">
+                          <Link
+                            href={`/admin/users/${user.user_id}`}
+                            className="text-blue-400 hover:text-blue-300 text-sm flex items-center gap-1"
+                            target="_blank"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            查看详情
+                          </Link>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              
+
               <div className="mt-4 pt-4 border-t border-gray-700/50 flex items-center justify-between">
                 <div className="text-gray-400 text-sm">
-                  共 {keyData.statistics.unique_users} 个不同用户使用过此密钥
+                  此密钥被 {keyData.statistics.unique_users} 个不同用户使用过，
+                  总计 {keyData.statistics.total_uses} 次使用
                 </div>
                 <div className="flex gap-2">
                   <span className="px-2 py-1 bg-green-500/20 text-green-400 rounded text-xs">
@@ -1239,6 +1237,11 @@ export default function KeyDetailPage() {
                   <span className="px-2 py-1 bg-purple-500/20 text-purple-400 rounded text-xs">
                     转移: {keyData.statistics.usage_by_type?.transfer || 0}
                   </span>
+                  {keyData.statistics.usage_by_type?.admin_extend && (
+                    <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded text-xs">
+                      管理延长: {keyData.statistics.usage_by_type.admin_extend}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -1271,7 +1274,7 @@ export default function KeyDetailPage() {
                 )}
               </button>
             </div>
-            
+
             <div className={`space-y-4 transition-all duration-300 ${showAdvancedSettings ? 'block' : 'hidden'}`}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -1296,7 +1299,7 @@ export default function KeyDetailPage() {
                     小时级别：1=1小时，24=1天，720=30天
                   </p>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm text-gray-400 mb-2">账户有效期（天）</label>
                   <div className="flex items-center gap-2">
@@ -1319,7 +1322,7 @@ export default function KeyDetailPage() {
                   </p>
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-gray-400 mb-2">最大使用次数</label>
@@ -1338,7 +1341,7 @@ export default function KeyDetailPage() {
                     输入∞表示无限次使用
                   </p>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm text-gray-400 mb-2">过期时间</label>
                   <input
@@ -1355,7 +1358,7 @@ export default function KeyDetailPage() {
                   </p>
                 </div>
               </div>
-              
+
               <div>
                 <label className="block text-sm text-gray-400 mb-2">描述</label>
                 <textarea
@@ -1377,7 +1380,7 @@ export default function KeyDetailPage() {
                   </span>
                 </div>
               </div>
-              
+
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-700/50">
                 <button
                   onClick={() => {
@@ -1386,7 +1389,7 @@ export default function KeyDetailPage() {
                       original_duration_hours: key.original_duration_hours?.toString() || '',
                       account_valid_for_days: key.account_valid_for_days?.toString() || '30',
                       max_uses: key.max_uses?.toString() || '1',
-                      key_expires_at: key.key_expires_at ? 
+                      key_expires_at: key.key_expires_at ?
                         new Date(key.key_expires_at).toISOString().slice(0, 16) : '',
                       description: key.description || ''
                     })
@@ -1440,7 +1443,7 @@ export default function KeyDetailPage() {
                 )}
               </button>
             </div>
-            
+
             {showExtendOptions && (
               <div className="space-y-4 animate-fade-in">
                 <div>
@@ -1472,8 +1475,8 @@ export default function KeyDetailPage() {
                             min="1"
                             max="999"
                             value={extendForm.days}
-                            onChange={(e) => setExtendForm(prev => ({ 
-                              ...prev, 
+                            onChange={(e) => setExtendForm(prev => ({
+                              ...prev,
                               days: e.target.value,
                               hours: '' // 清空小时输入
                             }))}
@@ -1483,7 +1486,7 @@ export default function KeyDetailPage() {
                           <span className="text-gray-400 text-sm">天</span>
                         </div>
                       </div>
-                      
+
                       <div>
                         <label className="block text-sm text-gray-400 mb-1">延长小时数</label>
                         <div className="flex items-center gap-2">
@@ -1492,8 +1495,8 @@ export default function KeyDetailPage() {
                             min="1"
                             max="240"
                             value={extendForm.hours}
-                            onChange={(e) => setExtendForm(prev => ({ 
-                              ...prev, 
+                            onChange={(e) => setExtendForm(prev => ({
+                              ...prev,
                               hours: e.target.value,
                               days: '' // 清空天数输入
                             }))}
@@ -1504,7 +1507,7 @@ export default function KeyDetailPage() {
                         </div>
                       </div>
                     </div>
-                    
+
                     <div>
                       <label className="block text-sm text-gray-400 mb-1">延长原因（可选）</label>
                       <input
@@ -1516,7 +1519,7 @@ export default function KeyDetailPage() {
                         maxLength={100}
                       />
                     </div>
-                    
+
                     <div className="flex justify-end gap-3">
                       <button
                         onClick={() => setExtendForm({ days: '', hours: '', reason: '' })}
@@ -1572,7 +1575,7 @@ export default function KeyDetailPage() {
                 </>
               )}
             </button>
-            
+
             <button
               onClick={() => handleKeyAction('delete')}
               disabled={operationLoading === 'delete'}
@@ -1587,7 +1590,7 @@ export default function KeyDetailPage() {
                 </>
               )}
             </button>
-            
+
             <Link
               href={`/admin/keys/generate?template=${key.id}`}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white flex items-center gap-2"
@@ -1595,7 +1598,7 @@ export default function KeyDetailPage() {
               <Plus className="w-4 h-4" />
               生成相似密钥
             </Link>
-            
+
             <button
               onClick={fetchKeyDetail}
               className="px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-gray-300 flex items-center gap-2"
