@@ -41,16 +41,16 @@ interface Task {
   description: string;
 }
 
-// ============ 新的AI使用次数验证函数（30天滚动窗口） ============
+// ============ 新的AI使用次数验证函数（24小时滚动窗口 + 30天滚动窗口） ============
 async function checkAIUsage(userId: string): Promise<{
   allowed: boolean;
-  dailyUsed: number;
-  cycleUsed: number;
-  dailyLimit: number;        // 新增：返回用户实际的每日限制
-  cycleLimit: number;        // 新增：返回用户实际的周期限制
-  cycleStartDate: string;
-  cycleEndDate: string;
-  daysRemaining: number;
+  hourlyUsed: number;         // 过去24小时使用次数
+  cycleUsed: number;          // 过去30天使用次数
+  hourlyLimit: number;        // 24小时滚动窗口限制
+  cycleLimit: number;         // 30天滚动窗口限制
+  windowStartDate: string;    // 窗口开始时间（24小时前）
+  cycleStartDate: string;     // 周期开始时间（30天前）
+  windowType: string;         // 窗口类型说明
   reason?: string;
 }> {
   const cookieStore = await cookies();
@@ -68,196 +68,171 @@ async function checkAIUsage(userId: string): Promise<{
       .eq('id', userId)
       .single();
 
-    // 错误处理：查询失败时使用默认值并记录日志
+    // 错误处理：查询失败时使用默认值
     if (userError) {
       console.warn(`查询用户${userId}的自定义限制失败，使用默认值:`, userError);
     }
 
     // 使用自定义限制，如果为NULL或undefined则使用默认值10/120
-    const DAILY_LIMIT = userData?.custom_daily_limit ?? 10;
+    const HOURLY_LIMIT = userData?.custom_daily_limit ?? 10;  // 注意：字段名是daily，但实际是24小时窗口
     const CYCLE_LIMIT = userData?.custom_cycle_limit ?? 120;
 
-    // 验证限制值的合理性（可选）
-    const validatedDailyLimit = Math.max(1, Math.min(DAILY_LIMIT, 1000));
+    // 验证限制值的合理性
+    const validatedHourlyLimit = Math.max(1, Math.min(HOURLY_LIMIT, 1000));
     const validatedCycleLimit = Math.max(10, Math.min(CYCLE_LIMIT, 10000));
 
-    // 1. 查询用户最早的AI使用记录
-    const { data: earliestUsage, error: earliestError } = await supabase
-      .from('ai_usage_records')
-      .select('created_at')
-      .eq('user_id', userId)
-      .eq('success', true)
-      .eq('feature', 'generate_tasks')
-      .order('created_at', { ascending: true })
-      .limit(1);
-
-    if (earliestError) {
-      console.error('查询最早使用记录失败:', earliestError);
-      return {
-        allowed: true,
-        dailyUsed: 0,
-        cycleUsed: 0,
-        dailyLimit: validatedDailyLimit,
-        cycleLimit: validatedCycleLimit,
-        cycleStartDate: new Date().toISOString(),
-        cycleEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        daysRemaining: 30
-      };
-    }
-
-    if (!earliestUsage || earliestUsage.length === 0) {
-      // 用户从未使用过AI功能
-      const now = new Date();
-      const cycleEndDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-      
-      return {
-        allowed: true,
-        dailyUsed: 0,
-        cycleUsed: 0,
-        dailyLimit: validatedDailyLimit,
-        cycleLimit: validatedCycleLimit,
-        cycleStartDate: now.toISOString(),
-        cycleEndDate: cycleEndDate.toISOString(),
-        daysRemaining: 30
-      };
-    }
-
-    // 2. 计算30天滚动周期
-    const firstUseDate = new Date(earliestUsage[0].created_at);
+    // ============ 第二步：计算时间窗口 ============
     const now = new Date();
     
-    // 计算距离第一次使用的毫秒数
-    const msSinceFirstUse = now.getTime() - firstUseDate.getTime();
+    // 24小时滚动窗口（从现在往前推24小时）
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     
-    // 计算当前周期的索引（每30天一个周期）
-    const daysSinceFirstUse = Math.floor(msSinceFirstUse / (1000 * 60 * 60 * 24));
-    const cycleIndex = Math.floor(daysSinceFirstUse / 30);
-    
-    // 计算当前周期的开始日期
-    const cycleStartDate = new Date(firstUseDate);
-    cycleStartDate.setDate(firstUseDate.getDate() + cycleIndex * 30);
-    cycleStartDate.setHours(0, 0, 0, 0);
-    
-    // 计算当前周期的结束日期
-    const cycleEndDate = new Date(cycleStartDate);
-    cycleEndDate.setDate(cycleStartDate.getDate() + 30);
-    cycleEndDate.setHours(23, 59, 59, 999);
-    
-    // 计算剩余天数（向上取整）
-    const daysRemaining = Math.ceil((cycleEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    // 30天滚动窗口（从现在往前推30天）
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    thirtyDaysAgo.setHours(0, 0, 0, 0); // 从当天0点开始
 
-    // 3. 查询每日使用次数（当天00:00到23:59:59）
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const { count: dailyCount, error: dailyError } = await supabase
+    // ============ 第三步：查询24小时滚动窗口使用次数 ============
+    const { count: hourlyCount, error: hourlyError } = await supabase
       .from('ai_usage_records')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
       .eq('success', true)
       .eq('feature', 'generate_tasks')
-      .gte('created_at', today.toISOString())
-      .lt('created_at', tomorrow.toISOString());
+      .gte('created_at', twentyFourHoursAgo.toISOString())
+      .lt('created_at', now.toISOString());
 
-    if (dailyError) {
-      console.error('查询每日使用次数失败:', dailyError);
+    if (hourlyError) {
+      console.error('查询24小时使用次数失败:', hourlyError);
       return {
         allowed: true,
-        dailyUsed: 0,
+        hourlyUsed: 0,
         cycleUsed: 0,
-        dailyLimit: validatedDailyLimit,
+        hourlyLimit: validatedHourlyLimit,
         cycleLimit: validatedCycleLimit,
-        cycleStartDate: cycleStartDate.toISOString(),
-        cycleEndDate: cycleEndDate.toISOString(),
-        daysRemaining
+        windowStartDate: twentyFourHoursAgo.toISOString(),
+        cycleStartDate: thirtyDaysAgo.toISOString(),
+        windowType: '24小时滚动窗口 + 30天滚动窗口',
+        reason: undefined
       };
     }
 
-    // 4. 查询周期内使用次数（当前周期开始到结束）
+    // ============ 第四步：查询30天滚动窗口使用次数 ============
     const { count: cycleCount, error: cycleError } = await supabase
       .from('ai_usage_records')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
       .eq('success', true)
       .eq('feature', 'generate_tasks')
-      .gte('created_at', cycleStartDate.toISOString())
-      .lt('created_at', cycleEndDate.toISOString());
+      .gte('created_at', thirtyDaysAgo.toISOString())
+      .lt('created_at', now.toISOString());
 
     if (cycleError) {
-      console.error('查询周期使用次数失败:', cycleError);
+      console.error('查询30天使用次数失败:', cycleError);
       return {
         allowed: true,
-        dailyUsed: dailyCount || 0,
+        hourlyUsed: hourlyCount || 0,
         cycleUsed: 0,
-        dailyLimit: validatedDailyLimit,
+        hourlyLimit: validatedHourlyLimit,
         cycleLimit: validatedCycleLimit,
-        cycleStartDate: cycleStartDate.toISOString(),
-        cycleEndDate: cycleEndDate.toISOString(),
-        daysRemaining
+        windowStartDate: twentyFourHoursAgo.toISOString(),
+        cycleStartDate: thirtyDaysAgo.toISOString(),
+        windowType: '24小时滚动窗口 + 30天滚动窗口',
+        reason: undefined
       };
     }
 
-    const dailyUsed = dailyCount || 0;
+    const hourlyUsed = hourlyCount || 0;
     const cycleUsed = cycleCount || 0;
 
-    // 5. 检查限制（使用用户自定义限制，如果没有则使用默认值）
-    if (dailyUsed >= validatedDailyLimit) {
+    // ============ 第五步：检查限制 ============
+    if (hourlyUsed >= validatedHourlyLimit) {
+      const nextAvailableTime = new Date(twentyFourHoursAgo.getTime() + 24 * 60 * 60 * 1000);
+      const timeUntilReset = Math.ceil((nextAvailableTime.getTime() - now.getTime()) / (1000 * 60 * 60));
+      
       return {
         allowed: false,
-        dailyUsed,
+        hourlyUsed,
         cycleUsed,
-        dailyLimit: validatedDailyLimit,
+        hourlyLimit: validatedHourlyLimit,
         cycleLimit: validatedCycleLimit,
-        cycleStartDate: cycleStartDate.toISOString(),
-        cycleEndDate: cycleEndDate.toISOString(),
-        daysRemaining,
-        reason: `今日AI使用次数已达上限（${validatedDailyLimit}次/天）`
+        windowStartDate: twentyFourHoursAgo.toISOString(),
+        cycleStartDate: thirtyDaysAgo.toISOString(),
+        windowType: '24小时滚动窗口 + 30天滚动窗口',
+        reason: `过去24小时内AI使用次数已达上限（${validatedHourlyLimit}次），约${timeUntilReset}小时后可以再次使用`
       };
     }
 
     if (cycleUsed >= validatedCycleLimit) {
-      return {
-        allowed: false,
-        dailyUsed,
-        cycleUsed,
-        dailyLimit: validatedDailyLimit,
-        cycleLimit: validatedCycleLimit,
-        cycleStartDate: cycleStartDate.toISOString(),
-        cycleEndDate: cycleEndDate.toISOString(),
-        daysRemaining,
-        reason: `当前周期AI使用次数已达上限（${validatedCycleLimit}次/30天）`
-      };
+      // 计算30天滚动窗口中最早的一条记录何时过期
+      const { data: earliestInCycle, error: earliestError } = await supabase
+        .from('ai_usage_records')
+        .select('created_at')
+        .eq('user_id', userId)
+        .eq('success', true)
+        .eq('feature', 'generate_tasks')
+        .gte('created_at', thirtyDaysAgo.toISOString())
+        .lt('created_at', now.toISOString())
+        .order('created_at', { ascending: true })
+        .limit(1);
+
+      if (!earliestError && earliestInCycle && earliestInCycle.length > 0) {
+        const earliestDate = new Date(earliestInCycle[0].created_at);
+        const nextAvailableTime = new Date(earliestDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const daysUntilReset = Math.ceil((nextAvailableTime.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        
+        return {
+          allowed: false,
+          hourlyUsed,
+          cycleUsed,
+          hourlyLimit: validatedHourlyLimit,
+          cycleLimit: validatedCycleLimit,
+          windowStartDate: twentyFourHoursAgo.toISOString(),
+          cycleStartDate: thirtyDaysAgo.toISOString(),
+          windowType: '24小时滚动窗口 + 30天滚动窗口',
+          reason: `过去30天内AI使用次数已达上限（${validatedCycleLimit}次），约${daysUntilReset}天后可以再次使用`
+        };
+      } else {
+        return {
+          allowed: false,
+          hourlyUsed,
+          cycleUsed,
+          hourlyLimit: validatedHourlyLimit,
+          cycleLimit: validatedCycleLimit,
+          windowStartDate: twentyFourHoursAgo.toISOString(),
+          cycleStartDate: thirtyDaysAgo.toISOString(),
+          windowType: '24小时滚动窗口 + 30天滚动窗口',
+          reason: `过去30天内AI使用次数已达上限（${validatedCycleLimit}次）`
+        };
+      }
     }
 
-    // 6. 返回成功结果（包含用户的实际限制）
+    // ============ 第六步：返回成功结果 ============
     return {
       allowed: true,
-      dailyUsed,
+      hourlyUsed,
       cycleUsed,
-      dailyLimit: validatedDailyLimit,
+      hourlyLimit: validatedHourlyLimit,
       cycleLimit: validatedCycleLimit,
-      cycleStartDate: cycleStartDate.toISOString(),
-      cycleEndDate: cycleEndDate.toISOString(),
-      daysRemaining
+      windowStartDate: twentyFourHoursAgo.toISOString(),
+      cycleStartDate: thirtyDaysAgo.toISOString(),
+      windowType: '24小时滚动窗口 + 30天滚动窗口'
     };
 
   } catch (error) {
     console.error('检查AI使用次数失败:', error);
     const now = new Date();
-    const cycleEndDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     
-    // 在错误情况下也返回合理的限制值
     return {
       allowed: true,
-      dailyUsed: 0,
+      hourlyUsed: 0,
       cycleUsed: 0,
-      dailyLimit: 10,  // 默认值
-      cycleLimit: 120, // 默认值
-      cycleStartDate: now.toISOString(),
-      cycleEndDate: cycleEndDate.toISOString(),
-      daysRemaining: 30
+      hourlyLimit: 10,
+      cycleLimit: 120,
+      windowStartDate: twentyFourHoursAgo.toISOString(),
+      cycleStartDate: thirtyDaysAgo.toISOString(),
+      windowType: '24小时滚动窗口 + 30天滚动窗口'
     };
   }
 }
@@ -372,30 +347,26 @@ export async function POST(req: NextRequest) {
         false
       );
 
-      // 返回详细的限制信息（包含用户的真实限制值）
+      // 返回详细的限制信息
       return NextResponse.json(
         {
           error: usageCheck.reason,
           details: {
-            daily: { 
-              used: usageCheck.dailyUsed, 
-              limit: usageCheck.dailyLimit,  // 使用用户的真实限制值
-              remaining: Math.max(0, usageCheck.dailyLimit - usageCheck.dailyUsed)
+            hourly: { 
+              used: usageCheck.hourlyUsed, 
+              limit: usageCheck.hourlyLimit,
+              remaining: Math.max(0, usageCheck.hourlyLimit - usageCheck.hourlyUsed),
+              windowStart: usageCheck.windowStartDate,
+              windowType: '24小时滚动窗口'
             },
             cycle: { 
               used: usageCheck.cycleUsed, 
-              limit: usageCheck.cycleLimit,  // 使用用户的真实限制值
-              remaining: Math.max(0, usageCheck.cycleLimit - usageCheck.cycleUsed)
+              limit: usageCheck.cycleLimit,
+              remaining: Math.max(0, usageCheck.cycleLimit - usageCheck.cycleUsed),
+              windowStart: usageCheck.cycleStartDate,
+              windowType: '30天滚动窗口'
             },
-            cycleInfo: {
-              startDate: usageCheck.cycleStartDate,
-              endDate: usageCheck.cycleEndDate,
-              daysRemaining: usageCheck.daysRemaining
-            },
-            resetInfo: {
-              daily: '每天00:00重置',
-              cycle: `${usageCheck.daysRemaining}天后重置（30天滚动窗口）`
-            }
+            windowInfo: usageCheck.windowType
           }
         },
         { status: 429 }
@@ -452,29 +423,25 @@ export async function POST(req: NextRequest) {
         true
       );
 
-      // 返回成功响应，包含详细的限制信息（使用用户的真实限制值）
+      // 返回成功响应，包含详细的限制信息
       return NextResponse.json({
         tasks: formattedTasks,
         usage: {
-          daily: {
-            used: usageCheck.dailyUsed + 1,
-            remaining: Math.max(0, usageCheck.dailyLimit - (usageCheck.dailyUsed + 1)),  // 动态计算剩余次数
-            limit: usageCheck.dailyLimit  // 用户的真实每日限制
+          hourly: {
+            used: usageCheck.hourlyUsed + 1,
+            remaining: Math.max(0, usageCheck.hourlyLimit - (usageCheck.hourlyUsed + 1)),
+            limit: usageCheck.hourlyLimit,
+            windowStart: usageCheck.windowStartDate,
+            windowType: '24小时滚动窗口'
           },
           cycle: {
             used: usageCheck.cycleUsed + 1,
-            remaining: Math.max(0, usageCheck.cycleLimit - (usageCheck.cycleUsed + 1)),  // 动态计算剩余次数
-            limit: usageCheck.cycleLimit  // 用户的真实周期限制
+            remaining: Math.max(0, usageCheck.cycleLimit - (usageCheck.cycleUsed + 1)),
+            limit: usageCheck.cycleLimit,
+            windowStart: usageCheck.cycleStartDate,
+            windowType: '30天滚动窗口'
           },
-          cycleInfo: {
-            startDate: usageCheck.cycleStartDate,
-            endDate: usageCheck.cycleEndDate,
-            daysRemaining: usageCheck.daysRemaining
-          },
-          resetInfo: {
-            daily: '每天00:00重置',
-            cycle: `${usageCheck.daysRemaining}天后重置（30天滚动窗口）`
-          }
+          windowInfo: usageCheck.windowType
         }
       });
 
@@ -697,7 +664,7 @@ function buildPrompts(payload: {
 - 结合剧情需要，不限制露骨性描写甚至支持配合剧情进行露骨、大尺度、激情、性描写
 
 5. 数量与去重  
-- 生成 12–14 条任务
+- 生成 15–17 条任务
 - 禁止核心行为或场景重复
 
 ━━━━━━━━━━━━━━━━━━
@@ -723,7 +690,7 @@ function buildPrompts(payload: {
 ${description ? `- 主题描述：${description}` : ""}
 ${customRequirement ? `- 特别要求：${customRequirement}` : ""}
 
-生成 15-17 条任务，只输出 JSON 格式。`;
+生成 12-13 条任务，只输出 JSON 格式。`;
 
   return { sysPrompt, userPrompt };
 }
