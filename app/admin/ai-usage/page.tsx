@@ -1,176 +1,511 @@
 // /app/admin/ai-usage/page.tsx
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
-import { BarChart3, Brain, Download, Filter } from 'lucide-react'
+import { useState, useEffect } from 'react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { 
+  Download, 
+  RefreshCw, 
+  Filter, 
+  Settings,
+  Bell,
+  Search,
+  Calendar,
+  Users,
+  Key,
+  BarChart3,
+  TrendingUp,
+  PieChart,
+  LineChart,
+  AlertTriangle,
+  Zap,
+  DollarSign,
+  Clock,
+  CheckCircle,
+  Activity
+} from 'lucide-react';
 
-// 动态渲染配置 - 解决构建错误的关键
-export const dynamic = 'force-dynamic'
-// export const revalidate = 0
+// 导入组件
+import TimeRangeSelector from './components/Shared/TimeRangeSelector';
+import LoadingSpinner from './components/Shared/LoadingSpinner';
+import OverviewCards from './components/Dashboard/OverviewCards';
+import UsageTrendChart from './components/Dashboard/UsageTrendChart';
+import HourlyDistribution from './components/Dashboard/HourlyDistribution';
+import CostAnalysis from './components/Dashboard/CostAnalysis';
+import UserProfileStats from './components/UserAnalysis/UserProfileStats';
+import PreferenceAnalysis from './components/UserAnalysis/PreferenceAnalysis';
+import UserRankingTable from './components/UserAnalysis/UserRankingTable';
+import KeyGenerator from './components/KeyManagement/KeyGenerator';
+import KeyList from './components/KeyManagement/KeyList';
+import KeyAnalytics from './components/KeyManagement/KeyAnalytics';
+import TopicAnalysis from './components/ContentAnalysis/TopicAnalysis';
+import QualityMetrics from './components/ContentAnalysis/QualityMetrics';
+import UsageForecast from './components/PredictiveAnalysis/UsageForecast';
+import OptimizationSuggestions from './components/PredictiveAnalysis/OptimizationSuggestions';
 
-interface AIUsageRecord {
-  id: string
-  userId: string
-  userEmail: string
-  feature: string
-  timestamp: string
-  success: boolean
-}
+// 导入类型
+import { 
+  TimeRange, 
+  FilterOptions, 
+  StatisticsResponse 
+} from './types';
 
 export default function AIUsagePage() {
-  const [records, setRecords] = useState<AIUsageRecord[]>([])
-  const [loading, setLoading] = useState(true)
-  const [timeRange, setTimeRange] = useState('7d')
+  // 状态管理
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [timeRange, setTimeRange] = useState<TimeRange>('30d');
+  const [filters, setFilters] = useState<FilterOptions>({
+    timeRange: '30d'
+  });
+  const [data, setData] = useState<StatisticsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isAutoRefresh, setIsAutoRefresh] = useState(false);
 
-  // 模拟数据
-  useEffect(() => {
-    const mockData: AIUsageRecord[] = [
-      { id: '1', userId: 'user1', userEmail: 'user1@example.com', feature: '任务生成', timestamp: '2024-12-22 10:30', success: true },
-      { id: '2', userId: 'user2', userEmail: 'user2@example.com', feature: '主题优化', timestamp: '2024-12-22 09:15', success: true },
-      { id: '3', userId: 'user3', userEmail: 'user3@example.com', feature: '任务生成', timestamp: '2024-12-21 14:20', success: false },
-      { id: '4', userId: 'user4', userEmail: 'user4@example.com', feature: '内容分析', timestamp: '2024-12-21 11:45', success: true },
-      { id: '5', userId: 'user5', userEmail: 'user5@example.com', feature: '任务生成', timestamp: '2024-12-20 16:10', success: true },
-    ]
+  // 获取数据
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
     
-    setTimeout(() => {
-      setRecords(mockData)
-      setLoading(false)
-    }, 800)
-  }, [])
+    try {
+      const queryParams = new URLSearchParams({
+        timeRange: filters.timeRange,
+        ...(filters.startDate && { startDate: filters.startDate }),
+        ...(filters.endDate && { endDate: filters.endDate }),
+        ...(filters.gender && { gender: filters.gender.join(',') }),
+        ...(filters.preferences && { preferences: filters.preferences.join(',') }),
+      });
+
+      const response = await fetch(`/api/admin/ai-usage/statistics?${queryParams}`);
+      
+      if (!response.ok) {
+        throw new Error(`获取数据失败: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      setData(result);
+      setLastUpdated(new Date());
+    } catch (err: any) {
+      setError(err.message);
+      console.error('获取统计数据失败:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 初始化加载数据
+  useEffect(() => {
+    fetchData();
+  }, [filters]);
+
+  // 自动刷新
+  useEffect(() => {
+    if (!isAutoRefresh) return;
+
+    const interval = setInterval(() => {
+      fetchData();
+    }, 30000); // 每30秒刷新一次
+
+    return () => clearInterval(interval);
+  }, [isAutoRefresh]);
+
+  // 处理时间范围变化
+  const handleTimeRangeChange = (newTimeRange: TimeRange) => {
+    setTimeRange(newTimeRange);
+    setFilters(prev => ({
+      ...prev,
+      timeRange: newTimeRange
+    }));
+  };
+
+  // 处理过滤器变化
+  const handleFilterChange = (newFilters: Partial<FilterOptions>) => {
+    setFilters(prev => ({ ...prev, ...newFilters }));
+  };
+
+  // 导出数据
+  const handleExport = (format: 'json' | 'csv' | 'excel') => {
+    if (!data) return;
+    
+    const exportData = {
+      ...data,
+      exportedAt: new Date().toISOString()
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: format === 'json' ? 'application/json' : 
+             format === 'csv' ? 'text/csv' : 
+             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ai-statistics-${timeRange}-${new Date().toISOString().split('T')[0]}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // 快速操作按钮
+  const QuickActions = () => (
+    <div className="flex items-center gap-2 mb-4">
+      <Button
+        onClick={fetchData}
+        variant="outline"
+        size="sm"
+        className="gap-2"
+      >
+        <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+        刷新数据
+      </Button>
+      
+      <Button
+        onClick={() => handleExport('json')}
+        variant="outline"
+        size="sm"
+        className="gap-2"
+      >
+        <Download className="h-4 w-4" />
+        导出JSON
+      </Button>
+      
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-2"
+        onClick={() => setIsAutoRefresh(!isAutoRefresh)}
+      >
+        <Activity className="h-4 w-4" />
+        {isAutoRefresh ? '关闭自动刷新' : '开启自动刷新'}
+      </Button>
+    </div>
+  );
+
+  // 加载状态
+  if (loading && !data) {
+    return (
+      <div className="min-h-screen bg-background p-8">
+        <div className="max-w-7xl mx-auto">
+          <LoadingSpinner message="加载AI统计数据中..." />
+        </div>
+      </div>
+    );
+  }
+
+  // 错误状态
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background p-8">
+        <div className="max-w-7xl mx-auto">
+          <Card className="border-destructive">
+            <CardHeader>
+              <CardTitle className="text-destructive flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5" />
+                加载失败
+              </CardTitle>
+              <CardDescription>无法加载统计数据</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-muted-foreground mb-4">{error}</p>
+              <Button onClick={fetchData}>重试</Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6">
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-white flex items-center">
-              <Brain className="w-6 h-6 mr-2 text-purple-400" />
+    <div className="min-h-screen bg-background">
+      {/* 顶部导航栏 */}
+      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="container mx-auto flex h-16 items-center justify-between px-4">
+          <div className="flex items-center gap-4">
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <BarChart3 className="h-6 w-6" />
               AI使用统计
             </h1>
-            <p className="text-gray-400 mt-2">查看系统中AI功能的使用情况和趋势</p>
+            {lastUpdated && (
+              <span className="text-sm text-muted-foreground">
+                最后更新: {lastUpdated.toLocaleTimeString()}
+              </span>
+            )}
           </div>
-          <div className="flex items-center space-x-3">
-            <button className="px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-sm text-gray-300 flex items-center">
-              <Filter className="w-4 h-4 mr-2" />
-              筛选
-            </button>
-            <button className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 rounded-lg text-sm text-white flex items-center">
-              <Download className="w-4 h-4 mr-2" />
-              导出数据
-            </button>
+          
+          <div className="flex items-center gap-4">
+            <TimeRangeSelector
+              value={timeRange}
+              onChange={handleTimeRangeChange}
+            />
+            
+            <QuickActions />
           </div>
         </div>
-        
-        {/* 时间范围筛选 */}
-        <div className="flex items-center mt-6 space-x-2">
-          {['今天', '7d', '30d', '全部'].map((range) => (
-            <button
-              key={range}
-              className={`px-3 py-1 rounded-lg text-sm ${
-                timeRange === range
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-              }`}
-              onClick={() => setTimeRange(range)}
-            >
-              {range}
-            </button>
-          ))}
-        </div>
-      </div>
+      </header>
 
-      {/* 统计概览 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-400">总使用次数</p>
-              <p className="text-2xl font-bold text-white mt-2">1,234</p>
-            </div>
-            <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center">
-              <BarChart3 className="w-6 h-6 text-white" />
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-400">成功率</p>
-              <p className="text-2xl font-bold text-white mt-2">98.5%</p>
-            </div>
-            <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
-              <Brain className="w-6 h-6 text-white" />
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-400">活跃用户数</p>
-              <p className="text-2xl font-bold text-white mt-2">89</p>
-            </div>
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-lg flex items-center justify-center">
-              <Brain className="w-6 h-6 text-white" />
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* 主内容区域 */}
+      <main className="container mx-auto px-4 py-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <TabsList className="grid grid-cols-6 w-full">
+            <TabsTrigger value="dashboard" className="gap-2">
+              <BarChart3 className="h-4 w-4" />
+              仪表盘
+            </TabsTrigger>
+            <TabsTrigger value="users" className="gap-2">
+              <Users className="h-4 w-4" />
+              用户分析
+            </TabsTrigger>
+            <TabsTrigger value="keys" className="gap-2">
+              <Key className="h-4 w-4" />
+              密钥管理
+            </TabsTrigger>
+            <TabsTrigger value="content" className="gap-2">
+              <PieChart className="h-4 w-4" />
+              内容分析
+            </TabsTrigger>
+            <TabsTrigger value="predictions" className="gap-2">
+              <TrendingUp className="h-4 w-4" />
+              预测建议
+            </TabsTrigger>
+            <TabsTrigger value="settings" className="gap-2">
+              <Settings className="h-4 w-4" />
+              设置
+            </TabsTrigger>
+          </TabsList>
 
-      {/* 使用记录表格 */}
-      <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-700/50">
-          <h2 className="text-lg font-semibold text-white">使用记录</h2>
-        </div>
-        
-        {loading ? (
-          <div className="p-8 text-center">
-            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-            <p className="text-gray-400 mt-4">加载使用记录中...</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-700/50">
-                  <th className="text-left py-3 px-6 text-gray-400 font-medium">用户</th>
-                  <th className="text-left py-3 px-6 text-gray-400 font-medium">功能</th>
-                  <th className="text-left py-3 px-6 text-gray-400 font-medium">时间</th>
-                  <th className="text-left py-3 px-6 text-gray-400 font-medium">状态</th>
-                </tr>
-              </thead>
-              <tbody>
-                {records.map((record) => (
-                  <tr key={record.id} className="border-b border-gray-700/30 hover:bg-gray-800/30">
-                    <td className="py-3 px-6">
-                      <div>
-                        <p className="text-white text-sm">{record.userEmail}</p>
-                        <p className="text-gray-500 text-xs">ID: {record.userId.substring(0, 8)}...</p>
-                      </div>
-                    </td>
-                    <td className="py-3 px-6">
-                      <span className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded text-xs">
-                        {record.feature}
-                      </span>
-                    </td>
-                    <td className="py-3 px-6 text-gray-300 text-sm">{record.timestamp}</td>
-                    <td className="py-3 px-6">
-                      <span className={`px-2 py-1 rounded text-xs ${
-                        record.success 
-                          ? 'bg-green-500/20 text-green-400' 
-                          : 'bg-red-500/20 text-red-400'
-                      }`}>
-                        {record.success ? '成功' : '失败'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+          {/* 仪表盘标签页 */}
+          <TabsContent value="dashboard" className="space-y-6">
+            <OverviewCards data={data?.overview} />
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <LineChart className="h-5 w-5" />
+                    使用趋势
+                  </CardTitle>
+                  <CardDescription>AI使用量随时间变化趋势</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <UsageTrendChart data={data?.trends || []} />
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="h-5 w-5" />
+                    小时分布
+                  </CardTitle>
+                  <CardDescription>24小时内使用情况分布</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <HourlyDistribution data={data?.hourly || []} />
+                </CardContent>
+              </Card>
+            </div>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5" />
+                  成本分析
+                </CardTitle>
+                <CardDescription>AI使用成本详细分析</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <CostAnalysis data={data} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* 用户分析标签页 */}
+          <TabsContent value="users" className="space-y-6">
+            <UserProfileStats 
+              profiles={data?.userProfiles || []}
+              onFilterChange={handleFilterChange}
+            />
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className="lg:col-span-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="h-5 w-5" />
+                    用户偏好分析
+                  </CardTitle>
+                  <CardDescription>用户偏好分布与性别差异分析</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <PreferenceAnalysis 
+                    preferenceStats={data?.preferenceStats || []}
+                    genderAnalysis={data?.genderAnalysis || []}
+                  />
+                </CardContent>
+              </Card>
+              
+              <Card className="lg:col-span-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5" />
+                    用户排名
+                  </CardTitle>
+                  <CardDescription>按使用量、Tokens消耗等指标排名</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <UserRankingTable profiles={data?.userProfiles || []} />
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* 密钥管理标签页 */}
+          <TabsContent value="keys" className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <Card className="lg:col-span-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Key className="h-5 w-5" />
+                    AI密钥管理
+                  </CardTitle>
+                  <CardDescription>生成、查看和管理AI使用密钥</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <KeyList keys={data?.keys || []} />
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Key className="h-5 w-5" />
+                    密钥生成器
+                  </CardTitle>
+                  <CardDescription>生成新的AI使用密钥</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <KeyGenerator onKeyGenerated={fetchData} />
+                </CardContent>
+              </Card>
+            </div>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5" />
+                  密钥分析
+                </CardTitle>
+                <CardDescription>密钥使用率、激活率等分析</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <KeyAnalytics analytics={data?.keyAnalytics} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* 内容分析标签页 */}
+          <TabsContent value="content" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <PieChart className="h-5 w-5" />
+                  主题分析
+                </CardTitle>
+                <CardDescription>用户偏好主题与内容趋势分析</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TopicAnalysis topics={data?.topics || []} />
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5" />
+                  质量指标
+                </CardTitle>
+                <CardDescription>AI生成内容的质量评估指标</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <QualityMetrics metrics={data?.quality} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* 预测建议标签页 */}
+          <TabsContent value="predictions" className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5" />
+                    使用量预测
+                  </CardTitle>
+                  <CardDescription>基于历史数据的未来使用量预测</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <UsageForecast forecasts={data?.forecast || []} />
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Zap className="h-5 w-5" />
+                    优化建议
+                  </CardTitle>
+                  <CardDescription>系统优化与改进建议</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <OptimizationSuggestions suggestions={data?.suggestions || []} />
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* 设置标签页 */}
+          <TabsContent value="settings" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Settings className="h-5 w-5" />
+                  系统设置
+                </CardTitle>
+                <CardDescription>AI统计系统配置选项</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <h3 className="text-lg font-semibold">数据保留策略</h3>
+                  <p className="text-sm text-muted-foreground">
+                    设置统计数据保留的时间长度
+                  </p>
+                  {/* 设置表单 */}
+                </div>
+                
+                <div className="space-y-2">
+                  <h3 className="text-lg font-semibold">通知设置</h3>
+                  <p className="text-sm text-muted-foreground">
+                    配置系统告警和通知
+                  </p>
+                  {/* 通知设置表单 */}
+                </div>
+                
+                <div className="space-y-2">
+                  <h3 className="text-lg font-semibold">导出配置</h3>
+                  <p className="text-sm text-muted-foreground">
+                    设置数据导出格式和选项
+                  </p>
+                  {/* 导出配置表单 */}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </main>
     </div>
-  )
+  );
 }
