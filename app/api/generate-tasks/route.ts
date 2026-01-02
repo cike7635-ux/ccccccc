@@ -41,16 +41,16 @@ interface Task {
   description: string;
 }
 
-// ============ 新的AI使用次数验证函数（24小时滚动窗口 + 30天滚动窗口） ============
+// ============ AI使用次数验证函数（24小时滚动窗口 + 30天滚动窗口） ============
 async function checkAIUsage(userId: string): Promise<{
   allowed: boolean;
-  hourlyUsed: number;         // 过去24小时使用次数
-  cycleUsed: number;          // 过去30天使用次数
-  hourlyLimit: number;        // 24小时滚动窗口限制
-  cycleLimit: number;         // 30天滚动窗口限制
-  windowStartDate: string;    // 窗口开始时间（24小时前）
-  cycleStartDate: string;     // 周期开始时间（30天前）
-  windowType: string;         // 窗口类型说明
+  dailyUsed: number;         // 过去24小时使用次数（保持字段名不变）
+  cycleUsed: number;         // 过去30天使用次数
+  dailyLimit: number;        // 24小时滚动窗口限制
+  cycleLimit: number;        // 30天滚动窗口限制
+  windowStartDate: string;   // 24小时前时间
+  cycleStartDate: string;    // 30天前时间
+  windowType: string;
   reason?: string;
 }> {
   const cookieStore = await cookies();
@@ -74,11 +74,11 @@ async function checkAIUsage(userId: string): Promise<{
     }
 
     // 使用自定义限制，如果为NULL或undefined则使用默认值10/120
-    const HOURLY_LIMIT = userData?.custom_daily_limit ?? 10;  // 注意：字段名是daily，但实际是24小时窗口
+    const DAILY_LIMIT = userData?.custom_daily_limit ?? 10;
     const CYCLE_LIMIT = userData?.custom_cycle_limit ?? 120;
 
     // 验证限制值的合理性
-    const validatedHourlyLimit = Math.max(1, Math.min(HOURLY_LIMIT, 1000));
+    const validatedDailyLimit = Math.max(1, Math.min(DAILY_LIMIT, 1000));
     const validatedCycleLimit = Math.max(10, Math.min(CYCLE_LIMIT, 10000));
 
     // ============ 第二步：计算时间窗口 ============
@@ -89,10 +89,9 @@ async function checkAIUsage(userId: string): Promise<{
     
     // 30天滚动窗口（从现在往前推30天）
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    thirtyDaysAgo.setHours(0, 0, 0, 0); // 从当天0点开始
 
     // ============ 第三步：查询24小时滚动窗口使用次数 ============
-    const { count: hourlyCount, error: hourlyError } = await supabase
+    const { count: dailyCount, error: dailyError } = await supabase
       .from('ai_usage_records')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
@@ -101,13 +100,13 @@ async function checkAIUsage(userId: string): Promise<{
       .gte('created_at', twentyFourHoursAgo.toISOString())
       .lt('created_at', now.toISOString());
 
-    if (hourlyError) {
-      console.error('查询24小时使用次数失败:', hourlyError);
+    if (dailyError) {
+      console.error('查询24小时使用次数失败:', dailyError);
       return {
         allowed: true,
-        hourlyUsed: 0,
+        dailyUsed: 0,
         cycleUsed: 0,
-        hourlyLimit: validatedHourlyLimit,
+        dailyLimit: validatedDailyLimit,
         cycleLimit: validatedCycleLimit,
         windowStartDate: twentyFourHoursAgo.toISOString(),
         cycleStartDate: thirtyDaysAgo.toISOString(),
@@ -130,9 +129,9 @@ async function checkAIUsage(userId: string): Promise<{
       console.error('查询30天使用次数失败:', cycleError);
       return {
         allowed: true,
-        hourlyUsed: hourlyCount || 0,
+        dailyUsed: dailyCount || 0,
         cycleUsed: 0,
-        hourlyLimit: validatedHourlyLimit,
+        dailyLimit: validatedDailyLimit,
         cycleLimit: validatedCycleLimit,
         windowStartDate: twentyFourHoursAgo.toISOString(),
         cycleStartDate: thirtyDaysAgo.toISOString(),
@@ -141,24 +140,24 @@ async function checkAIUsage(userId: string): Promise<{
       };
     }
 
-    const hourlyUsed = hourlyCount || 0;
+    const dailyUsed = dailyCount || 0;
     const cycleUsed = cycleCount || 0;
 
     // ============ 第五步：检查限制 ============
-    if (hourlyUsed >= validatedHourlyLimit) {
+    if (dailyUsed >= validatedDailyLimit) {
       const nextAvailableTime = new Date(twentyFourHoursAgo.getTime() + 24 * 60 * 60 * 1000);
       const timeUntilReset = Math.ceil((nextAvailableTime.getTime() - now.getTime()) / (1000 * 60 * 60));
       
       return {
         allowed: false,
-        hourlyUsed,
+        dailyUsed,
         cycleUsed,
-        hourlyLimit: validatedHourlyLimit,
+        dailyLimit: validatedDailyLimit,
         cycleLimit: validatedCycleLimit,
         windowStartDate: twentyFourHoursAgo.toISOString(),
         cycleStartDate: thirtyDaysAgo.toISOString(),
         windowType: '24小时滚动窗口 + 30天滚动窗口',
-        reason: `过去24小时内AI使用次数已达上限（${validatedHourlyLimit}次），约${timeUntilReset}小时后可以再次使用`
+        reason: `过去24小时内AI使用次数已达上限（${validatedDailyLimit}次），约${timeUntilReset}小时后可以再次使用`
       };
     }
 
@@ -182,9 +181,9 @@ async function checkAIUsage(userId: string): Promise<{
         
         return {
           allowed: false,
-          hourlyUsed,
+          dailyUsed,
           cycleUsed,
-          hourlyLimit: validatedHourlyLimit,
+          dailyLimit: validatedDailyLimit,
           cycleLimit: validatedCycleLimit,
           windowStartDate: twentyFourHoursAgo.toISOString(),
           cycleStartDate: thirtyDaysAgo.toISOString(),
@@ -194,9 +193,9 @@ async function checkAIUsage(userId: string): Promise<{
       } else {
         return {
           allowed: false,
-          hourlyUsed,
+          dailyUsed,
           cycleUsed,
-          hourlyLimit: validatedHourlyLimit,
+          dailyLimit: validatedDailyLimit,
           cycleLimit: validatedCycleLimit,
           windowStartDate: twentyFourHoursAgo.toISOString(),
           cycleStartDate: thirtyDaysAgo.toISOString(),
@@ -209,9 +208,9 @@ async function checkAIUsage(userId: string): Promise<{
     // ============ 第六步：返回成功结果 ============
     return {
       allowed: true,
-      hourlyUsed,
+      dailyUsed,
       cycleUsed,
-      hourlyLimit: validatedHourlyLimit,
+      dailyLimit: validatedDailyLimit,
       cycleLimit: validatedCycleLimit,
       windowStartDate: twentyFourHoursAgo.toISOString(),
       cycleStartDate: thirtyDaysAgo.toISOString(),
@@ -226,9 +225,9 @@ async function checkAIUsage(userId: string): Promise<{
     
     return {
       allowed: true,
-      hourlyUsed: 0,
+      dailyUsed: 0,
       cycleUsed: 0,
-      hourlyLimit: 10,
+      dailyLimit: 10,
       cycleLimit: 120,
       windowStartDate: twentyFourHoursAgo.toISOString(),
       cycleStartDate: thirtyDaysAgo.toISOString(),
@@ -352,10 +351,10 @@ export async function POST(req: NextRequest) {
         {
           error: usageCheck.reason,
           details: {
-            hourly: { 
-              used: usageCheck.hourlyUsed, 
-              limit: usageCheck.hourlyLimit,
-              remaining: Math.max(0, usageCheck.hourlyLimit - usageCheck.hourlyUsed),
+            daily: { 
+              used: usageCheck.dailyUsed, 
+              limit: usageCheck.dailyLimit,
+              remaining: Math.max(0, usageCheck.dailyLimit - usageCheck.dailyUsed),
               windowStart: usageCheck.windowStartDate,
               windowType: '24小时滚动窗口'
             },
@@ -427,10 +426,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         tasks: formattedTasks,
         usage: {
-          hourly: {
-            used: usageCheck.hourlyUsed + 1,
-            remaining: Math.max(0, usageCheck.hourlyLimit - (usageCheck.hourlyUsed + 1)),
-            limit: usageCheck.hourlyLimit,
+          daily: {
+            used: usageCheck.dailyUsed + 1,
+            remaining: Math.max(0, usageCheck.dailyLimit - (usageCheck.dailyUsed + 1)),
+            limit: usageCheck.dailyLimit,
             windowStart: usageCheck.windowStartDate,
             windowType: '24小时滚动窗口'
           },
@@ -664,7 +663,7 @@ function buildPrompts(payload: {
 - 结合剧情需要，不限制露骨性描写甚至支持配合剧情进行露骨、大尺度、激情、性描写
 
 5. 数量与去重  
-- 生成 12–14 条任务
+- 生成 12–13 条任务
 - 禁止核心行为或场景重复
 
 ━━━━━━━━━━━━━━━━━━
@@ -690,7 +689,7 @@ function buildPrompts(payload: {
 ${description ? `- 主题描述：${description}` : ""}
 ${customRequirement ? `- 特别要求：${customRequirement}` : ""}
 
-生成 12-13 条任务，只输出 JSON 格式。`;
+生成 15-17 条任务，只输出 JSON 格式。`;
 
   return { sysPrompt, userPrompt };
 }
