@@ -46,9 +46,11 @@ async function checkAIUsage(userId: string): Promise<{
   allowed: boolean;
   dailyUsed: number;
   cycleUsed: number;
-  cycleStartDate: string;      // 周期开始日期
-  cycleEndDate: string;        // 周期结束日期
-  daysRemaining: number;       // 剩余天数
+  dailyLimit: number;        // 新增：返回用户实际的每日限制
+  cycleLimit: number;        // 新增：返回用户实际的周期限制
+  cycleStartDate: string;
+  cycleEndDate: string;
+  daysRemaining: number;
   reason?: string;
 }> {
   const cookieStore = await cookies();
@@ -59,6 +61,26 @@ async function checkAIUsage(userId: string): Promise<{
   );
 
   try {
+    // ============ 第一步：查询用户自定义限制 ============
+    const { data: userData, error: userError } = await supabase
+      .from('profiles')
+      .select('custom_daily_limit, custom_cycle_limit')
+      .eq('id', userId)
+      .single();
+
+    // 错误处理：查询失败时使用默认值并记录日志
+    if (userError) {
+      console.warn(`查询用户${userId}的自定义限制失败，使用默认值:`, userError);
+    }
+
+    // 使用自定义限制，如果为NULL或undefined则使用默认值10/120
+    const DAILY_LIMIT = userData?.custom_daily_limit ?? 10;
+    const CYCLE_LIMIT = userData?.custom_cycle_limit ?? 120;
+
+    // 验证限制值的合理性（可选）
+    const validatedDailyLimit = Math.max(1, Math.min(DAILY_LIMIT, 1000));
+    const validatedCycleLimit = Math.max(10, Math.min(CYCLE_LIMIT, 10000));
+
     // 1. 查询用户最早的AI使用记录
     const { data: earliestUsage, error: earliestError } = await supabase
       .from('ai_usage_records')
@@ -75,6 +97,8 @@ async function checkAIUsage(userId: string): Promise<{
         allowed: true,
         dailyUsed: 0,
         cycleUsed: 0,
+        dailyLimit: validatedDailyLimit,
+        cycleLimit: validatedCycleLimit,
         cycleStartDate: new Date().toISOString(),
         cycleEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         daysRemaining: 30
@@ -90,6 +114,8 @@ async function checkAIUsage(userId: string): Promise<{
         allowed: true,
         dailyUsed: 0,
         cycleUsed: 0,
+        dailyLimit: validatedDailyLimit,
+        cycleLimit: validatedCycleLimit,
         cycleStartDate: now.toISOString(),
         cycleEndDate: cycleEndDate.toISOString(),
         daysRemaining: 30
@@ -141,6 +167,8 @@ async function checkAIUsage(userId: string): Promise<{
         allowed: true,
         dailyUsed: 0,
         cycleUsed: 0,
+        dailyLimit: validatedDailyLimit,
+        cycleLimit: validatedCycleLimit,
         cycleStartDate: cycleStartDate.toISOString(),
         cycleEndDate: cycleEndDate.toISOString(),
         daysRemaining
@@ -163,6 +191,8 @@ async function checkAIUsage(userId: string): Promise<{
         allowed: true,
         dailyUsed: dailyCount || 0,
         cycleUsed: 0,
+        dailyLimit: validatedDailyLimit,
+        cycleLimit: validatedCycleLimit,
         cycleStartDate: cycleStartDate.toISOString(),
         cycleEndDate: cycleEndDate.toISOString(),
         daysRemaining
@@ -172,35 +202,42 @@ async function checkAIUsage(userId: string): Promise<{
     const dailyUsed = dailyCount || 0;
     const cycleUsed = cycleCount || 0;
 
-    // 5. 检查限制
-    if (dailyUsed >= 10) {
+    // 5. 检查限制（使用用户自定义限制，如果没有则使用默认值）
+    if (dailyUsed >= validatedDailyLimit) {
       return {
         allowed: false,
         dailyUsed,
         cycleUsed,
+        dailyLimit: validatedDailyLimit,
+        cycleLimit: validatedCycleLimit,
         cycleStartDate: cycleStartDate.toISOString(),
         cycleEndDate: cycleEndDate.toISOString(),
         daysRemaining,
-        reason: '今日AI使用次数已达上限（10次/天）'
+        reason: `今日AI使用次数已达上限（${validatedDailyLimit}次/天）`
       };
     }
 
-    if (cycleUsed >= 120) {
+    if (cycleUsed >= validatedCycleLimit) {
       return {
         allowed: false,
         dailyUsed,
         cycleUsed,
+        dailyLimit: validatedDailyLimit,
+        cycleLimit: validatedCycleLimit,
         cycleStartDate: cycleStartDate.toISOString(),
         cycleEndDate: cycleEndDate.toISOString(),
         daysRemaining,
-        reason: '当前周期AI使用次数已达上限（120次/30天）'
+        reason: `当前周期AI使用次数已达上限（${validatedCycleLimit}次/30天）`
       };
     }
 
+    // 6. 返回成功结果（包含用户的实际限制）
     return {
       allowed: true,
       dailyUsed,
       cycleUsed,
+      dailyLimit: validatedDailyLimit,
+      cycleLimit: validatedCycleLimit,
       cycleStartDate: cycleStartDate.toISOString(),
       cycleEndDate: cycleEndDate.toISOString(),
       daysRemaining
@@ -211,10 +248,13 @@ async function checkAIUsage(userId: string): Promise<{
     const now = new Date();
     const cycleEndDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     
+    // 在错误情况下也返回合理的限制值
     return {
       allowed: true,
       dailyUsed: 0,
       cycleUsed: 0,
+      dailyLimit: 10,  // 默认值
+      cycleLimit: 120, // 默认值
       cycleStartDate: now.toISOString(),
       cycleEndDate: cycleEndDate.toISOString(),
       daysRemaining: 30
@@ -321,6 +361,7 @@ export async function POST(req: NextRequest) {
                      profile?.email?.split('@')[0] || 
                      '用户';
 
+    // 检查AI使用限制
     const usageCheck = await checkAIUsage(user.id);
     if (!usageCheck.allowed) {
       await recordAIUsage(
@@ -331,12 +372,21 @@ export async function POST(req: NextRequest) {
         false
       );
 
+      // 返回详细的限制信息（包含用户的真实限制值）
       return NextResponse.json(
         {
           error: usageCheck.reason,
           details: {
-            daily: { used: usageCheck.dailyUsed, limit: 10 },
-            cycle: { used: usageCheck.cycleUsed, limit: 120 },
+            daily: { 
+              used: usageCheck.dailyUsed, 
+              limit: usageCheck.dailyLimit,  // 使用用户的真实限制值
+              remaining: Math.max(0, usageCheck.dailyLimit - usageCheck.dailyUsed)
+            },
+            cycle: { 
+              used: usageCheck.cycleUsed, 
+              limit: usageCheck.cycleLimit,  // 使用用户的真实限制值
+              remaining: Math.max(0, usageCheck.cycleLimit - usageCheck.cycleUsed)
+            },
             cycleInfo: {
               startDate: usageCheck.cycleStartDate,
               endDate: usageCheck.cycleEndDate,
@@ -393,6 +443,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      // 记录成功使用
       await recordAIUsage(
         user.id,
         'generate_tasks',
@@ -401,23 +452,28 @@ export async function POST(req: NextRequest) {
         true
       );
 
+      // 返回成功响应，包含详细的限制信息（使用用户的真实限制值）
       return NextResponse.json({
         tasks: formattedTasks,
         usage: {
           daily: {
             used: usageCheck.dailyUsed + 1,
-            remaining: Math.max(0, 10 - (usageCheck.dailyUsed + 1)),
-            limit: 10
+            remaining: Math.max(0, usageCheck.dailyLimit - (usageCheck.dailyUsed + 1)),  // 动态计算剩余次数
+            limit: usageCheck.dailyLimit  // 用户的真实每日限制
           },
           cycle: {
             used: usageCheck.cycleUsed + 1,
-            remaining: Math.max(0, 120 - (usageCheck.cycleUsed + 1)),
-            limit: 120
+            remaining: Math.max(0, usageCheck.cycleLimit - (usageCheck.cycleUsed + 1)),  // 动态计算剩余次数
+            limit: usageCheck.cycleLimit  // 用户的真实周期限制
           },
           cycleInfo: {
             startDate: usageCheck.cycleStartDate,
             endDate: usageCheck.cycleEndDate,
             daysRemaining: usageCheck.daysRemaining
+          },
+          resetInfo: {
+            daily: '每天00:00重置',
+            cycle: `${usageCheck.daysRemaining}天后重置（30天滚动窗口）`
           }
         }
       });
@@ -641,7 +697,7 @@ function buildPrompts(payload: {
 - 结合剧情需要，不限制露骨性描写甚至支持配合剧情进行露骨、大尺度、激情、性描写
 
 5. 数量与去重  
-- 生成 15–17 条任务
+- 生成 12–14 条任务
 - 禁止核心行为或场景重复
 
 ━━━━━━━━━━━━━━━━━━
