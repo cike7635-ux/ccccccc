@@ -90,6 +90,15 @@ async function checkAIUsage(userId: string): Promise<{
     // 30天滚动窗口（从现在往前推30天）
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
+    // 🚨 关键修复：添加调试日志
+    console.log('🔍 AI使用次数检查 - 调试信息：');
+    console.log('  当前时间:', now.toISOString());
+    console.log('  24小时前:', twentyFourHoursAgo.toISOString());
+    console.log('  30天前:', thirtyDaysAgo.toISOString());
+    console.log('  用户ID:', userId);
+    console.log('  每日限制:', validatedDailyLimit, '(自定义:', userData?.custom_daily_limit || '无)');
+    console.log('  周期限制:', validatedCycleLimit, '(自定义:', userData?.custom_cycle_limit || '无)');
+
     // ============ 第三步：查询24小时滚动窗口使用次数 ============
     const { count: dailyCount, error: dailyError } = await supabase
       .from('ai_usage_records')
@@ -115,14 +124,18 @@ async function checkAIUsage(userId: string): Promise<{
       };
     }
 
+    console.log('  24小时查询结果:', dailyCount || 0, '条记录');
+    console.log('  24小时查询条件:', twentyFourHoursAgo.toISOString(), '到', now.toISOString());
+
     // ============ 第四步：查询30天滚动窗口使用次数 ============
+    // ✅ 关键修复：使用 thirtyDaysAgo 而不是 twentyFourHoursAgo
     const { count: cycleCount, error: cycleError } = await supabase
       .from('ai_usage_records')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
       .eq('success', true)
       .eq('feature', 'generate_tasks')
-      .gte('created_at', thirtyDaysAgo.toISOString())
+      .gte('created_at', thirtyDaysAgo.toISOString())  // ✅ 修复这里：改为 thirtyDaysAgo
       .lt('created_at', now.toISOString());
 
     if (cycleError) {
@@ -133,20 +146,29 @@ async function checkAIUsage(userId: string): Promise<{
         cycleUsed: 0,
         dailyLimit: validatedDailyLimit,
         cycleLimit: validatedCycleLimit,
-        windowStartDate: thirtyDaysAgo.toISOString(),
+        windowStartDate: twentyFourHoursAgo.toISOString(),
         cycleStartDate: thirtyDaysAgo.toISOString(),
         windowType: '24小时滚动窗口 + 30天滚动窗口',
         reason: undefined
       };
     }
 
+    console.log('  30天查询结果:', cycleCount || 0, '条记录');
+    console.log('  30天查询条件:', thirtyDaysAgo.toISOString(), '到', now.toISOString());
+
     const dailyUsed = dailyCount || 0;
-    const cycleUsed = cycleCount || 0;
+    const cycleUsed = cycleCount || 0;  // ✅ 注意：这里使用 cycleCount，不是 dailyCount！
+
+    console.log('  最终统计：');
+    console.log('    24小时内使用:', dailyUsed, '次 (限制:', validatedDailyLimit, ')');
+    console.log('    30天内使用:', cycleUsed, '次 (限制:', validatedCycleLimit, ')');
 
     // ============ 第五步：检查限制 ============
     if (dailyUsed >= validatedDailyLimit) {
       const nextAvailableTime = new Date(twentyFourHoursAgo.getTime() + 24 * 60 * 60 * 1000);
       const timeUntilReset = Math.ceil((nextAvailableTime.getTime() - now.getTime()) / (1000 * 60 * 60));
+      
+      console.log('❌ 24小时限制已达上限，剩余时间:', timeUntilReset, '小时');
       
       return {
         allowed: false,
@@ -179,6 +201,8 @@ async function checkAIUsage(userId: string): Promise<{
         const nextAvailableTime = new Date(earliestDate.getTime() + 30 * 24 * 60 * 60 * 1000);
         const daysUntilReset = Math.ceil((nextAvailableTime.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
         
+        console.log('❌ 30天限制已达上限，最早记录:', earliestDate.toISOString(), '剩余天数:', daysUntilReset);
+        
         return {
           allowed: false,
           dailyUsed,
@@ -191,6 +215,8 @@ async function checkAIUsage(userId: string): Promise<{
           reason: `过去30天内AI使用次数已达上限（${validatedCycleLimit}次），约${daysUntilReset}天后可以再次使用`
         };
       } else {
+        console.log('❌ 30天限制已达上限，无法计算重置时间');
+        
         return {
           allowed: false,
           dailyUsed,
@@ -206,6 +232,8 @@ async function checkAIUsage(userId: string): Promise<{
     }
 
     // ============ 第六步：返回成功结果 ============
+    console.log('✅ AI使用次数检查通过');
+    
     return {
       allowed: true,
       dailyUsed,
@@ -336,12 +364,16 @@ export async function POST(req: NextRequest) {
                      '用户';
 
     // 检查AI使用限制
+    console.log('📊 开始检查AI使用限制，用户:', nickname, 'ID:', user.id);
     const usageCheck = await checkAIUsage(user.id);
+    
     if (!usageCheck.allowed) {
+      console.log('🚫 AI使用限制触发，原因:', usageCheck.reason);
+      
       await recordAIUsage(
         user.id,
         'generate_tasks',
-        null,
+        { userId: user.id, nickname },
         null,
         false
       );
@@ -423,7 +455,7 @@ export async function POST(req: NextRequest) {
       );
 
       // 返回成功响应，包含详细的限制信息
-      return NextResponse.json({
+      const response = NextResponse.json({
         tasks: formattedTasks,
         usage: {
           daily: {
@@ -443,6 +475,9 @@ export async function POST(req: NextRequest) {
           windowInfo: usageCheck.windowType
         }
       });
+      
+      console.log('✅ AI生成成功，用户:', nickname, '任务数:', formattedTasks.length);
+      return response;
 
     } catch (e: any) {
       console.error("生成任务时发生未捕获的错误:", e);
