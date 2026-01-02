@@ -83,10 +83,10 @@ async function checkAIUsage(userId: string): Promise<{
 
     // ============ 第二步：计算时间窗口 ============
     const now = new Date();
-    
+
     // 24小时滚动窗口（从现在往前推24小时）
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    
+
     // 30天滚动窗口（从现在往前推30天）
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
@@ -97,7 +97,7 @@ async function checkAIUsage(userId: string): Promise<{
       .eq('user_id', userId)
       .eq('success', true)
       .eq('feature', 'generate_tasks')
-      .gte('created_at', twentyFourHoursAgo.toISOString())
+      .gte('created_at', thirtyDaysAgo.toISOString())
       .lt('created_at', now.toISOString());
 
     if (dailyError) {
@@ -147,7 +147,7 @@ async function checkAIUsage(userId: string): Promise<{
     if (dailyUsed >= validatedDailyLimit) {
       const nextAvailableTime = new Date(twentyFourHoursAgo.getTime() + 24 * 60 * 60 * 1000);
       const timeUntilReset = Math.ceil((nextAvailableTime.getTime() - now.getTime()) / (1000 * 60 * 60));
-      
+
       return {
         allowed: false,
         dailyUsed,
@@ -178,7 +178,7 @@ async function checkAIUsage(userId: string): Promise<{
         const earliestDate = new Date(earliestInCycle[0].created_at);
         const nextAvailableTime = new Date(earliestDate.getTime() + 30 * 24 * 60 * 60 * 1000);
         const daysUntilReset = Math.ceil((nextAvailableTime.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        
+
         return {
           allowed: false,
           dailyUsed,
@@ -222,7 +222,7 @@ async function checkAIUsage(userId: string): Promise<{
     const now = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    
+
     return {
       allowed: true,
       dailyUsed: 0,
@@ -331,9 +331,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const nickname = profile?.nickname || 
-                     profile?.email?.split('@')[0] || 
-                     '用户';
+    const nickname = profile?.nickname ||
+      profile?.email?.split('@')[0] ||
+      '用户';
 
     // 检查AI使用限制
     const usageCheck = await checkAIUsage(user.id);
@@ -351,15 +351,15 @@ export async function POST(req: NextRequest) {
         {
           error: usageCheck.reason,
           details: {
-            daily: { 
-              used: usageCheck.dailyUsed, 
+            daily: {
+              used: usageCheck.dailyUsed,
               limit: usageCheck.dailyLimit,
               remaining: Math.max(0, usageCheck.dailyLimit - usageCheck.dailyUsed),
               windowStart: usageCheck.windowStartDate,
               windowType: '24小时滚动窗口'
             },
-            cycle: { 
-              used: usageCheck.cycleUsed, 
+            cycle: {
+              used: usageCheck.cycleUsed,
               limit: usageCheck.cycleLimit,
               remaining: Math.max(0, usageCheck.cycleLimit - usageCheck.cycleUsed),
               windowStart: usageCheck.cycleStartDate,
