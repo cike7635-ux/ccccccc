@@ -1,4 +1,7 @@
-// /app/admin/ai-usage/page.tsx - 绝对正确版本
+// /app/admin/ai-usage/page.tsx - 动态渲染版本
+export const dynamic = 'force-dynamic'; // 强制动态渲染，绕过预渲染错误
+export const revalidate = 0; // 不缓存
+
 export default function AIUsagePage() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f9fafb', padding: '1.5rem' }}>
@@ -84,54 +87,6 @@ export default function AIUsagePage() {
             <div style={{ height: '0.5rem', backgroundColor: '#e5e7eb', borderRadius: '9999px', overflow: 'hidden' }}>
               <div style={{ height: '100%', backgroundColor: '#10b981', width: '19%' }}></div>
             </div>
-          </div>
-        </div>
-
-        {/* 用户数据 */}
-        <div style={{
-          backgroundColor: 'white',
-          borderRadius: '0.5rem',
-          border: '1px solid #e5e7eb',
-          padding: '1.5rem',
-          marginBottom: '2rem'
-        }}>
-          <h2 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '1rem' }}>
-            用户使用情况
-          </h2>
-          
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ minWidth: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-                  <th style={{ textAlign: 'left', padding: '0.75rem 1rem', fontSize: '0.75rem', fontWeight: '500', color: '#6b7280', textTransform: 'uppercase' }}>
-                    用户
-                  </th>
-                  <th style={{ textAlign: 'left', padding: '0.75rem 1rem', fontSize: '0.75rem', fontWeight: '500', color: '#6b7280', textTransform: 'uppercase' }}>
-                    使用次数
-                  </th>
-                  <th style={{ textAlign: 'left', padding: '0.75rem 1rem', fontSize: '0.75rem', fontWeight: '500', color: '#6b7280', textTransform: 'uppercase' }}>
-                    Tokens
-                  </th>
-                  <th style={{ textAlign: 'left', padding: '0.75rem 1rem', fontSize: '0.75rem', fontWeight: '500', color: '#6b7280', textTransform: 'uppercase' }}>
-                    成本
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-                  <td style={{ padding: '0.75rem 1rem' }}>
-                    <div style={{ fontWeight: '500', color: '#111827' }}>测试用户</div>
-                    <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>ID: 30832503...87cd0</div>
-                  </td>
-                  <td style={{ padding: '0.75rem 1rem' }}>
-                    <div style={{ fontWeight: '500' }}>19次</div>
-                    <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>30天窗口</div>
-                  </td>
-                  <td style={{ padding: '0.75rem 1rem', color: '#111827' }}>73,381</td>
-                  <td style={{ padding: '0.75rem 1rem', color: '#111827' }}>¥0.138</td>
-                </tr>
-              </tbody>
-            </table>
           </div>
         </div>
 
