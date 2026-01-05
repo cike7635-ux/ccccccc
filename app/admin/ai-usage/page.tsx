@@ -9,7 +9,7 @@ import {
   BarChart2, LineChart, AlertCircle, Info,
   MessageSquare, Sparkles, Eye, ChevronRight,
   Search, X, ExternalLink, ChevronLeft, ChevronRight as ChevronRightIcon,
-  Zap, Brain, Target, BarChart
+  Zap, Brain, Target, BarChart, Copy, Check
 } from 'lucide-react';
 
 // 类型定义
@@ -42,7 +42,16 @@ interface UsageRecord {
   feature: string;
   success: boolean;
   created_at: string;
-  response_data: any;
+  response_data: {
+    tokens_used?: number;
+    response_time_ms?: number;
+    [key: string]: any;
+  };
+  request_data?: {
+    prompt?: string;
+    model?: string;
+    [key: string]: any;
+  };
   profiles: {
     nickname: string;
     email: string;
@@ -53,7 +62,6 @@ interface UsageRecord {
     today: number;
     thirtyDays: number;
   };
-  request_data?: any;
 }
 
 interface Pagination {
@@ -77,9 +85,73 @@ function getSafeProfile(record: any) {
   return record.profiles;
 }
 
+// JSON格式化显示组件
+const JsonDisplay = ({ data, title, maxHeight = '200px' }: { 
+  data: any; 
+  title: string;
+  maxHeight?: string;
+}) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      const jsonString = JSON.stringify(data, null, 2);
+      await navigator.clipboard.writeText(jsonString);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('复制失败:', err);
+    }
+  };
+
+  let displayText = '';
+  let isJson = false;
+
+  try {
+    if (typeof data === 'string') {
+      const parsed = JSON.parse(data);
+      displayText = JSON.stringify(parsed, null, 2);
+      isJson = true;
+    } else {
+      displayText = JSON.stringify(data, null, 2);
+      isJson = true;
+    }
+  } catch {
+    displayText = String(data || '(空)');
+    isJson = false;
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-gray-400">{title}</h3>
+        <button
+          onClick={handleCopy}
+          className="flex items-center text-xs text-gray-500 hover:text-white"
+        >
+          {copied ? (
+            <Check className="w-3 h-3 mr-1" />
+          ) : (
+            <Copy className="w-3 h-3 mr-1" />
+          )}
+          {copied ? '已复制' : '复制'}
+        </button>
+      </div>
+      <div 
+        className="bg-black/30 rounded-lg p-3 overflow-auto"
+        style={{ maxHeight }}
+      >
+        <pre className={`text-sm ${isJson ? 'text-gray-300' : 'text-gray-400'} whitespace-pre-wrap`}>
+          {displayText}
+        </pre>
+      </div>
+    </div>
+  );
+};
+
 // 记录详情弹窗组件
 const RecordDetailModal = ({ record, onClose }: { 
-  record: UsageRecord & { detailed?: any }; 
+  record: UsageRecord; 
   onClose: () => void 
 }) => {
   if (!record) return null;
@@ -95,6 +167,17 @@ const RecordDetailModal = ({ record, onClose }: {
     }
   };
 
+  // 提取响应数据
+  const responseData = record.response_data || {};
+  const requestData = record.request_data || {};
+  
+  // 计算成本和Tokens
+  const tokensUsed = responseData.tokens_used || 0;
+  const responseTime = responseData.response_time_ms;
+  const costPerToken = 0.000002; // 每个token成本
+  const singleCost = tokensUsed * costPerToken;
+  const thirtyDaysCost = record.user_stats.thirtyDays * 2188.125 * costPerToken;
+
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
       <div className="glass apple-card max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
@@ -102,7 +185,13 @@ const RecordDetailModal = ({ record, onClose }: {
           <div>
             <h2 className="text-xl font-bold text-white">AI使用记录详情</h2>
             <p className="text-sm text-gray-400 mt-1">
-              ID: {record.id} • {new Date(record.created_at).toLocaleString('zh-CN')}
+              ID: {record.id} • {new Date(record.created_at).toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: 'numeric',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}
             </p>
           </div>
           <button
@@ -134,7 +223,11 @@ const RecordDetailModal = ({ record, onClose }: {
                     <div>
                       <div className="text-xs text-gray-500">注册时间</div>
                       <div className="text-sm text-white">
-                        {new Date(profile.created_at).toLocaleDateString('zh-CN')}
+                        {new Date(profile.created_at).toLocaleDateString('zh-CN', {
+                          year: 'numeric',
+                          month: 'numeric',
+                          day: 'numeric'
+                        })}
                       </div>
                     </div>
                     <div>
@@ -204,35 +297,33 @@ const RecordDetailModal = ({ record, onClose }: {
                     <div>
                       <div className="text-xs text-gray-500">响应时间</div>
                       <div className="text-sm text-white">
-                        {record.response_data?.response_time_ms ? `${record.response_data.response_time_ms}ms` : '未知'}
+                        {responseTime ? `${responseTime}ms` : '未知'}
                       </div>
                     </div>
                     <div>
                       <div className="text-xs text-gray-500">Tokens消耗</div>
                       <div className="text-sm text-white">
-                        {record.response_data?.tokens_used || '未知'}
+                        {tokensUsed > 0 ? tokensUsed : '未知'}
                       </div>
                     </div>
                   </div>
 
                   {/* 请求内容 */}
                   <div className="mt-4">
-                    <div className="text-xs text-gray-500 mb-2">请求内容</div>
-                    <div className="bg-black/30 rounded-lg p-3 overflow-x-auto">
-                      <pre className="text-sm text-gray-300 whitespace-pre-wrap">
-                        {JSON.stringify(record.request_data || { type: 'AI生成任务' }, null, 2)}
-                      </pre>
-                    </div>
+                    <JsonDisplay 
+                      data={requestData} 
+                      title="请求内容" 
+                      maxHeight="150px"
+                    />
                   </div>
 
                   {/* 响应内容 */}
                   <div className="mt-4">
-                    <div className="text-xs text-gray-500 mb-2">响应内容</div>
-                    <div className="bg-black/30 rounded-lg p-3 overflow-x-auto max-h-40">
-                      <pre className="text-sm text-gray-300 whitespace-pre-wrap">
-                        {JSON.stringify(record.response_data || {}, null, 2)}
-                      </pre>
-                    </div>
+                    <JsonDisplay 
+                      data={responseData} 
+                      title="响应内容" 
+                      maxHeight="200px"
+                    />
                   </div>
                 </div>
               </div>
@@ -246,19 +337,25 @@ const RecordDetailModal = ({ record, onClose }: {
               <div className="text-center p-3 bg-gradient-to-br from-blue-500/10 to-transparent rounded-lg">
                 <div className="text-xs text-blue-400">Tokens消耗</div>
                 <div className="text-lg font-bold text-white">
-                  {record.response_data?.tokens_used || 0}
+                  {tokensUsed > 0 ? tokensUsed : '未知'}
                 </div>
               </div>
               <div className="text-center p-3 bg-gradient-to-br from-purple-500/10 to-transparent rounded-lg">
                 <div className="text-xs text-purple-400">单次成本</div>
                 <div className="text-lg font-bold text-white">
-                  ¥{((record.response_data?.tokens_used || 0) * 0.000002).toFixed(6)}
+                  {tokensUsed > 0 ? `¥${singleCost.toFixed(6)}` : '¥0.000000'}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {tokensUsed > 0 ? `${tokensUsed} tokens × ¥${costPerToken.toFixed(6)}/token` : '无tokens数据'}
                 </div>
               </div>
               <div className="text-center p-3 bg-gradient-to-br from-green-500/10 to-transparent rounded-lg">
-                <div className="text-xs text-green-400">用户累计</div>
+                <div className="text-xs text-green-400">30天累计</div>
                 <div className="text-lg font-bold text-white">
-                  ¥{(record.user_stats.thirtyDays * 2188.125 * 0.000002).toFixed(4)}
+                  ¥{thirtyDaysCost.toFixed(6)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {record.user_stats.thirtyDays} 次 × 平均 2188.125 tokens/次
                 </div>
               </div>
             </div>
@@ -275,12 +372,30 @@ const RecordDetailModal = ({ record, onClose }: {
           <button
             onClick={() => {
               // 导出功能
-              alert('导出功能待实现');
+              const exportData = {
+                record,
+                profile,
+                cost_breakdown: {
+                  tokens_used: tokensUsed,
+                  cost_per_token: costPerToken,
+                  single_cost: singleCost,
+                  thirty_days_cost: thirtyDaysCost
+                }
+              };
+              
+              const dataStr = JSON.stringify(exportData, null, 2);
+              const dataBlob = new Blob([dataStr], { type: 'application/json' });
+              const url = URL.createObjectURL(dataBlob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = `ai_usage_record_${record.id}.json`;
+              link.click();
+              URL.revokeObjectURL(url);
             }}
             className="apple-button px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white"
           >
             <Download className="w-4 h-4 mr-2 inline" />
-            导出记录
+            导出JSON
           </button>
         </div>
       </div>
@@ -447,6 +562,7 @@ export default function AIUsagePage() {
   const formatDateTime = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleString('zh-CN', {
+      year: 'numeric',
       month: 'numeric',
       day: 'numeric',
       hour: '2-digit',
@@ -687,7 +803,11 @@ export default function AIUsagePage() {
                   <div className="flex items-center justify-between mb-4">
                     <div>
                       <h3 className="font-medium text-white">今日统计</h3>
-                      <p className="text-sm text-pink-300">{new Date().toLocaleDateString('zh-CN')}</p>
+                      <p className="text-sm text-pink-300">{new Date().toLocaleDateString('zh-CN', {
+                        year: 'numeric',
+                        month: 'numeric',
+                        day: 'numeric'
+                      })}</p>
                     </div>
                     <Zap className="w-5 h-5 text-pink-400" />
                   </div>
