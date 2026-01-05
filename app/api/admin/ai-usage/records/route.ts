@@ -1,4 +1,3 @@
-// /app/api/admin/ai-usage/records/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -50,9 +49,30 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
+    // 🔥 关键修复：为null的profiles设置默认值
+    const safeRecords = records?.map(record => {
+      // 创建安全的profiles对象
+      const safeProfile = record.profiles || {
+        nickname: '已删除用户',
+        email: '未知邮箱',
+        preferences: {},
+        created_at: record.created_at
+      };
+      
+      return {
+        ...record,
+        profiles: safeProfile,
+        // 初始化user_stats，将在后面计算
+        user_stats: {
+          today: 0,
+          thirtyDays: 0
+        }
+      };
+    }) || [];
+
     // 计算每个用户的当天和30天使用次数
     const enrichedRecords = await Promise.all(
-      records?.map(async (record) => {
+      safeRecords.map(async (record) => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -80,7 +100,7 @@ export async function GET(request: NextRequest) {
             thirtyDays: thirtyDaysCount || 0
           }
         };
-      }) || []
+      })
     );
 
     return NextResponse.json({
