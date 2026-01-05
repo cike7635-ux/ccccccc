@@ -1,4 +1,4 @@
-// /app/admin/ai-usage/page.tsx - 完整重制版
+// /app/admin/ai-usage/page.tsx
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -53,6 +53,7 @@ interface UsageRecord {
     today: number;
     thirtyDays: number;
   };
+  request_data?: any;
 }
 
 interface Pagination {
@@ -62,12 +63,28 @@ interface Pagination {
   totalPages: number;
 }
 
+// 安全访问函数
+function getSafeProfile(record: any) {
+  if (!record.profiles) {
+    return {
+      nickname: record.user_id ? `用户_${record.user_id.substring(0, 8)}` : '匿名用户',
+      email: '未知邮箱',
+      preferences: {},
+      created_at: record.created_at || new Date().toISOString(),
+      avatar_url: null
+    };
+  }
+  return record.profiles;
+}
+
 // 记录详情弹窗组件
 const RecordDetailModal = ({ record, onClose }: { 
-  record: UsageRecord & { request_data?: any; detailed?: any }; 
+  record: UsageRecord & { detailed?: any }; 
   onClose: () => void 
 }) => {
   if (!record) return null;
+  
+  const profile = getSafeProfile(record);
 
   const getGenderText = (gender: string) => {
     switch (gender) {
@@ -108,8 +125,8 @@ const RecordDetailModal = ({ record, onClose }: {
                       <User className="w-5 h-5 text-white" />
                     </div>
                     <div>
-                      <div className="font-medium text-white">{record.profiles.nickname || '匿名用户'}</div>
-                      <div className="text-sm text-gray-400">{record.profiles.email || '无邮箱'}</div>
+                      <div className="font-medium text-white">{profile.nickname}</div>
+                      <div className="text-sm text-gray-400">{profile.email}</div>
                     </div>
                   </div>
                   
@@ -117,13 +134,13 @@ const RecordDetailModal = ({ record, onClose }: {
                     <div>
                       <div className="text-xs text-gray-500">注册时间</div>
                       <div className="text-sm text-white">
-                        {new Date(record.profiles.created_at).toLocaleDateString('zh-CN')}
+                        {new Date(profile.created_at).toLocaleDateString('zh-CN')}
                       </div>
                     </div>
                     <div>
                       <div className="text-xs text-gray-500">性别</div>
                       <div className="text-sm text-white">
-                        {getGenderText(record.profiles.preferences?.gender)}
+                        {getGenderText(profile.preferences?.gender)}
                       </div>
                     </div>
                   </div>
@@ -145,12 +162,12 @@ const RecordDetailModal = ({ record, onClose }: {
               </div>
 
               {/* 偏好信息 */}
-              {record.profiles.preferences && (
+              {profile.preferences && (
                 <div>
                   <h3 className="text-sm font-medium text-gray-400 mb-2">用户偏好</h3>
                   <div className="glass rounded-xl p-4">
                     <div className="flex flex-wrap gap-2">
-                      {record.profiles.preferences.kinks?.map((kink: string, index: number) => (
+                      {profile.preferences.kinks?.map((kink: string, index: number) => (
                         <span
                           key={index}
                           className="px-3 py-1 bg-gradient-to-r from-pink-500/20 to-purple-500/20 text-pink-300 rounded-full text-xs"
@@ -187,13 +204,13 @@ const RecordDetailModal = ({ record, onClose }: {
                     <div>
                       <div className="text-xs text-gray-500">响应时间</div>
                       <div className="text-sm text-white">
-                        {record.detailed?.response_time_ms ? `${record.detailed.response_time_ms}ms` : '未知'}
+                        {record.response_data?.response_time_ms ? `${record.response_data.response_time_ms}ms` : '未知'}
                       </div>
                     </div>
                     <div>
                       <div className="text-xs text-gray-500">Tokens消耗</div>
                       <div className="text-sm text-white">
-                        {record.detailed?.tokens_used || record.response_data?.tokens_used || '未知'}
+                        {record.response_data?.tokens_used || '未知'}
                       </div>
                     </div>
                   </div>
@@ -229,13 +246,13 @@ const RecordDetailModal = ({ record, onClose }: {
               <div className="text-center p-3 bg-gradient-to-br from-blue-500/10 to-transparent rounded-lg">
                 <div className="text-xs text-blue-400">Tokens消耗</div>
                 <div className="text-lg font-bold text-white">
-                  {record.detailed?.tokens_used || record.response_data?.tokens_used || 0}
+                  {record.response_data?.tokens_used || 0}
                 </div>
               </div>
               <div className="text-center p-3 bg-gradient-to-br from-purple-500/10 to-transparent rounded-lg">
                 <div className="text-xs text-purple-400">单次成本</div>
                 <div className="text-lg font-bold text-white">
-                  ¥{((record.detailed?.tokens_used || 0) * 0.000002).toFixed(6)}
+                  ¥{((record.response_data?.tokens_used || 0) * 0.000002).toFixed(6)}
                 </div>
               </div>
               <div className="text-center p-3 bg-gradient-to-br from-green-500/10 to-transparent rounded-lg">
@@ -305,12 +322,20 @@ export default function AIUsagePage() {
   const fetchOverview = useCallback(async () => {
     try {
       setLoading(true);
+      console.log('📊 请求概览数据...');
+      
       const response = await fetch('/api/admin/ai-usage/overview');
       
-      if (!response.ok) throw new Error(`请求失败: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`请求失败: ${response.status}`);
+      }
       
       const result = await response.json();
-      if (!result.success) throw new Error(result.error);
+      console.log('✅ 概览API响应:', result);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'API返回错误');
+      }
       
       setOverviewData(result.data);
       setError(null);
@@ -326,6 +351,8 @@ export default function AIUsagePage() {
   const fetchRecords = useCallback(async (page: number = 1) => {
     try {
       setLoadingRecords(true);
+      console.log(`📡 请求第${page}页记录数据...`);
+      
       const params = new URLSearchParams({
         page: page.toString(),
         limit: pagination.limit.toString(),
@@ -335,17 +362,47 @@ export default function AIUsagePage() {
         params.append('success', statusFilter === 'success' ? 'true' : 'false');
       }
       
-      const response = await fetch(`/api/admin/ai-usage/records?${params}`);
+      const url = `/api/admin/ai-usage/records?${params}`;
+      console.log('请求URL:', url);
       
-      if (!response.ok) throw new Error(`请求失败: ${response.status}`);
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`请求失败: ${response.status}`);
+      }
       
       const result = await response.json();
-      if (!result.success) throw new Error(result.error);
+      console.log('✅ 记录API响应:', result);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'API返回错误');
+      }
+      
+      // 确保有数据
+      if (!result.data || !result.data.records) {
+        console.warn('⚠️ API返回数据格式异常:', result);
+        setRecords([]);
+        setPagination({
+          page: 1,
+          limit: 20,
+          total: 0,
+          totalPages: 0
+        });
+        return;
+      }
       
       setRecords(result.data.records);
-      setPagination(result.data.pagination);
+      setPagination(result.data.pagination || {
+        page,
+        limit: pagination.limit,
+        total: result.data.records.length,
+        totalPages: Math.ceil(result.data.records.length / pagination.limit)
+      });
+      
+      console.log(`✅ 加载了 ${result.data.records.length} 条记录`);
     } catch (err: any) {
       console.error('获取记录失败:', err);
+      setError(err.message || '无法加载记录数据');
     } finally {
       setLoadingRecords(false);
     }
@@ -354,6 +411,7 @@ export default function AIUsagePage() {
   // 获取记录详情
   const fetchRecordDetail = useCallback(async (id: number) => {
     try {
+      console.log(`🔍 获取记录详情 ID: ${id}`);
       const response = await fetch(`/api/admin/ai-usage/records/${id}`);
       
       if (!response.ok) throw new Error(`请求失败: ${response.status}`);
@@ -389,11 +447,18 @@ export default function AIUsagePage() {
   const formatDateTime = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleString('zh-CN', {
-      month: 'short',
+      month: 'numeric',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  // 计算有效的总页数
+  const getEffectiveTotalPages = () => {
+    if (pagination.totalPages > 0) return pagination.totalPages;
+    if (records.length > 0) return Math.ceil(records.length / pagination.limit);
+    return 0;
   };
 
   // 卡片数据
@@ -484,7 +549,10 @@ export default function AIUsagePage() {
             </div>
             <p className="text-red-300 mb-4">{error}</p>
             <button
-              onClick={fetchOverview}
+              onClick={() => {
+                fetchOverview();
+                fetchRecords(1);
+              }}
               className="apple-button px-4 py-2 bg-gradient-to-r from-red-500 to-pink-500 text-white"
             >
               <RefreshCw className="w-4 h-4 mr-2 inline" />
@@ -718,7 +786,8 @@ export default function AIUsagePage() {
                   <div>
                     <h2 className="text-lg font-semibold text-white">AI使用记录</h2>
                     <p className="text-sm text-gray-400 mt-1">
-                      共 {pagination.total} 条记录 • 第 {pagination.page} 页，共 {pagination.totalPages} 页
+                      共 {pagination.total > 0 ? pagination.total : records.length} 条记录 • 
+                      第 {pagination.page} 页，共 {getEffectiveTotalPages()} 页
                     </p>
                   </div>
                   <MessageSquare className="w-5 h-5 text-gray-400" />
@@ -767,75 +836,79 @@ export default function AIUsagePage() {
                         .filter(record => {
                           if (!searchTerm) return true;
                           const search = searchTerm.toLowerCase();
+                          const profile = getSafeProfile(record);
                           return (
-                            record.profiles.nickname?.toLowerCase().includes(search) ||
-                            record.profiles.email?.toLowerCase().includes(search)
+                            profile.nickname?.toLowerCase().includes(search) ||
+                            profile.email?.toLowerCase().includes(search)
                           );
                         })
-                        .map((record) => (
-                          <tr key={record.id} className="hover:bg-white/5 transition-colors">
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="text-sm text-gray-300">{formatDateTime(record.created_at)}</div>
-                              <div className="text-xs text-gray-500">ID: {record.id}</div>
-                            </td>
-                            <td className="px-6 py-4">
-                              <div className="flex items-center space-x-3">
-                                <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-purple-500 rounded-full flex items-center justify-center">
-                                  <User className="w-4 h-4 text-white" />
+                        .map((record) => {
+                          const profile = getSafeProfile(record);
+                          return (
+                            <tr key={record.id} className="hover:bg-white/5 transition-colors">
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-300">{formatDateTime(record.created_at)}</div>
+                                <div className="text-xs text-gray-500">ID: {record.id}</div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="flex items-center space-x-3">
+                                  <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-purple-500 rounded-full flex items-center justify-center">
+                                    <User className="w-4 h-4 text-white" />
+                                  </div>
+                                  <div>
+                                    <div className="font-medium text-white">{profile.nickname}</div>
+                                    <div className="text-sm text-gray-400">{profile.email}</div>
+                                  </div>
                                 </div>
-                                <div>
-                                  <div className="font-medium text-white">{record.profiles.nickname || '匿名用户'}</div>
-                                  <div className="text-sm text-gray-400">{record.profiles.email || '无邮箱'}</div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="flex space-x-3">
+                                  <div className="text-center">
+                                    <div className="text-xs text-blue-400">今日</div>
+                                    <div className="text-sm font-medium text-white">{record.user_stats.today}次</div>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-xs text-purple-400">30天</div>
+                                    <div className="text-sm font-medium text-white">{record.user_stats.thirtyDays}次</div>
+                                  </div>
                                 </div>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4">
-                              <div className="flex space-x-3">
-                                <div className="text-center">
-                                  <div className="text-xs text-blue-400">今日</div>
-                                  <div className="text-sm font-medium text-white">{record.user_stats.today}次</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="flex items-center">
+                                  <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                    record.success 
+                                      ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
+                                      : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                  }`}>
+                                    {record.success ? '✓ 成功' : '✗ 失败'}
+                                  </div>
+                                  <div className="ml-3 text-sm text-gray-400">{record.feature}</div>
                                 </div>
-                                <div className="text-center">
-                                  <div className="text-xs text-purple-400">30天</div>
-                                  <div className="text-sm font-medium text-white">{record.user_stats.thirtyDays}次</div>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="flex items-center">
-                                <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                  record.success 
-                                    ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
-                                    : 'bg-red-500/20 text-red-400 border border-red-500/30'
-                                }`}>
-                                  {record.success ? '✓ 成功' : '✗ 失败'}
-                                </div>
-                                <div className="ml-3 text-sm text-gray-400">{record.feature}</div>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm">
-                              <button
-                                onClick={() => fetchRecordDetail(record.id)}
-                                className="apple-button px-3 py-1 text-white hover:bg-white/10"
-                              >
-                                <Eye className="w-4 h-4 mr-2 inline" />
-                                查看详情
-                              </button>
-                            </td>
-                          </tr>
-                        ))
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                <button
+                                  onClick={() => fetchRecordDetail(record.id)}
+                                  className="apple-button px-3 py-1 text-white hover:bg-white/10"
+                                >
+                                  <Eye className="w-4 h-4 mr-2 inline" />
+                                  查看详情
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
                     )}
                   </tbody>
                 </table>
               </div>
               
               {/* 分页 */}
-              {pagination.totalPages > 1 && (
+              {getEffectiveTotalPages() > 1 && (
                 <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between">
                   <div className="text-sm text-gray-400">
                     显示第 {(pagination.page - 1) * pagination.limit + 1} -{' '}
-                    {Math.min(pagination.page * pagination.limit, pagination.total)} 条，
-                    共 {pagination.total} 条
+                    {Math.min(pagination.page * pagination.limit, records.length)} 条，
+                    {pagination.total > 0 ? `共 ${pagination.total} 条` : '总数未知'}
                   </div>
                   <div className="flex items-center space-x-2">
                     <button
@@ -847,14 +920,14 @@ export default function AIUsagePage() {
                     </button>
                     
                     <div className="flex items-center space-x-1">
-                      {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                      {Array.from({ length: Math.min(5, getEffectiveTotalPages()) }, (_, i) => {
                         let pageNum;
-                        if (pagination.totalPages <= 5) {
+                        if (getEffectiveTotalPages() <= 5) {
                           pageNum = i + 1;
                         } else if (pagination.page <= 3) {
                           pageNum = i + 1;
-                        } else if (pagination.page >= pagination.totalPages - 2) {
-                          pageNum = pagination.totalPages - 4 + i;
+                        } else if (pagination.page >= getEffectiveTotalPages() - 2) {
+                          pageNum = getEffectiveTotalPages() - 4 + i;
                         } else {
                           pageNum = pagination.page - 2 + i;
                         }
@@ -877,7 +950,7 @@ export default function AIUsagePage() {
                     
                     <button
                       onClick={() => fetchRecords(pagination.page + 1)}
-                      disabled={pagination.page >= pagination.totalPages}
+                      disabled={pagination.page >= getEffectiveTotalPages()}
                       className="glass apple-button px-3 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <ChevronRightIcon className="w-4 h-4" />
