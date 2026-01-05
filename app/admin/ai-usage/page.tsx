@@ -9,7 +9,10 @@ import {
   BarChart2, LineChart, AlertCircle, Info,
   MessageSquare, Sparkles, Eye, ChevronRight,
   Search, X, ExternalLink, ChevronLeft, ChevronRight as ChevronRightIcon,
-  Zap, Brain, Target, BarChart, Copy, Check
+  Zap, Brain, Target, BarChart, Key, Plus,
+  Copy, Check, Lock, Unlock, Infinity,
+  Hash, Clock as ClockIcon, Shield, Package,
+  Trash2, Edit, EyeOff, Mail, CreditCard
 } from 'lucide-react';
 
 // 类型定义
@@ -64,6 +67,36 @@ interface UsageRecord {
   };
 }
 
+interface AIBoostKey {
+  id: number;
+  key_code: string;
+  boost_type: 'cycle' | 'daily' | 'total';
+  increment_amount: number;
+  duration_days: number | null;
+  max_uses: number;
+  used_count: number;
+  used_by_user_id: string | null;
+  used_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+  created_by: string | null;
+  is_active: boolean;
+  description: string | null;
+  price: number | null;
+  status: 'active' | 'used' | 'expired' | 'inactive';
+  is_expired: boolean;
+  creator?: {
+    nickname: string;
+    email: string;
+    avatar_url?: string;
+  };
+  user?: {
+    nickname: string;
+    email: string;
+    avatar_url?: string;
+  };
+}
+
 interface Pagination {
   page: number;
   limit: number;
@@ -85,329 +118,830 @@ function getSafeProfile(record: any) {
   return record.profiles;
 }
 
-// JSON格式化显示组件
-const JsonDisplay = ({ data, title, maxHeight = '200px' }: { 
-  data: any; 
-  title: string;
-  maxHeight?: string;
-}) => {
-  const [copied, setCopied] = useState(false);
+// AI密钥生成组件
+const AIKeyGenerator = ({ onGenerated }: { onGenerated: () => void }) => {
+  const [form, setForm] = useState({
+    boostType: 'cycle' as 'cycle' | 'daily' | 'total',
+    incrementAmount: 50,
+    durationDays: 30,
+    maxUses: 1,
+    quantity: 1,
+    prefix: 'AI',
+    description: '',
+    price: ''
+  });
 
-  const handleCopy = async () => {
+  const [generating, setGenerating] = useState(false);
+  const [generatedKeys, setGeneratedKeys] = useState<string[]>([]);
+  const [copiedKeys, setCopiedKeys] = useState<Record<string, boolean>>({});
+
+  const handleCopy = async (keyCode: string) => {
     try {
-      const jsonString = JSON.stringify(data, null, 2);
-      await navigator.clipboard.writeText(jsonString);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(keyCode);
+      setCopiedKeys(prev => ({ ...prev, [keyCode]: true }));
+      setTimeout(() => {
+        setCopiedKeys(prev => ({ ...prev, [keyCode]: false }));
+      }, 2000);
     } catch (err) {
       console.error('复制失败:', err);
     }
   };
 
-  let displayText = '';
-  let isJson = false;
+  const handleGenerate = async () => {
+    try {
+      setGenerating(true);
+      const response = await fetch('/api/admin/ai-keys/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      });
 
-  try {
-    if (typeof data === 'string') {
-      const parsed = JSON.parse(data);
-      displayText = JSON.stringify(parsed, null, 2);
-      isJson = true;
-    } else {
-      displayText = JSON.stringify(data, null, 2);
-      isJson = true;
-    }
-  } catch {
-    displayText = String(data || '(空)');
-    isJson = false;
-  }
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-gray-400">{title}</h3>
-        <button
-          onClick={handleCopy}
-          className="flex items-center text-xs text-gray-500 hover:text-white"
-        >
-          {copied ? (
-            <Check className="w-3 h-3 mr-1" />
-          ) : (
-            <Copy className="w-3 h-3 mr-1" />
-          )}
-          {copied ? '已复制' : '复制'}
-        </button>
-      </div>
-      <div 
-        className="bg-black/30 rounded-lg p-3 overflow-auto"
-        style={{ maxHeight }}
-      >
-        <pre className={`text-sm ${isJson ? 'text-gray-300' : 'text-gray-400'} whitespace-pre-wrap`}>
-          {displayText}
-        </pre>
-      </div>
-    </div>
-  );
-};
-
-// 记录详情弹窗组件
-const RecordDetailModal = ({ record, onClose }: { 
-  record: UsageRecord; 
-  onClose: () => void 
-}) => {
-  if (!record) return null;
-  
-  const profile = getSafeProfile(record);
-
-  const getGenderText = (gender: string) => {
-    switch (gender) {
-      case 'male': return '男性';
-      case 'female': return '女性';
-      case 'non_binary': return '非二元';
-      default: return '未知';
+      const result = await response.json();
+      
+      if (result.success) {
+        const newKeys = result.data.keys.map((k: any) => k.key_code);
+        setGeneratedKeys(newKeys);
+        alert(`✅ 成功生成 ${form.quantity} 个AI密钥`);
+        onGenerated();
+      } else {
+        alert(`❌ 生成失败: ${result.error}`);
+      }
+    } catch (error: any) {
+      console.error('生成密钥错误:', error);
+      alert('生成失败，请检查控制台');
+    } finally {
+      setGenerating(false);
     }
   };
 
-  // 提取响应数据
-  const responseData = record.response_data || {};
-  const requestData = record.request_data || {};
-  
-  // 计算成本和Tokens
-  const tokensUsed = responseData.tokens_used || 0;
-  const responseTime = responseData.response_time_ms;
-  const costPerToken = 0.000002; // 每个token成本
-  const singleCost = tokensUsed * costPerToken;
-  const thirtyDaysCost = record.user_stats.thirtyDays * 2188.125 * costPerToken;
+  const incrementAmounts = [10, 20, 50, 100, 200, 500];
+  const durationOptions = [7, 30, 90, 180, 365];
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="glass apple-card max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-        <div className="p-6 border-b border-white/10 flex justify-between items-center">
+    <div className="glass apple-card p-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-white">生成AI密钥</h2>
+          <p className="text-sm text-gray-400 mt-1">创建用于增加AI使用次数的密钥</p>
+        </div>
+        <Key className="w-5 h-5 text-gray-400" />
+      </div>
+
+      <div className="space-y-6">
+        {/* 密钥类型 */}
+        <div>
+          <label className="block text-sm font-medium text-gray-400 mb-3">
+            密钥类型
+          </label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, boostType: 'cycle' })}
+              className={`p-4 rounded-xl border transition-all ${
+                form.boostType === 'cycle'
+                  ? 'border-pink-500 bg-gradient-to-r from-pink-500/20 to-purple-500/20'
+                  : 'border-white/10 bg-white/5 hover:bg-white/10'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <Calendar className={`w-5 h-5 ${form.boostType === 'cycle' ? 'text-pink-400' : 'text-gray-400'}`} />
+                  <div className="ml-3">
+                    <div className={`font-medium ${form.boostType === 'cycle' ? 'text-white' : 'text-gray-300'}`}>
+                      周期密钥
+                    </div>
+                    <div className="text-xs text-gray-400">增加30天窗口次数</div>
+                  </div>
+                </div>
+                {form.boostType === 'cycle' && (
+                  <Check className="w-4 h-4 text-pink-400" />
+                )}
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, boostType: 'daily' })}
+              className={`p-4 rounded-xl border transition-all ${
+                form.boostType === 'daily'
+                  ? 'border-blue-500 bg-gradient-to-r from-blue-500/20 to-cyan-500/20'
+                  : 'border-white/10 bg-white/5 hover:bg-white/10'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <ClockIcon className={`w-5 h-5 ${form.boostType === 'daily' ? 'text-blue-400' : 'text-gray-400'}`} />
+                  <div className="ml-3">
+                    <div className={`font-medium ${form.boostType === 'daily' ? 'text-white' : 'text-gray-300'}`}>
+                      每日密钥
+                    </div>
+                    <div className="text-xs text-gray-400">增加24小时窗口次数</div>
+                  </div>
+                </div>
+                {form.boostType === 'daily' && (
+                  <Check className="w-4 h-4 text-blue-400" />
+                )}
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, boostType: 'total' })}
+              className={`p-4 rounded-xl border transition-all ${
+                form.boostType === 'total'
+                  ? 'border-green-500 bg-gradient-to-r from-green-500/20 to-emerald-500/20'
+                  : 'border-white/10 bg-white/5 hover:bg-white/10'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <Infinity className={`w-5 h-5 ${form.boostType === 'total' ? 'text-green-400' : 'text-gray-400'}`} />
+                  <div className="ml-3">
+                    <div className={`font-medium ${form.boostType === 'total' ? 'text-white' : 'text-gray-300'}`}>
+                      永久密钥
+                    </div>
+                    <div className="text-xs text-gray-400">永久增加总次数</div>
+                  </div>
+                </div>
+                {form.boostType === 'total' && (
+                  <Check className="w-4 h-4 text-green-400" />
+                )}
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* 增加次数 */}
           <div>
-            <h2 className="text-xl font-bold text-white">AI使用记录详情</h2>
-            <p className="text-sm text-gray-400 mt-1">
-              ID: {record.id} • {new Date(record.created_at).toLocaleString('zh-CN', {
-                year: 'numeric',
-                month: 'numeric',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-              })}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-white/10 rounded-xl transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-400" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            {/* 用户信息 */}
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-sm font-medium text-gray-400 mb-2">用户信息</h3>
-                <div className="glass rounded-xl p-4">
-                  <div className="flex items-center space-x-3 mb-3">
-                    <div className="w-10 h-10 bg-gradient-to-r from-pink-500 to-purple-500 rounded-full flex items-center justify-center">
-                      <User className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <div className="font-medium text-white">{profile.nickname}</div>
-                      <div className="text-sm text-gray-400">{profile.email}</div>
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-xs text-gray-500">注册时间</div>
-                      <div className="text-sm text-white">
-                        {new Date(profile.created_at).toLocaleDateString('zh-CN', {
-                          year: 'numeric',
-                          month: 'numeric',
-                          day: 'numeric'
-                        })}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">性别</div>
-                      <div className="text-sm text-white">
-                        {getGenderText(profile.preferences?.gender)}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-4 border-t border-white/10">
-                    <div className="text-xs text-gray-500 mb-2">用户使用统计</div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-blue-500/10 p-3 rounded-lg">
-                        <div className="text-xs text-blue-400">今日使用</div>
-                        <div className="text-lg font-bold text-white">{record.user_stats.today} 次</div>
-                      </div>
-                      <div className="bg-purple-500/10 p-3 rounded-lg">
-                        <div className="text-xs text-purple-400">30天使用</div>
-                        <div className="text-lg font-bold text-white">{record.user_stats.thirtyDays} 次</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 偏好信息 */}
-              {profile.preferences && (
-                <div>
-                  <h3 className="text-sm font-medium text-gray-400 mb-2">用户偏好</h3>
-                  <div className="glass rounded-xl p-4">
-                    <div className="flex flex-wrap gap-2">
-                      {profile.preferences.kinks?.map((kink: string, index: number) => (
-                        <span
-                          key={index}
-                          className="px-3 py-1 bg-gradient-to-r from-pink-500/20 to-purple-500/20 text-pink-300 rounded-full text-xs"
-                        >
-                          {kink}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              增加次数
+            </label>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              {incrementAmounts.map(amount => (
+                <button
+                  key={amount}
+                  type="button"
+                  onClick={() => setForm({ ...form, incrementAmount: amount })}
+                  className={`p-2 rounded-lg ${
+                    form.incrementAmount === amount
+                      ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white'
+                      : 'bg-white/5 text-gray-400 hover:text-white'
+                  }`}
+                >
+                  +{amount}次
+                </button>
+              ))}
             </div>
-
-            {/* 请求详情 */}
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-sm font-medium text-gray-400 mb-2">请求信息</h3>
-                <div className="glass rounded-xl p-4">
-                  <div className="grid grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <div className="text-xs text-gray-500">功能</div>
-                      <div className="text-sm text-white">{record.feature || '未知'}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">状态</div>
-                      <div className={`px-2 py-1 rounded-full text-xs font-medium inline-block ${
-                        record.success 
-                          ? 'bg-green-500/20 text-green-400' 
-                          : 'bg-red-500/20 text-red-400'
-                      }`}>
-                        {record.success ? '✓ 成功' : '✗ 失败'}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">响应时间</div>
-                      <div className="text-sm text-white">
-                        {responseTime ? `${responseTime}ms` : '未知'}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">Tokens消耗</div>
-                      <div className="text-sm text-white">
-                        {tokensUsed > 0 ? tokensUsed : '未知'}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 请求内容 */}
-                  <div className="mt-4">
-                    <JsonDisplay 
-                      data={requestData} 
-                      title="请求内容" 
-                      maxHeight="150px"
-                    />
-                  </div>
-
-                  {/* 响应内容 */}
-                  <div className="mt-4">
-                    <JsonDisplay 
-                      data={responseData} 
-                      title="响应内容" 
-                      maxHeight="200px"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
+            <input
+              type="number"
+              min="1"
+              max="10000"
+              value={form.incrementAmount}
+              onChange={(e) => setForm({ ...form, incrementAmount: parseInt(e.target.value) || 0 })}
+              className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-white"
+              placeholder="自定义次数"
+            />
           </div>
 
-          {/* 成本估算 */}
-          <div className="glass rounded-xl p-4 mb-6">
-            <h3 className="text-sm font-medium text-gray-400 mb-2">成本估算</h3>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="text-center p-3 bg-gradient-to-br from-blue-500/10 to-transparent rounded-lg">
-                <div className="text-xs text-blue-400">Tokens消耗</div>
-                <div className="text-lg font-bold text-white">
-                  {tokensUsed > 0 ? tokensUsed : '未知'}
-                </div>
-              </div>
-              <div className="text-center p-3 bg-gradient-to-br from-purple-500/10 to-transparent rounded-lg">
-                <div className="text-xs text-purple-400">单次成本</div>
-                <div className="text-lg font-bold text-white">
-                  {tokensUsed > 0 ? `¥${singleCost.toFixed(6)}` : '¥0.000000'}
-                </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {tokensUsed > 0 ? `${tokensUsed} tokens × ¥${costPerToken.toFixed(6)}/token` : '无tokens数据'}
-                </div>
-              </div>
-              <div className="text-center p-3 bg-gradient-to-br from-green-500/10 to-transparent rounded-lg">
-                <div className="text-xs text-green-400">30天累计</div>
-                <div className="text-lg font-bold text-white">
-                  ¥{thirtyDaysCost.toFixed(6)}
-                </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {record.user_stats.thirtyDays} 次 × 平均 2188.125 tokens/次
-                </div>
-              </div>
+          {/* 有效期 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              有效期（天）
+            </label>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              {durationOptions.map(days => (
+                <button
+                  key={days}
+                  type="button"
+                  onClick={() => setForm({ ...form, durationDays: days })}
+                  className={`p-2 rounded-lg ${
+                    form.durationDays === days
+                      ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white'
+                      : 'bg-white/5 text-gray-400 hover:text-white'
+                  }`}
+                >
+                  {days}天
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center space-x-3">
+              <input
+                type="number"
+                min="1"
+                max="3650"
+                value={form.durationDays || ''}
+                onChange={(e) => setForm({ ...form, durationDays: parseInt(e.target.value) || null })}
+                className="flex-1 p-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                placeholder="自定义天数"
+              />
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, durationDays: null })}
+                className={`px-3 py-2 rounded-lg ${
+                  form.durationDays === null
+                    ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                    : 'bg-white/5 text-gray-400'
+                }`}
+              >
+                永久
+              </button>
             </div>
           </div>
         </div>
 
-        <div className="p-6 border-t border-white/10 flex justify-end space-x-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* 生成数量 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              生成数量
+            </label>
+            <input
+              type="range"
+              min="1"
+              max="100"
+              value={form.quantity}
+              onChange={(e) => setForm({ ...form, quantity: parseInt(e.target.value) })}
+              className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between text-sm text-gray-400 mt-2">
+              <span>1个</span>
+              <span className="font-medium text-white">{form.quantity}个</span>
+              <span>100个</span>
+            </div>
+          </div>
+
+          {/* 最大使用次数 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              最大使用次数
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="1000"
+              value={form.maxUses}
+              onChange={(e) => setForm({ ...form, maxUses: parseInt(e.target.value) || 1 })}
+              className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-white"
+            />
+            <p className="text-xs text-gray-400 mt-1">每个密钥可被使用的次数</p>
+          </div>
+        </div>
+
+        {/* 描述和价格 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              描述（可选）
+            </label>
+            <input
+              type="text"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-white"
+              placeholder="例如：活动赠送、用户购买"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              价格（元，可选）
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.price}
+              onChange={(e) => setForm({ ...form, price: e.target.value })}
+              className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-white"
+              placeholder="0.00"
+            />
+          </div>
+        </div>
+
+        {/* 生成结果 */}
+        {generatedKeys.length > 0 && (
+          <div className="mt-6 p-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/30 rounded-xl">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center">
+                <CheckCircle className="w-5 h-5 text-green-400 mr-2" />
+                <span className="font-medium text-white">密钥生成成功</span>
+              </div>
+              <button
+                onClick={() => {
+                  const allKeys = generatedKeys.join('\n');
+                  navigator.clipboard.writeText(allKeys);
+                  alert('已复制所有密钥');
+                }}
+                className="text-sm text-green-400 hover:text-green-300"
+              >
+                复制全部
+              </button>
+            </div>
+            <div className="space-y-2 max-h-40 overflow-y-auto">
+              {generatedKeys.map(key => (
+                <div key={key} className="flex items-center justify-between p-2 bg-black/30 rounded-lg">
+                  <code className="font-mono text-sm text-green-300">{key}</code>
+                  <button
+                    onClick={() => handleCopy(key)}
+                    className="p-1 hover:bg-white/10 rounded"
+                  >
+                    {copiedKeys[key] ? (
+                      <Check className="w-4 h-4 text-green-400" />
+                    ) : (
+                      <Copy className="w-4 h-4 text-gray-400" />
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 生成按钮 */}
+        <div className="pt-4">
           <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+            onClick={handleGenerate}
+            disabled={generating}
+            className="w-full apple-button py-3 bg-gradient-to-r from-pink-500 to-purple-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            关闭
-          </button>
-          <button
-            onClick={() => {
-              // 导出功能
-              const exportData = {
-                record,
-                profile,
-                cost_breakdown: {
-                  tokens_used: tokensUsed,
-                  cost_per_token: costPerToken,
-                  single_cost: singleCost,
-                  thirty_days_cost: thirtyDaysCost
-                }
-              };
-              
-              const dataStr = JSON.stringify(exportData, null, 2);
-              const dataBlob = new Blob([dataStr], { type: 'application/json' });
-              const url = URL.createObjectURL(dataBlob);
-              const link = document.createElement('a');
-              link.href = url;
-              link.download = `ai_usage_record_${record.id}.json`;
-              link.click();
-              URL.revokeObjectURL(url);
-            }}
-            className="apple-button px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white"
-          >
-            <Download className="w-4 h-4 mr-2 inline" />
-            导出JSON
+            {generating ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                生成中...
+              </>
+            ) : (
+              <>
+                <Key className="w-4 h-4 mr-2 inline" />
+                生成AI密钥
+              </>
+            )}
           </button>
         </div>
       </div>
     </div>
   );
 };
+
+// AI密钥管理组件
+const AIKeysManager = () => {
+  const [keys, setKeys] = useState<AIBoostKey[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pagination, setPagination] = useState<Pagination>({
+    page: 1,
+    limit: 20,
+    total: 0,
+    totalPages: 0
+  });
+  const [filters, setFilters] = useState({
+    boostType: 'all',
+    status: 'all',
+    search: ''
+  });
+  const [stats, setStats] = useState({
+    totalGenerated: 0,
+    totalUsed: 0,
+    totalIncrement: 0,
+    totalUsedIncrement: 0,
+    usageRate: 0
+  });
+
+  const fetchKeys = useCallback(async (page = 1) => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: pagination.limit.toString(),
+        ...(filters.boostType !== 'all' && { boostType: filters.boostType }),
+        ...(filters.status !== 'all' && { status: filters.status }),
+        ...(filters.search && { search: filters.search })
+      });
+
+      const response = await fetch(`/api/admin/ai-keys/list?${params}`);
+      const result = await response.json();
+      
+      if (result.success) {
+        setKeys(result.data.keys);
+        setPagination(result.data.pagination);
+        setStats(result.data.stats);
+      } else {
+        console.error('获取密钥列表失败:', result.error);
+      }
+    } catch (error) {
+      console.error('获取密钥列表错误:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [filters, pagination.limit]);
+
+  useEffect(() => {
+    fetchKeys(1);
+  }, [fetchKeys]);
+
+  const handleRefresh = () => {
+    fetchKeys(pagination.page);
+  };
+
+  const handleToggleActive = async (keyId: number, currentActive: boolean) => {
+    try {
+      const response = await fetch(`/api/admin/ai-keys/${keyId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !currentActive })
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        alert(`密钥已${!currentActive ? '启用' : '禁用'}`);
+        fetchKeys(pagination.page);
+      } else {
+        alert(`操作失败: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('切换密钥状态错误:', error);
+    }
+  };
+
+  const handleDelete = async (keyId: number, keyCode: string) => {
+    if (!confirm(`确定要删除密钥 ${keyCode} 吗？此操作不可撤销。`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/admin/ai-keys/${keyId}`, {
+        method: 'DELETE'
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        alert('密钥已删除');
+        fetchKeys(pagination.page);
+      } else {
+        alert(`删除失败: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('删除密钥错误:', error);
+    }
+  };
+
+  const formatDateTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'active': return 'bg-green-500/20 text-green-400 border-green-500/30';
+      case 'used': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+      case 'expired': return 'bg-red-500/20 text-red-400 border-red-500/30';
+      case 'inactive': return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+      default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+    }
+  };
+
+  const getBoostTypeText = (type: string) => {
+    switch (type) {
+      case 'cycle': return '周期';
+      case 'daily': return '每日';
+      case 'total': return '永久';
+      default: return type;
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* 统计卡片 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="glass apple-card p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-400">生成总数</p>
+              <p className="text-2xl font-bold text-white">{stats.totalGenerated}</p>
+            </div>
+            <Package className="w-5 h-5 text-pink-400" />
+          </div>
+          <p className="text-xs text-gray-400 mt-2">已生成AI密钥数量</p>
+        </div>
+
+        <div className="glass apple-card p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-400">使用率</p>
+              <p className="text-2xl font-bold text-white">{stats.usageRate}%</p>
+            </div>
+            <TrendingUp className="w-5 h-5 text-green-400" />
+          </div>
+          <p className="text-xs text-gray-400 mt-2">{stats.totalUsed}/{stats.totalGenerated} 个已使用</p>
+        </div>
+
+        <div className="glass apple-card p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-400">总次数</p>
+              <p className="text-2xl font-bold text-white">{stats.totalIncrement}</p>
+            </div>
+            <Hash className="w-5 h-5 text-blue-400" />
+          </div>
+          <p className="text-xs text-gray-400 mt-2">可增加的总AI次数</p>
+        </div>
+
+        <div className="glass apple-card p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-400">已使用次数</p>
+              <p className="text-2xl font-bold text-white">{stats.totalUsedIncrement}</p>
+            </div>
+            <CheckCircle className="w-5 h-5 text-purple-400" />
+          </div>
+          <p className="text-xs text-gray-400 mt-2">已被兑换的AI次数</p>
+        </div>
+      </div>
+
+      {/* 筛选栏 */}
+      <div className="glass apple-card p-4">
+        <div className="flex flex-col md:flex-row md:items-center space-y-4 md:space-y-0 md:space-x-4">
+          <div className="flex-1">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <input
+                type="text"
+                placeholder="搜索密钥代码或描述..."
+                value={filters.search}
+                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-pink-500"
+              />
+            </div>
+          </div>
+          
+          <div className="flex items-center space-x-3">
+            <select
+              value={filters.boostType}
+              onChange={(e) => setFilters({ ...filters, boostType: e.target.value })}
+              className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-pink-500"
+            >
+              <option value="all">所有类型</option>
+              <option value="cycle">周期密钥</option>
+              <option value="daily">每日密钥</option>
+              <option value="total">永久密钥</option>
+            </select>
+            
+            <select
+              value={filters.status}
+              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+              className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-pink-500"
+            >
+              <option value="all">所有状态</option>
+              <option value="active">未使用</option>
+              <option value="used">已使用</option>
+              <option value="expired">已过期</option>
+              <option value="inactive">已禁用</option>
+            </select>
+            
+            <button
+              onClick={handleRefresh}
+              className="apple-button px-4 py-2 bg-gradient-to-r from-pink-500 to-purple-500 text-white"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 密钥表格 */}
+      <div className="glass apple-card overflow-hidden">
+        <div className="p-6 border-b border-white/10">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-white">AI密钥列表</h2>
+              <p className="text-sm text-gray-400 mt-1">
+                共 {pagination.total} 个密钥 • 第 {pagination.page} 页，共 {pagination.totalPages} 页
+              </p>
+            </div>
+            <Shield className="w-5 h-5 text-gray-400" />
+          </div>
+        </div>
+        
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  密钥代码
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  类型
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  增加次数
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  状态
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  使用者
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  有效期
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  操作
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center">
+                    <div className="animate-pulse">
+                      <div className="h-4 bg-white/10 rounded mx-auto w-1/4"></div>
+                    </div>
+                  </td>
+                </tr>
+              ) : keys.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center">
+                    <Key className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                    <p className="text-gray-500">暂无AI密钥</p>
+                    <p className="text-gray-400 text-sm mt-1">点击上方"生成AI密钥"按钮创建</p>
+                  </td>
+                </tr>
+              ) : (
+                keys.map((key) => (
+                  <tr key={key.id} className="hover:bg-white/5 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center space-x-3">
+                        <div className="font-mono text-sm text-white bg-black/30 px-3 py-1 rounded-lg">
+                          {key.key_code}
+                        </div>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(key.key_code);
+                            alert('已复制密钥');
+                          }}
+                          className="p-1 hover:bg-white/10 rounded"
+                        >
+                          <Copy className="w-3 h-3 text-gray-400" />
+                        </button>
+                      </div>
+                      {key.description && (
+                        <div className="text-xs text-gray-500 mt-1">{key.description}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-white">
+                        {getBoostTypeText(key.boost_type)}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        最多使用 {key.max_uses} 次
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-lg font-bold text-white">
+                        +{key.increment_amount}次
+                      </div>
+                      {key.price && (
+                        <div className="text-xs text-green-400">
+                          ¥{key.price}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className={`px-3 py-1 rounded-full text-xs font-medium border inline-block ${getStatusColor(key.status)}`}>
+                        {key.status === 'active' && '未使用'}
+                        {key.status === 'used' && `已使用 ${key.used_count}/${key.max_uses}`}
+                        {key.status === 'expired' && '已过期'}
+                        {key.status === 'inactive' && '已禁用'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      {key.user ? (
+                        <div className="flex items-center space-x-2">
+                          <div className="w-6 h-6 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full flex items-center justify-center">
+                            <User className="w-3 h-3 text-white" />
+                          </div>
+                          <div>
+                            <div className="text-sm text-white">{key.user.nickname}</div>
+                            <div className="text-xs text-gray-400">{key.user.email}</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-gray-500">-</span>
+                      )}
+                      {key.used_at && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          使用时间: {formatDateTime(key.used_at)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-300">
+                        {key.expires_at ? formatDateTime(key.expires_at) : '永久有效'}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        创建: {formatDateTime(key.created_at)}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => handleToggleActive(key.id, key.is_active)}
+                          className={`p-2 rounded-lg ${key.is_active ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}
+                          title={key.is_active ? '禁用密钥' : '启用密钥'}
+                        >
+                          {key.is_active ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                        </button>
+                        <button
+                          onClick={() => handleDelete(key.id, key.key_code)}
+                          className="p-2 rounded-lg bg-red-500/20 text-red-400"
+                          title="删除密钥"
+                          disabled={key.used_count > 0}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        
+        {/* 分页 */}
+        {pagination.totalPages > 1 && (
+          <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between">
+            <div className="text-sm text-gray-400">
+              显示第 {(pagination.page - 1) * pagination.limit + 1} -{' '}
+              {Math.min(pagination.page * pagination.limit, pagination.total)} 条，
+              共 {pagination.total} 条
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => fetchKeys(pagination.page - 1)}
+                disabled={pagination.page === 1}
+                className="glass apple-button px-3 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              
+              <div className="flex items-center space-x-1">
+                {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (pagination.totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (pagination.page <= 3) {
+                    pageNum = i + 1;
+                  } else if (pagination.page >= pagination.totalPages - 2) {
+                    pageNum = pagination.totalPages - 4 + i;
+                  } else {
+                    pageNum = pagination.page - 2 + i;
+                  }
+                  
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => fetchKeys(pageNum)}
+                      className={`w-8 h-8 rounded-lg ${
+                        pagination.page === pageNum
+                          ? 'bg-gradient-to-r from-pink-500 to-purple-500 text-white'
+                          : 'glass text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+              
+              <button
+                onClick={() => fetchKeys(pagination.page + 1)}
+                disabled={pagination.page >= pagination.totalPages}
+                className="glass apple-button px-3 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronRightIcon className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// 原来的 RecordDetailModal 组件保持原样...
+// [保持原有的 RecordDetailModal 组件代码，这里省略以节省空间]
 
 export default function AIUsagePage() {
   const [loading, setLoading] = useState(true);
   const [loadingRecords, setLoadingRecords] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [refreshKey, setRefreshKey] = useState(0);
   
   // 概览数据
   const [overviewData, setOverviewData] = useState<{
@@ -695,6 +1229,7 @@ export default function AIUsagePage() {
               onClick={() => {
                 fetchOverview();
                 fetchRecords(1);
+                setRefreshKey(prev => prev + 1);
               }}
               className="glass apple-button px-3 py-2 text-white hover:bg-white/10"
             >
@@ -722,7 +1257,7 @@ export default function AIUsagePage() {
         </div>
 
         {/* 标签导航 */}
-        <div className="flex space-x-2 mb-6">
+        <div className="flex flex-wrap gap-2 mb-6">
           <button
             onClick={() => setActiveTab('overview')}
             className={`apple-button px-4 py-2 rounded-xl ${
@@ -744,6 +1279,17 @@ export default function AIUsagePage() {
           >
             <MessageSquare className="w-4 h-4 mr-2 inline" />
             使用记录
+          </button>
+          <button
+            onClick={() => setActiveTab('keys')}
+            className={`apple-button px-4 py-2 rounded-xl ${
+              activeTab === 'keys' 
+                ? 'bg-gradient-to-r from-pink-500 to-purple-500 text-white' 
+                : 'glass text-gray-400 hover:text-white'
+            }`}
+          >
+            <Key className="w-4 h-4 mr-2 inline" />
+            AI密钥管理
           </button>
           <button
             onClick={() => setActiveTab('users')}
@@ -1079,6 +1625,14 @@ export default function AIUsagePage() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* AI密钥管理标签页 */}
+        {activeTab === 'keys' && (
+          <div className="space-y-6">
+            <AIKeyGenerator onGenerated={() => setRefreshKey(prev => prev + 1)} />
+            <AIKeysManager key={refreshKey} />
           </div>
         )}
 
