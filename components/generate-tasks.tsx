@@ -89,6 +89,17 @@ export default function GenerateTasksSection({
   });
   const [loadingStats, setLoadingStats] = useState(false);
 
+  // 🔥 新增：兑换弹窗相关状态
+  const [showRedeemModal, setShowRedeemModal] = useState(false);
+  const [redeemKeyCode, setRedeemKeyCode] = useState('');
+  const [redeemLoading, setRedeemLoading] = useState(false);
+  const [redeemResult, setRedeemResult] = useState<{
+    success: boolean;
+    message: string;
+    data?: any;
+  } | null>(null);
+  const [redeemUsageInfo, setRedeemUsageInfo] = useState<any>(null);
+
   useEffect(() => {
     setMounted(true);
     const fetchPreferences = async () => {
@@ -229,8 +240,19 @@ export default function GenerateTasksSection({
       
       const json = await res.json();
       
+      // 🔥 修改点：捕获AI次数不足的错误并显示兑换弹窗
       if (!res.ok) {
         if (res.status === 429) {
+          // 检查是否是AI次数不足的错误
+          if (json.errorType === 'INSUFFICIENT_AI_USAGE') {
+            // 显示兑换弹窗
+            setShowRedeemModal(true);
+            setRedeemUsageInfo(json.usage || {});
+            setError(null); // 清除错误提示
+            return;
+          }
+          
+          // 其他429错误
           setError(json?.error || "使用次数已用完");
           if (json.details) {
             // 更新使用统计
@@ -271,6 +293,57 @@ export default function GenerateTasksSection({
       setError(e?.message || "生成失败");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 🔥 新增：兑换函数
+  const handleRedeem = async () => {
+    if (!redeemKeyCode.trim()) {
+      setRedeemResult({ success: false, message: '请输入AI密钥' });
+      return;
+    }
+
+    setRedeemLoading(true);
+    setRedeemResult(null);
+
+    try {
+      const response = await fetch('/api/user/ai-keys/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyCode: redeemKeyCode }),
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || '兑换失败');
+      }
+
+      setRedeemResult({
+        success: true,
+        message: data.message,
+        data: data.data
+      });
+
+      // 兑换成功，刷新使用统计
+      setTimeout(() => {
+        fetchUsageStats(); // 重新获取使用统计
+        setRedeemKeyCode('');
+        // 3秒后关闭弹窗
+        setTimeout(() => {
+          setShowRedeemModal(false);
+          setRedeemResult(null);
+          setRedeemUsageInfo(null);
+        }, 3000);
+      }, 1500);
+
+    } catch (error: any) {
+      setRedeemResult({
+        success: false,
+        message: error.message
+      });
+    } finally {
+      setRedeemLoading(false);
     }
   };
 
@@ -813,6 +886,99 @@ export default function GenerateTasksSection({
             </div>
 
             {renderModalContent()}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* 🔥 新增：兑换弹窗 */}
+      {showRedeemModal && mounted && createPortal(
+        <div className="fixed inset-0 z-[1100] bg-black/80 backdrop-blur-lg flex items-center justify-center p-6">
+          <div className="glass backdrop-blur-2xl bg-gradient-to-br from-gray-900/70 to-purple-900/40 rounded-3xl p-8 max-w-md w-full glow-pink border border-white/20 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-white">AI次数已用尽</h3>
+              <button
+                onClick={() => {
+                  setShowRedeemModal(false);
+                  setRedeemKeyCode('');
+                  setRedeemResult(null);
+                  setRedeemUsageInfo(null);
+                }}
+                className="w-8 h-8 rounded-lg hover:bg-white/10"
+              >
+                <X className="w-5 h-5 text-gray-400 hover:text-white" />
+              </button>
+            </div>
+            
+            <div className="space-y-6">
+              <div className="text-gray-300">
+                <p>您的AI使用次数已用完，兑换密钥可以立即获得更多次数。</p>
+              </div>
+              
+              {/* 显示使用统计 */}
+              {redeemUsageInfo && (
+                <div className="p-4 bg-gradient-to-r from-gray-900/50 to-purple-900/30 rounded-xl border border-white/10">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-gray-400">今日使用：</span>
+                    <span className="text-white font-medium">
+                      {redeemUsageInfo.daily?.used || 0}/{redeemUsageInfo.daily?.limit || 10}次
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-400">周期使用：</span>
+                    <span className="text-white font-medium">
+                      {redeemUsageInfo.cycle?.used || 0}/{redeemUsageInfo.cycle?.limit || 120}次
+                    </span>
+                  </div>
+                </div>
+              )}
+              
+              <div className="space-y-3">
+                <Label className="text-white">输入AI密钥</Label>
+                <Input
+                  placeholder="AI-XXXX-XXXX"
+                  value={redeemKeyCode}
+                  onChange={(e) => setRedeemKeyCode(e.target.value.toUpperCase())}
+                  className="bg-white/10 border-white/20 text-white"
+                  disabled={redeemLoading}
+                />
+              </div>
+              
+              {redeemResult && (
+                <div className={`p-4 rounded-xl ${
+                  redeemResult.success 
+                    ? 'bg-gradient-to-r from-green-900/30 to-green-800/20 border border-green-500/20' 
+                    : 'bg-gradient-to-r from-red-900/30 to-red-800/20 border border-red-500/20'
+                }`}>
+                  <p className={redeemResult.success ? 'text-green-300' : 'text-red-300'}>
+                    {redeemResult.message}
+                  </p>
+                </div>
+              )}
+              
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="flex-1 border-white/20"
+                  onClick={() => {
+                    setShowRedeemModal(false);
+                    setRedeemKeyCode('');
+                    setRedeemResult(null);
+                    setRedeemUsageInfo(null);
+                  }}
+                  disabled={redeemLoading}
+                >
+                  取消
+                </Button>
+                <Button
+                  className="flex-1 gradient-primary glow-pink"
+                  disabled={redeemLoading || !redeemKeyCode.trim()}
+                  onClick={handleRedeem}
+                >
+                  {redeemLoading ? '兑换中...' : '立即兑换'}
+                </Button>
+              </div>
+            </div>
           </div>
         </div>,
         document.body

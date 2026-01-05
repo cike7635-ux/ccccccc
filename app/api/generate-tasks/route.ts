@@ -378,27 +378,26 @@ export async function POST(req: NextRequest) {
         false
       );
 
-      // 返回详细的限制信息
+      // 🔥 修改点：返回详细的限制信息和错误类型标识
       return NextResponse.json(
         {
-          error: usageCheck.reason,
-          details: {
+          error: 'AI使用次数已用尽',
+          errorType: 'INSUFFICIENT_AI_USAGE',  // 🔥 新增：错误类型标识
+          message: usageCheck.reason,
+          usage: {
             daily: { 
               used: usageCheck.dailyUsed, 
               limit: usageCheck.dailyLimit,
-              remaining: Math.max(0, usageCheck.dailyLimit - usageCheck.dailyUsed),
-              windowStart: usageCheck.windowStartDate,
-              windowType: '24小时滚动窗口'
+              remaining: Math.max(0, usageCheck.dailyLimit - usageCheck.dailyUsed)
             },
             cycle: { 
               used: usageCheck.cycleUsed, 
               limit: usageCheck.cycleLimit,
-              remaining: Math.max(0, usageCheck.cycleLimit - usageCheck.cycleUsed),
-              windowStart: usageCheck.cycleStartDate,
-              windowType: '30天滚动窗口'
-            },
-            windowInfo: usageCheck.windowType
-          }
+              remaining: Math.max(0, usageCheck.cycleLimit - usageCheck.cycleUsed)
+            }
+          },
+          suggestion: '兑换AI密钥获取更多次数',
+          action: 'redeem'
         },
         { status: 429 }
       );
