@@ -933,7 +933,9 @@ const AIKeysManager = () => {
   );
 };
 
-// 原来的 RecordDetailModal 组件保持原样...
+// ============================================================
+// 🔥 新增的 RecordDetailModal 组件
+// ============================================================
 const RecordDetailModal = ({ 
   record, 
   onClose 
@@ -944,6 +946,17 @@ const RecordDetailModal = ({
   if (!record) return null;
   
   const profile = getSafeProfile(record);
+  
+  const formatDateTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
   
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -1138,9 +1151,9 @@ const RecordDetailModal = ({
   );
 };
 
-
-
-
+// ============================================================
+// 主页面组件
+// ============================================================
 export default function AIUsagePage() {
   const [loading, setLoading] = useState(true);
   const [loadingRecords, setLoadingRecords] = useState(false);
