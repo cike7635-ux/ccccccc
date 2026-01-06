@@ -1081,7 +1081,7 @@ const RecordDetailModal = ({
             {/* 右侧：JSON数据 */}
             <div className="space-y-6">
               {/* 请求数据 */}
-              <div className="glass rounded-xl p-4 h-full">
+              <div className="glass rounded-xl p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-semibold text-white flex items-center">
                     <MessageSquare className="w-4 h-4 mr-2" />
@@ -1108,7 +1108,7 @@ const RecordDetailModal = ({
               </div>
               
               {/* 响应数据 */}
-              <div className="glass rounded-xl p-4 h-full">
+              <div className="glass rounded-xl p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-semibold text-white flex items-center">
                     <CheckCircle className="w-4 h-4 mr-2" />
