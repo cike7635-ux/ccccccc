@@ -31,7 +31,8 @@ export default function AIBoostPage() {
     setResult(null);
 
     try {
-      const response = await fetch('/api/user/ai-keys/redeem', {
+      // 🔥 修复：将错误的路径 '/api/user/ai-keys/redeem' 改为 '/api/admin/ai-keys/redeem'
+      const response = await fetch('/api/admin/ai-keys/redeem', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
