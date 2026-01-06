@@ -1,3 +1,4 @@
+// /app/api/admin/ai-keys/list/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -21,14 +22,22 @@ export async function GET(request: NextRequest) {
       { auth: { persistSession: false } }
     );
 
-    // 构建查询
+    // 🔥 修复：使用直接的SELECT查询，确保返回所有需要的字段
     let query = supabase
       .from('ai_boost_keys')
       .select(`
         *,
-        creator:created_by (nickname, email),
-        user:used_by_user_id (nickname, email)
-      `)
+        creator:profiles!ai_boost_keys_created_by_fkey (
+          email,
+          nickname,
+          avatar_url
+        ),
+        user:profiles!ai_boost_keys_used_by_user_id_fkey (
+          email,
+          nickname,
+          avatar_url
+        )
+      `, { count: 'exact' })
       .order(sortBy, { ascending: sortOrder === 'asc' });
 
     // 应用筛选条件
@@ -56,21 +65,25 @@ export async function GET(request: NextRequest) {
       query = query.or(`key_code.ilike.%${search}%,description.ilike.%${search}%`);
     }
 
-    // 获取总数
-    const { count, error: countError } = await query
-      .select('*', { count: 'exact', head: true });
-
-    if (countError) {
-      console.error('计数查询错误:', countError);
-    }
-
-    // 获取分页数据
-    const { data: keys, error } = await query
+    // 获取总数和分页数据
+    const { data: keys, error, count } = await query
       .range(offset, offset + limit - 1);
 
     if (error) {
       console.error('查询密钥列表错误:', error);
       throw error;
+    }
+
+    // 🔥 修复：添加详细的调试日志
+    console.log(`[AI密钥API] 查询到 ${keys?.length || 0} 条记录`);
+    if (keys && keys.length > 0) {
+      console.log('[AI密钥API] 第一条记录的结构:', {
+        id: keys[0].id,
+        key_code: keys[0].key_code,
+        user_exists: !!keys[0].user,
+        user_data: keys[0].user,
+        used_by_user_id: keys[0].used_by_user_id
+      });
     }
 
     // 增强数据，计算状态
@@ -86,23 +99,37 @@ export async function GET(request: NextRequest) {
         status = 'expired';
       }
 
+      // 🔥 修复：确保user对象不为空，即使关联查询返回null
+      const userInfo = key.user || (key.used_by_user_id ? {
+        email: '未知邮箱',
+        nickname: `用户_${key.used_by_user_id.substring(0, 8)}`,
+        avatar_url: null
+      } : null);
+
       return {
         ...key,
         status,
-        is_expired: key.expires_at ? new Date(key.expires_at) < now : false
+        is_expired: key.expires_at ? new Date(key.expires_at) < now : false,
+        user: userInfo, // 确保user字段始终存在（即使为null）
+        creator: key.creator || null
       };
     }) || [];
 
-    // 统计信息
-    const { data: stats } = await supabase
+    // 统计信息（单独查询以提高性能）
+    const { data: statsData, error: statsError } = await supabase
       .from('ai_boost_keys')
-      .select('boost_type, increment_amount, used_count')
+      .select('boost_type, increment_amount, used_count, is_active')
       .eq('is_active', true);
 
-    const totalGenerated = stats?.length || 0;
-    const totalUsed = stats?.filter(k => k.used_count > 0).length || 0;
-    const totalIncrement = stats?.reduce((sum, k) => sum + k.increment_amount, 0) || 0;
-    const totalUsedIncrement = stats?.reduce((sum, k) => sum + (k.increment_amount * k.used_count), 0) || 0;
+    if (statsError) {
+      console.error('获取统计信息错误:', statsError);
+    }
+
+    const stats = statsData || [];
+    const totalGenerated = stats.length;
+    const totalUsed = stats.filter(k => k.used_count > 0).length;
+    const totalIncrement = stats.reduce((sum, k) => sum + k.increment_amount, 0);
+    const totalUsedIncrement = stats.reduce((sum, k) => sum + (k.increment_amount * k.used_count), 0);
 
     return NextResponse.json({
       success: true,
