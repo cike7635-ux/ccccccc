@@ -213,17 +213,25 @@ export default function GenerateTasksSection({
   };
 
   const generate = async () => {
-    // 检查剩余次数
-    if (usageStats.daily.remaining <= 0) {
-      setError("今日AI使用次数已达上限（10次/天），请明天再试");
-      return;
-    }
+    // 🔥 修复：当次数用完时，直接显示兑换弹窗，而不是调用API
+    console.log('📱 前端generate函数被调用');
+    console.log('📊 当前使用统计:', {
+      dailyRemaining: usageStats.daily.remaining,
+      cycleRemaining: usageStats.cycle.remaining,
+      dailyUsed: usageStats.daily.used,
+      cycleUsed: usageStats.cycle.used
+    });
     
-    if (usageStats.cycle.remaining <= 0) {
-      setError("当前周期AI使用次数已达上限（120次/30天）");
+    // 检查剩余次数，如果已用完则直接显示兑换弹窗
+    if (usageStats.daily.remaining <= 0 || usageStats.cycle.remaining <= 0) {
+      console.log('🚨 使用次数用完，直接显示兑换弹窗');
+      setShowRedeemModal(true);
+      setRedeemUsageInfo(usageStats);
       return;
     }
 
+    console.log('✅ 次数未用完，继续调用API');
+    
     setLoading(true);
     setError(null);
     try {
@@ -246,6 +254,7 @@ export default function GenerateTasksSection({
           // 检查是否是AI次数不足的错误
           if (json.errorType === 'INSUFFICIENT_AI_USAGE') {
             // 显示兑换弹窗
+            console.log('🚨 API返回次数不足错误，显示兑换弹窗');
             setShowRedeemModal(true);
             setRedeemUsageInfo(json.usage || {});
             setError(null); // 清除错误提示
