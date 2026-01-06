@@ -328,7 +328,7 @@ export default function GenerateTasksSection({
     setRedeemResult(null);
 
     try {
-      const response = await fetch('/api/user/ai-keys/redeem', {
+      const response = await fetch('/api/admin/ai-keys/redeem', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keyCode: redeemKeyCode }),
