@@ -934,7 +934,212 @@ const AIKeysManager = () => {
 };
 
 // 原来的 RecordDetailModal 组件保持原样...
-// [保持原有的 RecordDetailModal 组件代码，这里省略以节省空间]
+const RecordDetailModal = ({ 
+  record, 
+  onClose 
+}: { 
+  record: UsageRecord | null; 
+  onClose: () => void;
+}) => {
+  if (!record) return null;
+  
+  const profile = getSafeProfile(record);
+  
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="glass rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden animate-fade-in">
+        {/* 弹窗头部 */}
+        <div className="flex items-center justify-between p-6 border-b border-white/10">
+          <div>
+            <h2 className="text-xl font-bold text-white">AI使用记录详情</h2>
+            <p className="text-sm text-gray-400 mt-1">ID: {record.id} • 查看完整的请求和响应信息</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="glass p-2 rounded-lg hover:bg-white/10 transition-colors"
+          >
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+        
+        {/* 弹窗内容 */}
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* 左侧：基本信息 */}
+            <div className="space-y-6">
+              {/* 用户信息 */}
+              <div className="glass rounded-xl p-4">
+                <h3 className="font-semibold text-white mb-4 flex items-center">
+                  <User className="w-4 h-4 mr-2" />
+                  用户信息
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-gradient-to-r from-pink-500 to-purple-500 rounded-full flex items-center justify-center">
+                      <User className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-white">{profile.nickname}</div>
+                      <div className="text-sm text-gray-400">{profile.email}</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 pt-3 border-t border-white/10">
+                    <div>
+                      <div className="text-xs text-gray-400">今日使用</div>
+                      <div className="text-sm font-medium text-white">{record.user_stats?.today || 0}次</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-400">30天使用</div>
+                      <div className="text-sm font-medium text-white">{record.user_stats?.thirtyDays || 0}次</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* 记录信息 */}
+              <div className="glass rounded-xl p-4">
+                <h3 className="font-semibold text-white mb-4 flex items-center">
+                  <Clock className="w-4 h-4 mr-2" />
+                  记录信息
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-400">记录ID</span>
+                    <code className="text-sm font-mono text-white">{record.id}</code>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-400">功能</span>
+                    <span className="text-sm text-white capitalize">{record.feature || 'generate_tasks'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-400">状态</span>
+                    <span className={`text-sm px-2 py-1 rounded-full ${
+                      record.success 
+                        ? 'bg-green-500/20 text-green-400' 
+                        : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {record.success ? '成功' : '失败'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-400">创建时间</span>
+                    <span className="text-sm text-white">{formatDateTime(record.created_at)}</span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* 性能指标 */}
+              {record.response_data && (
+                <div className="glass rounded-xl p-4">
+                  <h3 className="font-semibold text-white mb-4 flex items-center">
+                    <Zap className="w-4 h-4 mr-2" />
+                    性能指标
+                  </h3>
+                  <div className="space-y-3">
+                    {record.response_data.response_time_ms && (
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-400">响应时间</span>
+                        <span className="text-sm text-white">{record.response_data.response_time_ms}ms</span>
+                      </div>
+                    )}
+                    {record.response_data.tokens_used && (
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-400">Tokens消耗</span>
+                        <span className="text-sm text-white">{record.response_data.tokens_used} tokens</span>
+                      </div>
+                    )}
+                    {record.response_data.estimated_cost && (
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-400">估算成本</span>
+                        <span className="text-sm text-white">¥{record.response_data.estimated_cost.toFixed(6)}</span>
+                      </div>
+                    )}
+                    {record.response_data.cached && (
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-400">缓存命中</span>
+                        <span className="text-sm text-green-400">是</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* 右侧：JSON数据 */}
+            <div className="space-y-6">
+              {/* 请求数据 */}
+              <div className="glass rounded-xl p-4 h-full">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-white flex items-center">
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    请求数据
+                  </h3>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(
+                        JSON.stringify(record.request_data, null, 2)
+                      );
+                      alert('已复制请求数据');
+                    }}
+                    className="glass px-3 py-1 text-sm rounded-lg hover:bg-white/10 transition-colors"
+                  >
+                    <Copy className="w-4 h-4 inline mr-1" />
+                    复制JSON
+                  </button>
+                </div>
+                <div className="bg-black/50 rounded-lg p-4 overflow-auto max-h-[300px]">
+                  <pre className="text-sm text-gray-300 whitespace-pre-wrap">
+                    {JSON.stringify(record.request_data || {}, null, 2)}
+                  </pre>
+                </div>
+              </div>
+              
+              {/* 响应数据 */}
+              <div className="glass rounded-xl p-4 h-full">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-white flex items-center">
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    响应数据
+                  </h3>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(
+                        JSON.stringify(record.response_data, null, 2)
+                      );
+                      alert('已复制响应数据');
+                    }}
+                    className="glass px-3 py-1 text-sm rounded-lg hover:bg-white/10 transition-colors"
+                  >
+                    <Copy className="w-4 h-4 inline mr-1" />
+                    复制JSON
+                  </button>
+                </div>
+                <div className="bg-black/50 rounded-lg p-4 overflow-auto max-h-[300px]">
+                  <pre className="text-sm text-gray-300 whitespace-pre-wrap">
+                    {JSON.stringify(record.response_data || {}, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* 弹窗底部 */}
+        <div className="p-6 border-t border-white/10 flex justify-end">
+          <button
+            onClick={onClose}
+            className="glass apple-button px-4 py-2 bg-gradient-to-r from-pink-500 to-purple-500 text-white"
+          >
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+
 
 export default function AIUsagePage() {
   const [loading, setLoading] = useState(true);
