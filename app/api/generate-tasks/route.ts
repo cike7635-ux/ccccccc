@@ -90,7 +90,6 @@ async function checkAIUsage(userId: string): Promise<{
     // 30天滚动窗口（从现在往前推30天）
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    // 🚨 关键修复：添加调试日志
     console.log('🔍 AI使用次数检查 - 调试信息：');
     console.log('  当前时间:', now.toISOString());
     console.log('  24小时前:', twentyFourHoursAgo.toISOString());
@@ -128,14 +127,13 @@ async function checkAIUsage(userId: string): Promise<{
     console.log('  24小时查询条件:', twentyFourHoursAgo.toISOString(), '到', now.toISOString());
 
     // ============ 第四步：查询30天滚动窗口使用次数 ============
-    // ✅ 关键修复：使用 thirtyDaysAgo 而不是 twentyFourHoursAgo
     const { count: cycleCount, error: cycleError } = await supabase
       .from('ai_usage_records')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
       .eq('success', true)
       .eq('feature', 'generate_tasks')
-      .gte('created_at', thirtyDaysAgo.toISOString())  // ✅ 修复这里：改为 thirtyDaysAgo
+      .gte('created_at', thirtyDaysAgo.toISOString())
       .lt('created_at', now.toISOString());
 
     if (cycleError) {
@@ -157,7 +155,7 @@ async function checkAIUsage(userId: string): Promise<{
     console.log('  30天查询条件:', thirtyDaysAgo.toISOString(), '到', now.toISOString());
 
     const dailyUsed = dailyCount || 0;
-    const cycleUsed = cycleCount || 0;  // ✅ 注意：这里使用 cycleCount，不是 dailyCount！
+    const cycleUsed = cycleCount || 0;
 
     console.log('  最终统计：');
     console.log('    24小时内使用:', dailyUsed, '次 (限制:', validatedDailyLimit, ')');
@@ -378,29 +376,55 @@ export async function POST(req: NextRequest) {
         false
       );
 
-      // 🔥 修改点：返回详细的限制信息和错误类型标识
-      return NextResponse.json(
-        {
-          error: 'AI使用次数已用尽',
-          errorType: 'INSUFFICIENT_AI_USAGE',  // 🔥 新增：错误类型标识
-          message: usageCheck.reason,
-          usage: {
-            daily: { 
-              used: usageCheck.dailyUsed, 
-              limit: usageCheck.dailyLimit,
-              remaining: Math.max(0, usageCheck.dailyLimit - usageCheck.dailyUsed)
-            },
-            cycle: { 
-              used: usageCheck.cycleUsed, 
-              limit: usageCheck.cycleLimit,
-              remaining: Math.max(0, usageCheck.cycleLimit - usageCheck.cycleUsed)
-            }
+      // 🔥 修复：返回匹配前端期望的错误响应格式
+      const now = new Date();
+      const cycleEndDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const daysRemaining = Math.ceil((cycleEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+      const errorResponse = {
+        error: 'AI使用次数已用尽',
+        errorType: 'INSUFFICIENT_AI_USAGE',
+        message: usageCheck.reason,
+        usage: {
+          daily: { 
+            used: usageCheck.dailyUsed, 
+            limit: usageCheck.dailyLimit,
+            remaining: Math.max(0, usageCheck.dailyLimit - usageCheck.dailyUsed)
           },
-          suggestion: '兑换AI密钥获取更多次数',
-          action: 'redeem'
+          cycle: { 
+            used: usageCheck.cycleUsed, 
+            limit: usageCheck.cycleLimit,
+            remaining: Math.max(0, usageCheck.cycleLimit - usageCheck.cycleUsed)
+          },
+          cycleInfo: {
+            startDate: now.toISOString(),
+            endDate: cycleEndDate.toISOString(),
+            daysRemaining: 0 // 用完了，所以剩余0天
+          }
         },
-        { status: 429 }
-      );
+        // 🔥 新增：为了兼容前端的非兑换弹窗错误处理
+        details: {
+          daily: {
+            used: usageCheck.dailyUsed,
+            limit: usageCheck.dailyLimit
+          },
+          cycle: {
+            used: usageCheck.cycleUsed,
+            limit: usageCheck.cycleLimit
+          },
+          cycleInfo: {
+            startDate: now.toISOString(),
+            endDate: cycleEndDate.toISOString(),
+            daysRemaining: 0
+          }
+        },
+        suggestion: '兑换AI密钥获取更多次数',
+        action: 'redeem'
+      };
+
+      console.log('🚨 AI次数不足，返回错误响应:', errorResponse);
+
+      return NextResponse.json(errorResponse, { status: 429 });
     }
 
     // ============ 验证通过，继续处理AI生成 ============
@@ -454,24 +478,28 @@ export async function POST(req: NextRequest) {
       );
 
       // 返回成功响应，包含详细的限制信息
+      const now = new Date();
+      const cycleEndDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const daysRemaining = Math.ceil((cycleEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
       const response = NextResponse.json({
         tasks: formattedTasks,
         usage: {
           daily: {
             used: usageCheck.dailyUsed + 1,
             remaining: Math.max(0, usageCheck.dailyLimit - (usageCheck.dailyUsed + 1)),
-            limit: usageCheck.dailyLimit,
-            windowStart: usageCheck.windowStartDate,
-            windowType: '24小时滚动窗口'
+            limit: usageCheck.dailyLimit
           },
           cycle: {
             used: usageCheck.cycleUsed + 1,
             remaining: Math.max(0, usageCheck.cycleLimit - (usageCheck.cycleUsed + 1)),
-            limit: usageCheck.cycleLimit,
-            windowStart: usageCheck.cycleStartDate,
-            windowType: '30天滚动窗口'
+            limit: usageCheck.cycleLimit
           },
-          windowInfo: usageCheck.windowType
+          cycleInfo: {
+            startDate: now.toISOString(),
+            endDate: cycleEndDate.toISOString(),
+            daysRemaining: daysRemaining
+          }
         }
       });
       
@@ -694,7 +722,7 @@ function buildPrompts(payload: {
 4. 表达尺度  
 - 命令式、压迫式、羞耻导向
 - 侧重心理与权力关系
-- 结合剧情需要，不限制露骨性描写甚至支持配合剧情进行露骨、大尺度、激情、性描写
+- 结合剧情需要，可以露骨性描写甚至支持配合剧情进行性器官、性爱姿势动作等描写
 
 5. 数量与去重  
 - 生成 12–13 条任务
