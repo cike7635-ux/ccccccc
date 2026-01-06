@@ -123,38 +123,40 @@ export default function GenerateTasksSection({
     fetchPreferences();
   }, []);
 
-  // 获取使用统计
+  // 获取使用统计 - 🔥 修复版
   const fetchUsageStats = async () => {
     setLoadingStats(true);
     try {
       const res = await fetch("/api/ai/usage-stats");
+      console.log('📡 获取使用统计，状态:', res.status);
+      
       if (res.ok) {
         const data = await res.json();
-        // 新API返回结构
-        if (data.daily && data.cycle && data.cycleInfo) {
-          setUsageStats(data);
-        } else {
-          // 兼容旧API结构
-          setUsageStats({
-            daily: {
-              used: data.dailyUsed || 0,
-              remaining: Math.max(0, 10 - (data.dailyUsed || 0)),
-              limit: 10
-            },
-            cycle: {
-              used: data.monthlyUsed || 0,
-              remaining: Math.max(0, 120 - (data.monthlyUsed || 0)),
-              limit: 120
-            },
-            cycleInfo: {
-              startDate: data.cycleStartDate || new Date().toISOString(),
-              endDate: data.cycleEndDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-              daysRemaining: data.daysRemaining || 30
-            }
-          });
-        }
+        console.log('📊 API返回数据:', data);
+        
+        // 🔥 修复：统一处理数据格式
+        const normalizedData = {
+          daily: {
+            used: data.daily?.used || data.dailyUsed || 0,
+            remaining: data.daily?.remaining || Math.max(0, (data.daily?.limit || 10) - (data.daily?.used || data.dailyUsed || 0)),
+            limit: data.daily?.limit || 10
+          },
+          cycle: {
+            used: data.cycle?.used || data.monthlyUsed || 0,
+            remaining: data.cycle?.remaining || Math.max(0, (data.cycle?.limit || 120) - (data.cycle?.used || data.monthlyUsed || 0)),
+            limit: data.cycle?.limit || 120
+          },
+          cycleInfo: data.cycleInfo || {
+            startDate: data.cycleStartDate || new Date().toISOString(),
+            endDate: data.cycleEndDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            daysRemaining: data.daysRemaining || 30
+          }
+        };
+        
+        console.log('🔄 标准化后的数据:', normalizedData);
+        setUsageStats(normalizedData);
+        
       } else {
-        // API 不存在时的降级处理
         console.warn("AI使用统计API不可用，使用默认值");
         setUsageStats({
           daily: {
@@ -204,7 +206,11 @@ export default function GenerateTasksSection({
     setError(null);
     setSuggestions([]);
     setSelected({});
+    
+    // 🔥 修复：等待使用统计加载完成
+    console.log('🔄 开始加载使用统计...');
     await fetchUsageStats();
+    console.log('✅ 使用统计加载完成:', usageStats);
   };
 
   const closeModal = () => {
@@ -215,15 +221,21 @@ export default function GenerateTasksSection({
   const generate = async () => {
     // 🔥 修复：当次数用完时，直接显示兑换弹窗，而不是调用API
     console.log('📱 前端generate函数被调用');
-    console.log('📊 当前使用统计:', {
+    console.log('📊 当前使用统计:', usageStats);
+    
+    // 计算是否超过限制
+    const isOverDailyLimit = usageStats.daily.remaining <= 0;
+    const isOverCycleLimit = usageStats.cycle.remaining <= 0;
+    
+    console.log('📊 限制检查:', {
       dailyRemaining: usageStats.daily.remaining,
       cycleRemaining: usageStats.cycle.remaining,
-      dailyUsed: usageStats.daily.used,
-      cycleUsed: usageStats.cycle.used
+      isOverDailyLimit,
+      isOverCycleLimit
     });
     
     // 检查剩余次数，如果已用完则直接显示兑换弹窗
-    if (usageStats.daily.remaining <= 0 || usageStats.cycle.remaining <= 0) {
+    if (isOverDailyLimit || isOverCycleLimit) {
       console.log('🚨 使用次数用完，直接显示兑换弹窗');
       setShowRedeemModal(true);
       setRedeemUsageInfo(usageStats);
@@ -423,6 +435,14 @@ export default function GenerateTasksSection({
   const isOverDailyLimit = usageStats.daily.remaining <= 0;
   const isOverCycleLimit = usageStats.cycle.remaining <= 0;
   const canGenerate = !isOverDailyLimit && !isOverCycleLimit;
+
+  console.log('🔄 组件渲染，使用统计:', {
+    dailyRemaining: usageStats.daily.remaining,
+    cycleRemaining: usageStats.cycle.remaining,
+    isOverDailyLimit,
+    isOverCycleLimit,
+    canGenerate
+  });
 
   // 🔥 精美使用统计组件
   const renderUsageStats = () => (
