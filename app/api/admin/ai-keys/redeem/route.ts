@@ -1,5 +1,7 @@
 // /app/api/admin/ai-keys/redeem/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
 
 export async function POST(request: NextRequest) {
@@ -13,75 +15,56 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. 🔥 修复：使用服务角色密钥创建Supabase客户端
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    
-    if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('缺少Supabase环境变量');
-      return NextResponse.json(
-        { error: "服务器配置错误" },
-        { status: 500 }
-      );
-    }
-    
-    // 🔥 使用服务角色密钥创建客户端，可以绕过RLS策略
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
+    // 2. 获取当前登录用户
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options)
+              );
+            } catch (error) {
+              console.error('设置cookie失败:', error);
+            }
+          },
+        },
       }
-    });
+    );
 
-    // 3. 从请求头中获取用户信息（因为使用服务角色密钥）
-    // 我们需要从授权头或Cookie中获取用户ID
-    const authHeader = request.headers.get('authorization');
-    const cookies = request.headers.get('cookie');
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     
-    let userId = '';
-    
-    if (authHeader?.startsWith('Bearer ')) {
-      // 从Bearer token解析用户ID
-      // 这里需要根据你的认证逻辑来获取用户
-      // 或者我们可以通过cookie来获取
-    }
-    
-    // 🔥 替代方案：使用cookie中的session来获取用户
-    if (cookies) {
-      try {
-        // 解析cookie找到session
-        const sessionCookie = cookies.split(';').find(c => c.includes('sb-') && c.includes('access_token'));
-        if (sessionCookie) {
-          // 你可以在这里解析session或直接使用服务端角色查询
-          // 简单起见，我们可以直接使用服务角色密钥查询用户
-        }
-      } catch (error) {
-        console.error('解析cookie失败:', error);
-      }
-    }
-    
-    // 🔥 由于使用服务角色密钥，我们可以直接查询当前登录的用户
-    // 但需要知道用户ID。我们可以从请求的其他部分获取，或者...
-    // 实际上，更好的方式是使用标准的认证方式
-
-    // 🔥 临时的解决方案：如果前端传递了userId，就使用它
-    const { userId: requestUserId } = await request.json().catch(() => ({}));
-    
-    if (!requestUserId) {
-      console.error('无法获取用户ID');
+    if (authError || !user) {
+      console.error('无法获取用户ID:', authError);
       return NextResponse.json(
-        { error: "无法验证用户身份" },
+        { error: "无法验证用户身份，请重新登录" },
         { status: 401 }
       );
     }
-    
-    const user = { id: requestUserId };
 
-    console.log(`[兑换] 用户 ${user.id} 尝试兑换密钥: ${keyCode}`);
+    console.log(`[兑换] 用户 ${user.email} (${user.id}) 尝试兑换密钥: ${keyCode}`);
+
+    // 3. 创建服务端客户端用于数据库操作
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        }
+      }
+    );
 
     // 4. 查找密钥（不区分大小写）
     const upperKeyCode = keyCode.trim().toUpperCase();
-    const { data: key, error: keyError } = await supabase
+    const { data: key, error: keyError } = await supabaseAdmin
       .from('ai_boost_keys')
       .select('*')
       .eq('key_code', upperKeyCode)
@@ -90,7 +73,7 @@ export async function POST(request: NextRequest) {
     if (keyError || !key) {
       console.log(`[兑换] 密钥不存在: ${upperKeyCode}`, keyError);
       return NextResponse.json(
-        { error: "密钥不存在" },
+        { error: "密钥不存在或无效" },
         { status: 404 }
       );
     }
@@ -132,11 +115,9 @@ export async function POST(request: NextRequest) {
     
     if (key.boost_type === 'cycle') {
       updateColumn = 'custom_cycle_limit';
-      // 如果为null则用120，否则加上增量
       updateValue = `COALESCE(custom_cycle_limit, 120) + ${key.increment_amount}`;
     } else if (key.boost_type === 'daily') {
       updateColumn = 'custom_daily_limit';
-      // 如果为null则用10，否则加上增量
       updateValue = `COALESCE(custom_daily_limit, 10) + ${key.increment_amount}`;
     } else {
       return NextResponse.json(
@@ -147,11 +128,11 @@ export async function POST(request: NextRequest) {
 
     console.log(`[兑换] 更新用户限制: ${updateColumn} = ${updateValue}`);
 
-    // 8. 更新用户限制（使用原始SQL表达式）
-    const { error: updateError } = await supabase
+    // 8. 更新用户限制
+    const { error: updateError } = await supabaseAdmin
       .from('profiles')
       .update({ 
-        [updateColumn]: supabase.raw(updateValue)
+        [updateColumn]: supabaseAdmin.raw(updateValue)
       })
       .eq('id', user.id);
 
@@ -161,13 +142,13 @@ export async function POST(request: NextRequest) {
     }
 
     // 9. 更新密钥状态
-    const { error: keyUpdateError } = await supabase
+    const { error: keyUpdateError } = await supabaseAdmin
       .from('ai_boost_keys')
       .update({
         used_count: key.used_count + 1,
         used_by_user_id: user.id,
         used_at: new Date().toISOString(),
-        expires_at: expiresAt || key.expires_at // 如果原密钥没有过期时间，使用计算的过期时间
+        expires_at: expiresAt || key.expires_at
       })
       .eq('id', key.id);
 
@@ -177,13 +158,13 @@ export async function POST(request: NextRequest) {
     }
 
     // 10. 获取更新后的用户信息
-    const { data: updatedProfile } = await supabase
+    const { data: updatedProfile } = await supabaseAdmin
       .from('profiles')
       .select('custom_daily_limit, custom_cycle_limit')
       .eq('id', user.id)
       .single();
 
-    console.log(`[兑换] 兑换成功! 用户ID: ${user.id}, 密钥: ${key.key_code}`);
+    console.log(`[兑换] 兑换成功! 用户: ${user.email}, 密钥: ${key.key_code}`);
     console.log(`[兑换] 更新后限制 - 每日: ${updatedProfile?.custom_daily_limit}, 周期: ${updatedProfile?.custom_cycle_limit}`);
 
     // 11. 返回成功响应
