@@ -1,3 +1,4 @@
+// /components/generate-tasks.tsx
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
@@ -15,7 +16,7 @@ import {
   CalendarDays,
   Clock,
   Zap,
-  Infinity,
+  Key,
   Loader2
 } from "lucide-react";
 import { bulkInsertTasks } from "@/app/themes/actions";
@@ -202,15 +203,34 @@ export default function GenerateTasksSection({
   };
 
   const openModal = async () => {
+    console.log('🔄 开始加载使用统计...');
+    await fetchUsageStats();
+    console.log('✅ 使用统计加载完成:', usageStats);
+    
+    // 🔥 修复：检查是否超过限制
+    const isOverDailyLimit = usageStats.daily.remaining <= 0;
+    const isOverCycleLimit = usageStats.cycle.remaining <= 0;
+    
+    console.log('📊 openModal检查:', {
+      dailyRemaining: usageStats.daily.remaining,
+      cycleRemaining: usageStats.cycle.remaining,
+      isOverDailyLimit,
+      isOverCycleLimit
+    });
+    
+    // 如果次数用完，直接显示兑换弹窗
+    if (isOverDailyLimit || isOverCycleLimit) {
+      console.log('🚨 使用次数用完，直接显示兑换弹窗');
+      setShowRedeemModal(true);
+      setRedeemUsageInfo(usageStats);
+      return;
+    }
+    
+    // 次数未用完，正常打开生成模态框
     setShowModal(true);
     setError(null);
     setSuggestions([]);
     setSelected({});
-    
-    // 🔥 修复：等待使用统计加载完成
-    console.log('🔄 开始加载使用统计...');
-    await fetchUsageStats();
-    console.log('✅ 使用统计加载完成:', usageStats);
   };
 
   const closeModal = () => {
@@ -219,29 +239,10 @@ export default function GenerateTasksSection({
   };
 
   const generate = async () => {
-    // 🔥 修复：当次数用完时，直接显示兑换弹窗，而不是调用API
     console.log('📱 前端generate函数被调用');
-    console.log('📊 当前使用统计:', usageStats);
     
-    // 计算是否超过限制
-    const isOverDailyLimit = usageStats.daily.remaining <= 0;
-    const isOverCycleLimit = usageStats.cycle.remaining <= 0;
+    // 🔥 移除本地状态检查，直接调用API
     
-    console.log('📊 限制检查:', {
-      dailyRemaining: usageStats.daily.remaining,
-      cycleRemaining: usageStats.cycle.remaining,
-      isOverDailyLimit,
-      isOverCycleLimit
-    });
-    
-    // 检查剩余次数，如果已用完则直接显示兑换弹窗
-    if (isOverDailyLimit || isOverCycleLimit) {
-      console.log('🚨 使用次数用完，直接显示兑换弹窗');
-      setShowRedeemModal(true);
-      setRedeemUsageInfo(usageStats);
-      return;
-    }
-
     console.log('✅ 次数未用完，继续调用API');
     
     setLoading(true);
@@ -434,14 +435,13 @@ export default function GenerateTasksSection({
   const isNearCycleLimit = usageStats.cycle.remaining <= 10;
   const isOverDailyLimit = usageStats.daily.remaining <= 0;
   const isOverCycleLimit = usageStats.cycle.remaining <= 0;
-  const canGenerate = !isOverDailyLimit && !isOverCycleLimit;
+  // 🔥 移除 canGenerate 变量，因为它会导致按钮被禁用
 
   console.log('🔄 组件渲染，使用统计:', {
     dailyRemaining: usageStats.daily.remaining,
     cycleRemaining: usageStats.cycle.remaining,
     isOverDailyLimit,
-    isOverCycleLimit,
-    canGenerate
+    isOverCycleLimit
   });
 
   // 🔥 精美使用统计组件
@@ -706,7 +706,7 @@ export default function GenerateTasksSection({
             </Button>
             <Button
               onClick={generate}
-              disabled={loading || !canGenerate}
+              disabled={loading}
               className="flex-1 gradient-primary glow-pink hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 flex items-center justify-center space-x-2"
             >
               {loading ? (
@@ -838,10 +838,14 @@ export default function GenerateTasksSection({
           type="button"
           onClick={openModal}
           className="gradient-primary glow-pink text-white flex items-center space-x-2 hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300"
-          disabled={!canGenerate}
+          // 🔥 修复：移除 disabled={!canGenerate}
         >
-          <Sparkles className="w-4 h-4" />
-          <span>AI 生成任务</span>
+          {isOverDailyLimit ? (
+            <Key className="w-4 h-4" />
+          ) : (
+            <Sparkles className="w-4 h-4" />
+          )}
+          <span>{isOverDailyLimit ? '兑换AI次数' : 'AI 生成任务'}</span>
           {isNearDailyLimit && !isOverDailyLimit && (
             <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full">
               仅剩{usageStats.daily.remaining}次
@@ -878,13 +882,17 @@ export default function GenerateTasksSection({
           <Button
             onClick={openModal}
             className="w-full gradient-primary glow-pink hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 flex items-center justify-center space-x-2 group"
-            disabled={!canGenerate}
+            // 🔥 修复：移除 disabled={!canGenerate}
           >
-            <Sparkles className="w-4 h-4 group-hover:rotate-12 transition-transform" />
-            <span>开始生成</span>
+            {isOverDailyLimit ? (
+              <Key className="w-4 h-4 group-hover:rotate-12 transition-transform" />
+            ) : (
+              <Sparkles className="w-4 h-4 group-hover:rotate-12 transition-transform" />
+            )}
+            <span>{isOverDailyLimit ? '兑换AI次数' : '开始生成'}</span>
             {isOverDailyLimit && (
               <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full ml-2">
-                今日已用完
+                今日已用完，点击兑换
               </span>
             )}
             {isNearDailyLimit && !isOverDailyLimit && (
