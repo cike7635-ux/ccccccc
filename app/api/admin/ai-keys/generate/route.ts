@@ -20,7 +20,10 @@ export async function POST(request: NextRequest) {
       quantity = 1,
       prefix = 'AI',
       description = '',
-      price
+      price,
+      // 🔥 新增：临时密钥参数
+      isTemporary = false,
+      tempDurationDays = 7
     } = body;
 
     // 验证输入
@@ -34,6 +37,14 @@ export async function POST(request: NextRequest) {
     if (quantity < 1 || quantity > 100) {
       return NextResponse.json(
         { success: false, error: '生成数量必须在1-100之间' },
+        { status: 400 }
+      );
+    }
+
+    // 如果是临时密钥，验证有效期
+    if (isTemporary && (!tempDurationDays || tempDurationDays <= 0)) {
+      return NextResponse.json(
+        { success: false, error: '临时密钥需要有效期天数' },
         { status: 400 }
       );
     }
@@ -60,7 +71,10 @@ export async function POST(request: NextRequest) {
         description,
         price: price ? parseFloat(price) : null,
         created_at: new Date().toISOString(),
-        is_active: true
+        is_active: true,
+        // 🔥 新增：临时密钥字段
+        is_temporary: isTemporary,
+        temp_duration_days: isTemporary ? tempDurationDays : null
       });
     }
 
@@ -68,7 +82,7 @@ export async function POST(request: NextRequest) {
     const { data: insertedKeys, error } = await supabase
       .from('ai_boost_keys')
       .insert(generatedKeys)
-      .select('id, key_code, boost_type, increment_amount, expires_at, created_at');
+      .select('id, key_code, boost_type, increment_amount, expires_at, created_at, is_temporary, temp_duration_days');
 
     if (error) {
       console.error('插入密钥错误:', error);
@@ -84,10 +98,12 @@ export async function POST(request: NextRequest) {
           boostType,
           incrementAmount,
           durationDays,
-          totalIncrement: incrementAmount * quantity
+          totalIncrement: incrementAmount * quantity,
+          isTemporary,
+          tempDurationDays: isTemporary ? tempDurationDays : null
         }
       },
-      message: `成功生成 ${quantity} 个AI密钥`
+      message: `成功生成 ${quantity} 个${isTemporary ? '临时' : '永久'}AI密钥`
     });
 
   } catch (error: any) {

@@ -1,4 +1,3 @@
-// /app/api/admin/ai-keys/redeem/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -78,7 +77,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[兑换] 找到密钥: ID=${key.id}, 类型=${key.boost_type}, 次数=${key.increment_amount}`);
+    console.log(`[兑换] 找到密钥: ID=${key.id}, 类型=${key.boost_type}, 次数=${key.increment_amount}, 临时=${key.is_temporary}, 有效期=${key.temp_duration_days}天`);
 
     // 5. 验证密钥状态
     if (!key.is_active) {
@@ -90,7 +89,7 @@ export async function POST(request: NextRequest) {
 
     if (key.used_count >= key.max_uses) {
       return NextResponse.json(
-        { error: "密钥已使用" },
+        { error: "密钥已达到最大使用次数" },
         { status: 400 }
       );
     }
@@ -102,14 +101,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 6. 计算过期时间（如果需要）
-    let expiresAt = null;
-    if (key.duration_days) {
-      expiresAt = new Date(Date.now() + key.duration_days * 24 * 60 * 60 * 1000).toISOString();
-      console.log(`[兑换] 密钥有效天数: ${key.duration_days}天, 过期时间: ${expiresAt}`);
+    if (key.used_by_user_id) {
+      return NextResponse.json(
+        { error: "密钥已被使用" },
+        { status: 400 }
+      );
     }
 
-    // 7. 查询用户当前限制
+    // 6. 查询用户当前限制
     const { data: currentProfile, error: profileError } = await supabaseAdmin
       .from('profiles')
       .select('custom_daily_limit, custom_cycle_limit')
@@ -126,51 +125,83 @@ export async function POST(request: NextRequest) {
 
     console.log(`[兑换] 用户当前限制 - 每日: ${currentProfile.custom_daily_limit}, 周期: ${currentProfile.custom_cycle_limit}`);
 
-    // 8. 根据密钥类型计算新限制
-    let updateData: Record<string, number> = {};
-    
-    if (key.boost_type === 'cycle') {
-      // 处理周期限制
-      const currentLimit = currentProfile.custom_cycle_limit;
-      const defaultLimit = 120; // 默认周期限制
-      const newLimit = (currentLimit !== null && currentLimit !== undefined ? currentLimit : defaultLimit) + key.increment_amount;
-      updateData.custom_cycle_limit = newLimit;
-      console.log(`[兑换] 更新周期限制: ${currentLimit} -> ${newLimit}`);
+    // 7. 根据密钥类型进行处理
+    const userId = user.id;
+    let resultMessage = '';
+    let isTemporary = key.is_temporary;
+
+    if (isTemporary) {
+      // 🔥 临时密钥：记录到 temporary_ai_boosts 表
+      const validFrom = new Date();
+      const validTo = new Date();
+      const durationDays = key.temp_duration_days || 7;
+      validTo.setDate(validTo.getDate() + durationDays);
       
-    } else if (key.boost_type === 'daily') {
-      // 处理每日限制
-      const currentLimit = currentProfile.custom_daily_limit;
-      const defaultLimit = 10; // 默认每日限制
-      const newLimit = (currentLimit !== null && currentLimit !== undefined ? currentLimit : defaultLimit) + key.increment_amount;
-      updateData.custom_daily_limit = newLimit;
-      console.log(`[兑换] 更新每日限制: ${currentLimit} -> ${newLimit}`);
+      // 插入临时加成记录
+      const { error: tempBoostError } = await supabaseAdmin
+        .from('temporary_ai_boosts')
+        .insert({
+          user_id: userId,
+          ai_boost_key_id: key.id,
+          boost_type: key.boost_type,
+          increment_amount: key.increment_amount,
+          valid_from: validFrom.toISOString(),
+          valid_to: validTo.toISOString(),
+          is_active: true
+        });
+      
+      if (tempBoostError) {
+        console.error(`[兑换] 插入临时加成失败:`, tempBoostError);
+        throw tempBoostError;
+      }
+      
+      resultMessage = `成功兑换临时${key.boost_type === 'daily' ? '每日' : '周期'}AI次数+${key.increment_amount}次，有效期${durationDays}天`;
       
     } else {
-      return NextResponse.json(
-        { error: "无效的密钥类型" },
-        { status: 400 }
-      );
+      // 🔥 永久密钥：更新用户的永久限制
+      let updateData: Record<string, number> = {};
+      
+      if (key.boost_type === 'cycle') {
+        const currentLimit = currentProfile.custom_cycle_limit;
+        const defaultLimit = 120;
+        const newLimit = (currentLimit !== null && currentLimit !== undefined ? currentLimit : defaultLimit) + key.increment_amount;
+        updateData.custom_cycle_limit = newLimit;
+        console.log(`[兑换] 永久增加周期限制: ${currentLimit} -> ${newLimit}`);
+        
+      } else if (key.boost_type === 'daily') {
+        const currentLimit = currentProfile.custom_daily_limit;
+        const defaultLimit = 10;
+        const newLimit = (currentLimit !== null && currentLimit !== undefined ? currentLimit : defaultLimit) + key.increment_amount;
+        updateData.custom_daily_limit = newLimit;
+        console.log(`[兑换] 永久增加每日限制: ${currentLimit} -> ${newLimit}`);
+        
+      } else {
+        return NextResponse.json(
+          { error: "无效的密钥类型" },
+          { status: 400 }
+        );
+      }
+      
+      const { error: updateError } = await supabaseAdmin
+        .from('profiles')
+        .update(updateData)
+        .eq('id', userId);
+      
+      if (updateError) {
+        console.error(`[兑换] 更新用户限制失败:`, updateError);
+        throw updateError;
+      }
+      
+      resultMessage = `成功永久增加${key.boost_type === 'daily' ? '每日' : '周期'}AI次数+${key.increment_amount}次`;
     }
 
-    // 9. 使用事务确保数据一致性
-    const { error: updateError } = await supabaseAdmin
-      .from('profiles')
-      .update(updateData)
-      .eq('id', user.id);
-
-    if (updateError) {
-      console.error(`[兑换] 更新用户限制失败:`, updateError);
-      throw updateError;
-    }
-
-    // 10. 更新密钥状态
+    // 8. 更新密钥状态
     const { error: keyUpdateError } = await supabaseAdmin
       .from('ai_boost_keys')
       .update({
         used_count: key.used_count + 1,
-        used_by_user_id: user.id,
-        used_at: new Date().toISOString(),
-        expires_at: expiresAt || key.expires_at
+        used_by_user_id: userId,
+        used_at: new Date().toISOString()
       })
       .eq('id', key.id);
 
@@ -179,23 +210,25 @@ export async function POST(request: NextRequest) {
       throw keyUpdateError;
     }
 
-    // 11. 获取更新后的用户信息
+    // 9. 获取更新后的用户信息
     const { data: updatedProfile } = await supabaseAdmin
       .from('profiles')
       .select('custom_daily_limit, custom_cycle_limit')
-      .eq('id', user.id)
+      .eq('id', userId)
       .single();
 
-    console.log(`[兑换] 兑换成功! 用户: ${user.email}, 密钥: ${key.key_code}`);
+    console.log(`[兑换] 兑换成功! 用户: ${user.email}, 密钥: ${key.key_code}, 类型: ${isTemporary ? '临时' : '永久'}`);
     console.log(`[兑换] 更新后限制 - 每日: ${updatedProfile?.custom_daily_limit}, 周期: ${updatedProfile?.custom_cycle_limit}`);
 
-    // 12. 返回成功响应
+    // 10. 返回成功响应
     return NextResponse.json({
       success: true,
-      message: `兑换成功！获得${key.increment_amount}次AI${key.boost_type === 'cycle' ? '周期' : '每日'}使用次数`,
+      message: resultMessage,
       data: {
         boostType: key.boost_type,
         amount: key.increment_amount,
+        isTemporary: isTemporary,
+        temporaryDuration: isTemporary ? (key.temp_duration_days || 7) : null,
         newLimits: {
           daily: updatedProfile?.custom_daily_limit || 10,
           cycle: updatedProfile?.custom_cycle_limit || 120
@@ -206,7 +239,6 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('[兑换API] 未捕获的错误:', error);
     
-    // 返回详细的错误信息
     const errorMessage = error.message || "兑换失败，请重试";
     const errorDetails = error.details || error.hint || error.code || null;
     

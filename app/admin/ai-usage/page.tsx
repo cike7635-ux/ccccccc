@@ -1,4 +1,3 @@
-// /app/admin/ai-usage/page.tsx
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -118,7 +117,7 @@ function getSafeProfile(record: any) {
   return record.profiles;
 }
 
-// AI密钥生成组件
+// AI密钥生成组件（已更新）
 const AIKeyGenerator = ({ onGenerated }: { onGenerated: () => void }) => {
   const [form, setForm] = useState({
     boostType: 'cycle' as 'cycle' | 'daily' | 'total',
@@ -128,7 +127,10 @@ const AIKeyGenerator = ({ onGenerated }: { onGenerated: () => void }) => {
     quantity: 1,
     prefix: 'AI',
     description: '',
-    price: ''
+    price: '',
+    // 🔥 新增：临时密钥选项
+    isTemporary: false,
+    tempDurationDays: 7
   });
 
   const [generating, setGenerating] = useState(false);
@@ -161,7 +163,7 @@ const AIKeyGenerator = ({ onGenerated }: { onGenerated: () => void }) => {
       if (result.success) {
         const newKeys = result.data.keys.map((k: any) => k.key_code);
         setGeneratedKeys(newKeys);
-        alert(`✅ 成功生成 ${form.quantity} 个AI密钥`);
+        alert(`✅ 成功生成 ${form.quantity} 个${form.isTemporary ? '临时' : '永久'}AI密钥`);
         onGenerated();
       } else {
         alert(`❌ 生成失败: ${result.error}`);
@@ -348,6 +350,65 @@ const AIKeyGenerator = ({ onGenerated }: { onGenerated: () => void }) => {
               </button>
             </div>
           </div>
+        </div>
+
+        {/* 🔥 新增：临时密钥选项 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              密钥类型
+            </label>
+            <div className="flex items-center space-x-3">
+              <div className="flex items-center">
+                <input
+                  type="radio"
+                  id="permanentKey"
+                  checked={!form.isTemporary}
+                  onChange={() => setForm({ ...form, isTemporary: false })}
+                  className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="permanentKey" className="ml-2 text-sm text-gray-300">
+                  永久密钥
+                </label>
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="radio"
+                  id="temporaryKey"
+                  checked={form.isTemporary}
+                  onChange={() => setForm({ ...form, isTemporary: true })}
+                  className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="temporaryKey" className="ml-2 text-sm text-gray-300">
+                  临时密钥
+                </label>
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              临时密钥过期后，用户的使用次数限制会自动恢复
+            </p>
+          </div>
+
+          {/* 临时密钥有效期 */}
+          {form.isTemporary && (
+            <div>
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                临时有效期（天）
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="365"
+                value={form.tempDurationDays}
+                onChange={(e) => setForm({ ...form, tempDurationDays: parseInt(e.target.value) || 7 })}
+                className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                placeholder="例如：7天"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                临时密钥将在使用后{form.tempDurationDays}天过期
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -799,6 +860,11 @@ const AIKeysManager = () => {
                       <div className="text-xs text-gray-500">
                         最多使用 {key.max_uses} 次
                       </div>
+                      {key.is_temporary && (
+                        <div className="text-xs text-blue-400 mt-1">
+                          🔥 临时密钥（{key.temp_duration_days}天有效期）
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-lg font-bold text-white">
@@ -934,7 +1000,7 @@ const AIKeysManager = () => {
 };
 
 // ============================================================
-// 🔥 新增的 RecordDetailModal 组件
+// 🔥 RecordDetailModal 组件
 // ============================================================
 const RecordDetailModal = ({ 
   record, 
