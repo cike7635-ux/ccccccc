@@ -1,6 +1,6 @@
-// /app/api/admin/ai-usage/overview/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getAICostConfig } from '@/lib/config/system-config';
 
 export async function GET(request: NextRequest) {
   try {
@@ -80,10 +80,12 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
 
-    // 7. 成本估算
+    // 7. 成本估算 - 🔥 修改：从系统配置获取成本参数
+    const { perToken: costPerToken, perRequest: costPerRequest } = await getAICostConfig();
+    
     const calculateEstimate = (usageCount: number) => ({
       tokens: Math.round(usageCount * 2188.125),
-      cost: parseFloat((usageCount * 0.00307465).toFixed(6))
+      cost: parseFloat((usageCount * costPerRequest).toFixed(6))
     });
 
     const todayEstimate = calculateEstimate(todayUsage || 0);
@@ -124,6 +126,11 @@ export async function GET(request: NextRequest) {
             total: preferenceData?.length || 0
           },
           preferenceRanking
+        },
+        // 🔥 新增：返回当前使用的成本参数
+        costParams: {
+          costPerToken,
+          costPerRequest
         }
       },
       meta: {

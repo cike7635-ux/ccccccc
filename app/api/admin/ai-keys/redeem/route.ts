@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
+import { getConfig } from '@/lib/config/system-config';
 
 export async function POST(request: NextRequest) {
   try {
@@ -163,17 +164,19 @@ export async function POST(request: NextRequest) {
       
       if (key.boost_type === 'cycle') {
         const currentLimit = currentProfile.custom_cycle_limit;
-        const defaultLimit = 120;
+        // 🔥 修改：从系统配置获取默认值
+        const defaultLimit = await getConfig<number>('ai_default_cycle_limit', 120);
         const newLimit = (currentLimit !== null && currentLimit !== undefined ? currentLimit : defaultLimit) + key.increment_amount;
         updateData.custom_cycle_limit = newLimit;
-        console.log(`[兑换] 永久增加周期限制: ${currentLimit} -> ${newLimit}`);
+        console.log(`[兑换] 永久增加周期限制: ${currentLimit} -> ${newLimit} (默认值: ${defaultLimit})`);
         
       } else if (key.boost_type === 'daily') {
         const currentLimit = currentProfile.custom_daily_limit;
-        const defaultLimit = 10;
+        // 🔥 修改：从系统配置获取默认值
+        const defaultLimit = await getConfig<number>('ai_default_daily_limit', 10);
         const newLimit = (currentLimit !== null && currentLimit !== undefined ? currentLimit : defaultLimit) + key.increment_amount;
         updateData.custom_daily_limit = newLimit;
-        console.log(`[兑换] 永久增加每日限制: ${currentLimit} -> ${newLimit}`);
+        console.log(`[兑换] 永久增加每日限制: ${currentLimit} -> ${newLimit} (默认值: ${defaultLimit})`);
         
       } else {
         return NextResponse.json(
@@ -230,8 +233,8 @@ export async function POST(request: NextRequest) {
         isTemporary: isTemporary,
         temporaryDuration: isTemporary ? (key.temp_duration_days || 7) : null,
         newLimits: {
-          daily: updatedProfile?.custom_daily_limit || 10,
-          cycle: updatedProfile?.custom_cycle_limit || 120
+          daily: updatedProfile?.custom_daily_limit ?? await getConfig<number>('ai_default_daily_limit', 10),
+          cycle: updatedProfile?.custom_cycle_limit ?? await getConfig<number>('ai_default_cycle_limit', 120)
         }
       }
     });

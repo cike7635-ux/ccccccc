@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { getAIDefaultLimits } from '@/lib/config/system-config';
 
 // --- Configuration ---
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
@@ -73,15 +74,18 @@ async function checkAIUsage(userId: string): Promise<{
       console.warn(`查询用户${userId}的自定义限制失败，使用默认值:`, userError);
     }
 
-    // 使用自定义限制，如果为NULL或undefined则使用默认值10/120
-    const DAILY_LIMIT = userData?.custom_daily_limit ?? 10;
-    const CYCLE_LIMIT = userData?.custom_cycle_limit ?? 120;
+    // ============ 第二步：获取系统默认限制 ============
+    const { daily: defaultDailyLimit, cycle: defaultCycleLimit } = await getAIDefaultLimits();
+    
+    // 使用自定义限制，如果为NULL或undefined则使用系统默认值
+    const DAILY_LIMIT = userData?.custom_daily_limit ?? defaultDailyLimit;
+    const CYCLE_LIMIT = userData?.custom_cycle_limit ?? defaultCycleLimit;
 
     // 验证限制值的合理性
     const validatedDailyLimit = Math.max(1, Math.min(DAILY_LIMIT, 1000));
     const validatedCycleLimit = Math.max(10, Math.min(CYCLE_LIMIT, 10000));
 
-    // ============ 第二步：查询有效临时加成 ============
+    // ============ 第三步：查询有效临时加成 ============
     const now = new Date().toISOString();
     const { data: tempBoosts, error: tempBoostError } = await supabase
       .from('temporary_ai_boosts')
@@ -95,7 +99,7 @@ async function checkAIUsage(userId: string): Promise<{
       console.error('获取临时加成失败:', tempBoostError);
     }
 
-    // ============ 第三步：计算总限制（永久限制 + 临时加成） ============
+    // ============ 第四步：计算总限制（永久限制 + 临时加成） ============
     let totalDailyLimit = validatedDailyLimit;
     let totalCycleLimit = validatedCycleLimit;
 
@@ -120,7 +124,7 @@ async function checkAIUsage(userId: string): Promise<{
       总周期限制: totalCycleLimit
     });
 
-    // ============ 第四步：计算时间窗口 ============
+    // ============ 第五步：计算时间窗口 ============
     const currentTime = new Date();
     
     // 24小时滚动窗口（从现在往前推24小时）
@@ -137,7 +141,7 @@ async function checkAIUsage(userId: string): Promise<{
     console.log('  每日限制:', totalDailyLimit, '(永久:', validatedDailyLimit, ', 临时加成:', totalDailyLimit - validatedDailyLimit, ')');
     console.log('  周期限制:', totalCycleLimit, '(永久:', validatedCycleLimit, ', 临时加成:', totalCycleLimit - validatedCycleLimit, ')');
 
-    // ============ 第五步：查询24小时滚动窗口使用次数 ============
+    // ============ 第六步：查询24小时滚动窗口使用次数 ============
     const { count: dailyCount, error: dailyError } = await supabase
       .from('ai_usage_records')
       .select('*', { count: 'exact', head: true })
@@ -165,7 +169,7 @@ async function checkAIUsage(userId: string): Promise<{
     console.log('  24小时查询结果:', dailyCount || 0, '条记录');
     console.log('  24小时查询条件:', twentyFourHoursAgo.toISOString(), '到', currentTime.toISOString());
 
-    // ============ 第六步：查询30天滚动窗口使用次数 ============
+    // ============ 第七步：查询30天滚动窗口使用次数 ============
     const { count: cycleCount, error: cycleError } = await supabase
       .from('ai_usage_records')
       .select('*', { count: 'exact', head: true })
@@ -200,7 +204,7 @@ async function checkAIUsage(userId: string): Promise<{
     console.log('    24小时内使用:', dailyUsed, '次 (限制:', totalDailyLimit, ')');
     console.log('    30天内使用:', cycleUsed, '次 (限制:', totalCycleLimit, ')');
 
-    // ============ 第七步：检查限制 ============
+    // ============ 第八步：检查限制 ============
     if (dailyUsed >= totalDailyLimit) {
       const nextAvailableTime = new Date(twentyFourHoursAgo.getTime() + 24 * 60 * 60 * 1000);
       const timeUntilReset = Math.ceil((nextAvailableTime.getTime() - currentTime.getTime()) / (1000 * 60 * 60));
@@ -268,7 +272,7 @@ async function checkAIUsage(userId: string): Promise<{
       }
     }
 
-    // ============ 第八步：返回成功结果 ============
+    // ============ 第九步：返回成功结果 ============
     console.log('✅ AI使用次数检查通过');
     
     return {
@@ -288,12 +292,15 @@ async function checkAIUsage(userId: string): Promise<{
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     
+    // 错误时使用默认值
+    const { daily: defaultDaily, cycle: defaultCycle } = await getAIDefaultLimits();
+    
     return {
       allowed: true,
       dailyUsed: 0,
       cycleUsed: 0,
-      dailyLimit: 10,
-      cycleLimit: 120,
+      dailyLimit: defaultDaily,
+      cycleLimit: defaultCycle,
       windowStartDate: twentyFourHoursAgo.toISOString(),
       cycleStartDate: thirtyDaysAgo.toISOString(),
       windowType: '24小时滚动窗口 + 30天滚动窗口'
