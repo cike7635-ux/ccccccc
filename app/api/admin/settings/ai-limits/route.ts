@@ -1,3 +1,4 @@
+// /app/api/admin/settings/ai-limits/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getSystemConfig } from '@/lib/config/system-config';

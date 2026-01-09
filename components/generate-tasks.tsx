@@ -49,6 +49,26 @@ interface AIGenerateResponse {
   usage: UsageStats;
 }
 
+// 🔥 新增：智能获取限制值的辅助函数
+const getLimit = (usageInfo: any, type: 'daily' | 'cycle'): number => {
+  if (!usageInfo) {
+    return type === 'daily' ? 1 : 100; // 🔥 新的默认值
+  }
+  
+  // 尝试多种可能的字段位置
+  if (type === 'daily') {
+    return usageInfo.daily?.limit || 
+           usageInfo.dailyLimit || 
+           usageInfo.configInfo?.systemDefaultDaily || 
+           1; // 🔥 新的默认值
+  } else {
+    return usageInfo.cycle?.limit || 
+           usageInfo.cycleLimit || 
+           usageInfo.configInfo?.systemDefaultCycle || 
+           100; // 🔥 新的默认值
+  }
+};
+
 export default function GenerateTasksSection({ 
   themeId, 
   themeTitle, 
@@ -133,70 +153,93 @@ export default function GenerateTasksSection({
       
       if (res.ok) {
         const data = await res.json();
-        console.log('📊 API返回数据:', data);
+        console.log('📊 API返回数据（原始）:', data);
         
-        // 🔥 修复：统一处理数据格式
+        // 🔥 关键修复：使用智能辅助函数获取限制值
+        const dailyLimit = getLimit(data, 'daily');
+        const cycleLimit = getLimit(data, 'cycle');
+        
+        console.log('🎯 智能获取的限制值:', {
+          dailyLimit,
+          cycleLimit,
+          dailyLimit来源: data.daily?.limit ? 'daily.limit' : 
+                       data.configInfo?.systemDefaultDaily ? 'configInfo.systemDefaultDaily' : '默认值1',
+          cycleLimit来源: data.cycle?.limit ? 'cycle.limit' : 
+                       data.configInfo?.systemDefaultCycle ? 'configInfo.systemDefaultCycle' : '默认值100'
+        });
+        
         const normalizedData = {
           daily: {
-            used: data.daily?.used || data.dailyUsed || 0,
-            remaining: data.daily?.remaining || Math.max(0, (data.daily?.limit || 10) - (data.daily?.used || data.dailyUsed || 0)),
-            limit: data.daily?.limit || 10
+            used: data.daily?.used || 0,
+            remaining: data.daily?.remaining || Math.max(0, dailyLimit - (data.daily?.used || 0)),
+            limit: dailyLimit
           },
           cycle: {
-            used: data.cycle?.used || data.monthlyUsed || 0,
-            remaining: data.cycle?.remaining || Math.max(0, (data.cycle?.limit || 120) - (data.cycle?.used || data.monthlyUsed || 0)),
-            limit: data.cycle?.limit || 120
+            used: data.cycle?.used || 0,
+            remaining: data.cycle?.remaining || Math.max(0, cycleLimit - (data.cycle?.used || 0)),
+            limit: cycleLimit
           },
           cycleInfo: data.cycleInfo || {
-            startDate: data.cycleStartDate || new Date().toISOString(),
-            endDate: data.cycleEndDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-            daysRemaining: data.daysRemaining || 30
-          }
+            startDate: new Date().toISOString(),
+            endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            daysRemaining: 30
+          },
+          // 保存原始数据用于调试
+          _raw: data
         };
         
         console.log('🔄 标准化后的数据:', normalizedData);
+        console.log('🎯 最终使用的限制值:', {
+          dailyLimit: normalizedData.daily.limit,
+          cycleLimit: normalizedData.cycle.limit
+        });
+        
         setUsageStats(normalizedData);
+        return normalizedData;
         
       } else {
-        console.warn("AI使用统计API不可用，使用默认值");
-        setUsageStats({
+        console.warn("AI使用统计API不可用，使用新默认值 1/100");
+        const fallbackData = {
           daily: {
             used: 0,
-            remaining: 10,
-            limit: 10
+            remaining: 1,
+            limit: 1  // 🔥 新的默认值
           },
           cycle: {
             used: 0,
-            remaining: 120,
-            limit: 120
+            remaining: 100,
+            limit: 100  // 🔥 新的默认值
           },
           cycleInfo: {
             startDate: new Date().toISOString(),
             endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
             daysRemaining: 30
           }
-        });
+        };
+        setUsageStats(fallbackData);
+        return fallbackData;
       }
     } catch (error) {
       console.error("获取使用统计失败:", error);
-      // 失败时使用默认值
-      setUsageStats({
+      const fallbackData = {
         daily: {
           used: 0,
-          remaining: 10,
-          limit: 10
+          remaining: 1,
+          limit: 1  // 🔥 新的默认值
         },
         cycle: {
           used: 0,
-          remaining: 120,
-          limit: 120
+          remaining: 100,
+          limit: 100  // 🔥 新的默认值
         },
         cycleInfo: {
           startDate: new Date().toISOString(),
           endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
           daysRemaining: 30
         }
-      });
+      };
+      setUsageStats(fallbackData);
+      return fallbackData;
     } finally {
       setLoadingStats(false);
     }
@@ -204,25 +247,42 @@ export default function GenerateTasksSection({
 
   const openModal = async () => {
     console.log('🔄 开始加载使用统计...');
-    await fetchUsageStats();
-    console.log('✅ 使用统计加载完成:', usageStats);
+    const stats = await fetchUsageStats(); // 🔥 等待获取数据
+    console.log('✅ 使用统计加载完成:', stats);
     
-    // 🔥 修复：检查是否超过限制
-    const isOverDailyLimit = usageStats.daily.remaining <= 0;
-    const isOverCycleLimit = usageStats.cycle.remaining <= 0;
+    // 🔥 修复：使用获取到的统计数据
+    const isOverDailyLimit = stats.daily.remaining <= 0;
+    const isOverCycleLimit = stats.cycle.remaining <= 0;
     
     console.log('📊 openModal检查:', {
-      dailyRemaining: usageStats.daily.remaining,
-      cycleRemaining: usageStats.cycle.remaining,
+      dailyRemaining: stats.daily.remaining,
+      cycleRemaining: stats.cycle.remaining,
+      dailyLimit: stats.daily.limit,      // 🔥 添加这一行
+      cycleLimit: stats.cycle.limit,      // 🔥 添加这一行
       isOverDailyLimit,
       isOverCycleLimit
     });
     
     // 如果次数用完，直接显示兑换弹窗
     if (isOverDailyLimit || isOverCycleLimit) {
-      console.log('🚨 使用次数用完，直接显示兑换弹窗');
+      console.log('🚨 使用次数用完，显示兑换弹窗');
+      console.log('📋 传递给弹窗的数据:', {
+        daily: stats.daily,
+        cycle: stats.cycle
+      });
+      
       setShowRedeemModal(true);
-      setRedeemUsageInfo(usageStats);
+      // 🔥 修复：确保传递正确的数据结构
+      setRedeemUsageInfo({
+        daily: {
+          used: stats.daily.used,
+          limit: stats.daily.limit  // 🔥 确保limit字段存在
+        },
+        cycle: {
+          used: stats.cycle.used,
+          limit: stats.cycle.limit  // 🔥 确保limit字段存在
+        }
+      });
       return;
     }
     
@@ -281,13 +341,13 @@ export default function GenerateTasksSection({
             setUsageStats({
               daily: {
                 used: json.details.daily.used,
-                remaining: Math.max(0, 10 - json.details.daily.used),
-                limit: 10
+                remaining: Math.max(0, getLimit(json.details, 'daily') - json.details.daily.used),
+                limit: getLimit(json.details, 'daily')
               },
               cycle: {
                 used: json.details.cycle.used,
-                remaining: Math.max(0, 120 - json.details.cycle.used),
-                limit: 120
+                remaining: Math.max(0, getLimit(json.details, 'cycle') - json.details.cycle.used),
+                limit: getLimit(json.details, 'cycle')
               },
               cycleInfo: json.details.cycleInfo || usageStats.cycleInfo
             });
@@ -440,6 +500,8 @@ export default function GenerateTasksSection({
   console.log('🔄 组件渲染，使用统计:', {
     dailyRemaining: usageStats.daily.remaining,
     cycleRemaining: usageStats.cycle.remaining,
+    dailyLimit: usageStats.daily.limit,  // 🔥 添加调试
+    cycleLimit: usageStats.cycle.limit,  // 🔥 添加调试
     isOverDailyLimit,
     isOverCycleLimit
   });
@@ -952,23 +1014,38 @@ export default function GenerateTasksSection({
                 <p>您的AI使用次数已用完，兑换密钥可以立即获得更多次数。</p>
               </div>
               
-              {/* 显示使用统计 */}
-              {redeemUsageInfo && (
-                <div className="p-4 bg-gradient-to-r from-gray-900/50 to-purple-900/30 rounded-xl border border-white/10">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-400">今日使用：</span>
-                    <span className="text-white font-medium">
-                      {redeemUsageInfo.daily?.used || 0}/{redeemUsageInfo.daily?.limit || 10}次
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400">周期使用：</span>
-                    <span className="text-white font-medium">
-                      {redeemUsageInfo.cycle?.used || 0}/{redeemUsageInfo.cycle?.limit || 120}次
-                    </span>
-                  </div>
+              {/* 🔥 调试信息（开发环境显示） */}
+              {process.env.NODE_ENV === 'development' && redeemUsageInfo && (
+                <div className="p-2 bg-gray-900/50 rounded text-xs mb-2">
+                  <div className="font-bold text-yellow-400">💡 调试信息:</div>
+                  <div>每日限制原始数据: {JSON.stringify(redeemUsageInfo.daily)}</div>
+                  <div>周期限制原始数据: {JSON.stringify(redeemUsageInfo.cycle)}</div>
+                  <div>智能获取每日限制: {getLimit(redeemUsageInfo, 'daily')}</div>
+                  <div>智能获取周期限制: {getLimit(redeemUsageInfo, 'cycle')}</div>
                 </div>
               )}
+              
+              {/* 🔥 关键修复：显示使用统计 */}
+              <div className="p-4 bg-gradient-to-r from-gray-900/50 to-purple-900/30 rounded-xl border border-white/10">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-400">今日使用：</span>
+                  <span className="text-white font-medium">
+                    {(redeemUsageInfo?.daily?.used || 0)}/
+                    <span className="text-blue-400">
+                      {getLimit(redeemUsageInfo, 'daily')}
+                    </span>次
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400">周期使用：</span>
+                  <span className="text-white font-medium">
+                    {(redeemUsageInfo?.cycle?.used || 0)}/
+                    <span className="text-purple-400">
+                      {getLimit(redeemUsageInfo, 'cycle')}
+                    </span>次
+                  </span>
+                </div>
+              </div>
               
               <div className="space-y-3">
                 <Label className="text-white">输入AI密钥</Label>

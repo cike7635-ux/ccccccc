@@ -36,26 +36,18 @@ export async function GET(request: NextRequest) {
       );
     }
     
-    // 3. 获取系统动态配置
-    const systemConfig = await getSystemConfig();
+    // 3. 获取系统动态配置 - 🔥 修复：正确调用get方法
+    const systemConfig = getSystemConfig();
     
-    // 从系统配置获取默认限制，如果配置不存在则使用默认值
-    const defaultDailyLimit = systemConfig.ai_default_daily_limit 
-      ? parseInt(systemConfig.ai_default_daily_limit) 
-      : 10;
+    // 🔥 关键修复：使用正确的get方法获取配置值
+    const defaultDailyLimit = await systemConfig.get<number>('ai_default_daily_limit', 1);
+    const defaultCycleLimit = await systemConfig.get<number>('ai_default_cycle_limit', 100);
     
-    const defaultCycleLimit = systemConfig.ai_default_cycle_limit 
-      ? parseInt(systemConfig.ai_default_cycle_limit) 
-      : 120;
-    
-    console.log('📊 系统动态配置:', {
+    console.log('📊 系统动态配置（修复版）:', {
       defaultDailyLimit,
       defaultCycleLimit,
-      configFromSystem: {
-        ai_default_daily_limit: systemConfig.ai_default_daily_limit,
-        ai_default_cycle_limit: systemConfig.ai_default_cycle_limit,
-        rawConfig: systemConfig
-      }
+      // 调试：获取所有配置查看
+      allConfigs: await systemConfig.getAllConfigs()
     });
     
     // 4. 获取用户自定义限制
@@ -65,7 +57,7 @@ export async function GET(request: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    // 🚀 修复：使用动态配置的默认值
+    // 使用动态配置的默认值
     const DAILY_LIMIT = userData?.custom_daily_limit !== null && userData?.custom_daily_limit !== undefined 
       ? userData.custom_daily_limit 
       : defaultDailyLimit;
@@ -88,7 +80,7 @@ export async function GET(request: NextRequest) {
       最终周期限制: validatedCycleLimit
     });
     
-    // 🚀 关键修复：使用滚动窗口，与 /api/generate-tasks 一致
+    // 关键修复：使用滚动窗口，与 /api/generate-tasks 一致
     const now = new Date();
     
     // 24小时滚动窗口（从现在往前推24小时）
@@ -142,18 +134,10 @@ export async function GET(request: NextRequest) {
     const dailyUsed = dailyCount || 0;
     const cycleUsed = cycleCount || 0;
 
-    // 🚀 添加详细调试日志
     console.log('📊 /api/ai/usage-stats 查询结果：');
     console.log('  用户ID:', user.id);
-    console.log('  当前时间:', now.toISOString());
-    console.log('  24小时前:', twentyFourHoursAgo.toISOString());
-    console.log('  30天前:', thirtyDaysAgo.toISOString());
     console.log('  24小时使用次数:', dailyUsed);
     console.log('  30天使用次数:', cycleUsed);
-    console.log('  用户自定义每日限制:', userData?.custom_daily_limit);
-    console.log('  用户自定义周期限制:', userData?.custom_cycle_limit);
-    console.log('  系统默认每日限制:', defaultDailyLimit);
-    console.log('  系统默认周期限制:', defaultCycleLimit);
     console.log('  最终每日限制:', validatedDailyLimit);
     console.log('  最终周期限制:', validatedCycleLimit);
     console.log('  每日剩余次数:', Math.max(0, validatedDailyLimit - dailyUsed));
@@ -176,7 +160,7 @@ export async function GET(request: NextRequest) {
         endDate: cycleEndDate.toISOString(),
         daysRemaining: daysRemaining
       },
-      // 🚀 新增：返回使用的默认值信息，便于调试
+      // 🔥 新增：返回使用的默认值信息，便于调试
       configInfo: {
         usedDefaultDaily: userData?.custom_daily_limit === null || userData?.custom_daily_limit === undefined,
         usedDefaultCycle: userData?.custom_cycle_limit === null || userData?.custom_cycle_limit === undefined,
@@ -192,17 +176,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { 
         error: error.message || '获取使用统计失败',
-        // 🚀 新增：错误时返回降级值，避免前端完全崩溃
+        // 新增：错误时返回降级值，避免前端完全崩溃
         fallbackData: {
           daily: {
             used: 0,
-            remaining: 10,
-            limit: 10
+            remaining: 1,
+            limit: 1  // 🔥 修改：使用新的默认值
           },
           cycle: {
             used: 0,
-            remaining: 120,
-            limit: 120
+            remaining: 100,
+            limit: 100  // 🔥 修改：使用新的默认值
           },
           cycleInfo: {
             startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -212,8 +196,8 @@ export async function GET(request: NextRequest) {
           configInfo: {
             usedDefaultDaily: true,
             usedDefaultCycle: true,
-            systemDefaultDaily: 10,
-            systemDefaultCycle: 120,
+            systemDefaultDaily: 1,
+            systemDefaultCycle: 100,
             userCustomDaily: null,
             userCustomCycle: null,
             error: true

@@ -1,3 +1,4 @@
+// /lib/config/system-config.ts
 /**
  * 系统配置管理工具
  * 支持内存缓存，减少数据库查询
@@ -128,8 +129,8 @@ export class SystemConfig {
    */
   async getAIDefaultLimits() {
     const [daily, cycle] = await Promise.all([
-      this.get<number>('ai_default_daily_limit', 10),
-      this.get<number>('ai_default_cycle_limit', 120)
+      this.get<number>('ai_default_daily_limit', 1),  // 🔥 修改：默认值改为1
+      this.get<number>('ai_default_cycle_limit', 100) // 🔥 修改：默认值改为100
     ]);
     return { daily, cycle };
   }
@@ -263,6 +264,20 @@ export function getSystemConfig(): SystemConfig {
     systemConfigInstance = new SystemConfig();
   }
   return systemConfigInstance;
+}
+
+// 🔥 新增：获取所有配置的快捷方式（为API路由优化）
+export async function getSystemConfigObject(): Promise<Record<string, any>> {
+  const config = getSystemConfig();
+  return config.getAllConfigs();
+}
+
+// 🔥 新增：获取特定配置的快捷方式
+export async function getConfigValue<T>(
+  key: string, 
+  defaultValue: T
+): Promise<T> {
+  return getSystemConfig().get(key, defaultValue);
 }
 
 // 工具函数：快速获取配置
