@@ -69,8 +69,8 @@ export default function SystemSettingsPage() {
   
   // 全局配置
   const [globalLimits, setGlobalLimits] = useState<GlobalLimits>({
-    defaultDailyLimit: 10,
-    defaultCycleLimit: 120,
+    defaultDailyLimit: 0,
+    defaultCycleLimit: 0,
     costPerToken: 0.000001405,
     costPerRequest: 0.00307465
   });

@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { getSystemConfig } from '@/lib/config/system-config';
 
 export async function GET(request: NextRequest) {
   try {
@@ -35,20 +36,59 @@ export async function GET(request: NextRequest) {
       );
     }
     
-    // 3. 获取用户自定义限制
+    // 3. 获取系统动态配置
+    const systemConfig = await getSystemConfig();
+    
+    // 从系统配置获取默认限制，如果配置不存在则使用默认值
+    const defaultDailyLimit = systemConfig.ai_default_daily_limit 
+      ? parseInt(systemConfig.ai_default_daily_limit) 
+      : 10;
+    
+    const defaultCycleLimit = systemConfig.ai_default_cycle_limit 
+      ? parseInt(systemConfig.ai_default_cycle_limit) 
+      : 120;
+    
+    console.log('📊 系统动态配置:', {
+      defaultDailyLimit,
+      defaultCycleLimit,
+      configFromSystem: {
+        ai_default_daily_limit: systemConfig.ai_default_daily_limit,
+        ai_default_cycle_limit: systemConfig.ai_default_cycle_limit,
+        rawConfig: systemConfig
+      }
+    });
+    
+    // 4. 获取用户自定义限制
     const { data: userData } = await supabase
       .from('profiles')
       .select('custom_daily_limit, custom_cycle_limit')
       .eq('id', user.id)
       .single();
 
-    const DAILY_LIMIT = userData?.custom_daily_limit ?? 10;
-    const CYCLE_LIMIT = userData?.custom_cycle_limit ?? 120;
+    // 🚀 修复：使用动态配置的默认值
+    const DAILY_LIMIT = userData?.custom_daily_limit !== null && userData?.custom_daily_limit !== undefined 
+      ? userData.custom_daily_limit 
+      : defaultDailyLimit;
+    
+    const CYCLE_LIMIT = userData?.custom_cycle_limit !== null && userData?.custom_cycle_limit !== undefined 
+      ? userData.custom_cycle_limit 
+      : defaultCycleLimit;
     
     const validatedDailyLimit = Math.max(1, Math.min(DAILY_LIMIT, 1000));
     const validatedCycleLimit = Math.max(10, Math.min(CYCLE_LIMIT, 10000));
 
-    // 🚨 关键修复：使用滚动窗口，与 /api/generate-tasks 一致
+    console.log('📊 最终用户限制计算:', {
+      用户ID: user.id,
+      用户邮箱: user.email,
+      用户自定义每日: userData?.custom_daily_limit,
+      用户自定义周期: userData?.custom_cycle_limit,
+      系统默认每日: defaultDailyLimit,
+      系统默认周期: defaultCycleLimit,
+      最终每日限制: validatedDailyLimit,
+      最终周期限制: validatedCycleLimit
+    });
+    
+    // 🚀 关键修复：使用滚动窗口，与 /api/generate-tasks 一致
     const now = new Date();
     
     // 24小时滚动窗口（从现在往前推24小时）
@@ -63,7 +103,7 @@ export async function GET(request: NextRequest) {
     // 计算剩余天数（更精确）
     const daysRemaining = Math.ceil((cycleEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-    // 4. 查询24小时滚动窗口使用次数
+    // 5. 查询24小时滚动窗口使用次数
     const { count: dailyCount, error: dailyError } = await supabase
       .from('ai_usage_records')
       .select('*', { count: 'exact', head: true })
@@ -81,7 +121,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 5. 查询30天滚动窗口使用次数
+    // 6. 查询30天滚动窗口使用次数
     const { count: cycleCount, error: cycleError } = await supabase
       .from('ai_usage_records')
       .select('*', { count: 'exact', head: true })
@@ -102,7 +142,7 @@ export async function GET(request: NextRequest) {
     const dailyUsed = dailyCount || 0;
     const cycleUsed = cycleCount || 0;
 
-    // 🚨 添加调试日志
+    // 🚀 添加详细调试日志
     console.log('📊 /api/ai/usage-stats 查询结果：');
     console.log('  用户ID:', user.id);
     console.log('  当前时间:', now.toISOString());
@@ -110,10 +150,16 @@ export async function GET(request: NextRequest) {
     console.log('  30天前:', thirtyDaysAgo.toISOString());
     console.log('  24小时使用次数:', dailyUsed);
     console.log('  30天使用次数:', cycleUsed);
-    console.log('  每日限制:', validatedDailyLimit);
-    console.log('  周期限制:', validatedCycleLimit);
+    console.log('  用户自定义每日限制:', userData?.custom_daily_limit);
+    console.log('  用户自定义周期限制:', userData?.custom_cycle_limit);
+    console.log('  系统默认每日限制:', defaultDailyLimit);
+    console.log('  系统默认周期限制:', defaultCycleLimit);
+    console.log('  最终每日限制:', validatedDailyLimit);
+    console.log('  最终周期限制:', validatedCycleLimit);
+    console.log('  每日剩余次数:', Math.max(0, validatedDailyLimit - dailyUsed));
+    console.log('  周期剩余次数:', Math.max(0, validatedCycleLimit - cycleUsed));
 
-    // 6. 返回使用统计
+    // 7. 返回使用统计
     return NextResponse.json({
       daily: {
         used: dailyUsed,
@@ -129,14 +175,54 @@ export async function GET(request: NextRequest) {
         startDate: thirtyDaysAgo.toISOString(),
         endDate: cycleEndDate.toISOString(),
         daysRemaining: daysRemaining
+      },
+      // 🚀 新增：返回使用的默认值信息，便于调试
+      configInfo: {
+        usedDefaultDaily: userData?.custom_daily_limit === null || userData?.custom_daily_limit === undefined,
+        usedDefaultCycle: userData?.custom_cycle_limit === null || userData?.custom_cycle_limit === undefined,
+        systemDefaultDaily: defaultDailyLimit,
+        systemDefaultCycle: defaultCycleLimit,
+        userCustomDaily: userData?.custom_daily_limit,
+        userCustomCycle: userData?.custom_cycle_limit
       }
     });
 
   } catch (error: any) {
     console.error('获取AI使用统计失败:', error);
     return NextResponse.json(
-      { error: error.message || '获取使用统计失败' },
+      { 
+        error: error.message || '获取使用统计失败',
+        // 🚀 新增：错误时返回降级值，避免前端完全崩溃
+        fallbackData: {
+          daily: {
+            used: 0,
+            remaining: 10,
+            limit: 10
+          },
+          cycle: {
+            used: 0,
+            remaining: 120,
+            limit: 120
+          },
+          cycleInfo: {
+            startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+            endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            daysRemaining: 30
+          },
+          configInfo: {
+            usedDefaultDaily: true,
+            usedDefaultCycle: true,
+            systemDefaultDaily: 10,
+            systemDefaultCycle: 120,
+            userCustomDaily: null,
+            userCustomCycle: null,
+            error: true
+          }
+        }
+      },
       { status: 500 }
     );
   }
 }
+
+export const dynamic = 'force-dynamic';

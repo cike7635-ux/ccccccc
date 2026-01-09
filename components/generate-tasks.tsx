@@ -74,13 +74,13 @@ export default function GenerateTasksSection({
   const [usageStats, setUsageStats] = useState<UsageStats>({
     daily: {
       used: 0,
-      remaining: 10,
-      limit: 10
+      remaining: 0,
+      limit: 0
     },
     cycle: {
       used: 0,
-      remaining: 120,
-      limit: 120
+      remaining: 0,
+      limit: 0
     },
     cycleInfo: {
       startDate: new Date().toISOString(),
