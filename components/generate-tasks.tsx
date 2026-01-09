@@ -1,7 +1,7 @@
 // /components/generate-tasks.tsx
 "use client";
 
-import { useState, useTransition, useEffect, useMemo } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +25,6 @@ import Link from "next/link";
 
 type Suggestion = { description: string; type?: string; order_index?: number };
 
-// 新的使用统计类型
 interface UsageStats {
   daily: {
     used: number;
@@ -49,23 +48,21 @@ interface AIGenerateResponse {
   usage: UsageStats;
 }
 
-// 🔥 新增：智能获取限制值的辅助函数
 const getLimit = (usageInfo: any, type: 'daily' | 'cycle'): number => {
   if (!usageInfo) {
-    return type === 'daily' ? 1 : 100; // 🔥 新的默认值
+    return type === 'daily' ? 1 : 100;
   }
   
-  // 尝试多种可能的字段位置
   if (type === 'daily') {
     return usageInfo.daily?.limit || 
            usageInfo.dailyLimit || 
            usageInfo.configInfo?.systemDefaultDaily || 
-           1; // 🔥 新的默认值
+           1;
   } else {
     return usageInfo.cycle?.limit || 
            usageInfo.cycleLimit || 
            usageInfo.configInfo?.systemDefaultCycle || 
-           100; // 🔥 新的默认值
+           100;
   }
 };
 
@@ -90,7 +87,6 @@ export default function GenerateTasksSection({
   const [preferences, setPreferences] = useState<{ gender?: string; kinks?: string[] }>({});
   const [mounted, setMounted] = useState(false);
   
-  // 新的使用统计状态
   const [usageStats, setUsageStats] = useState<UsageStats>({
     daily: {
       used: 0,
@@ -110,7 +106,6 @@ export default function GenerateTasksSection({
   });
   const [loadingStats, setLoadingStats] = useState(false);
 
-  // 🔥 新增：兑换弹窗相关状态
   const [showRedeemModal, setShowRedeemModal] = useState(false);
   const [redeemKeyCode, setRedeemKeyCode] = useState('');
   const [redeemLoading, setRedeemLoading] = useState(false);
@@ -121,22 +116,33 @@ export default function GenerateTasksSection({
   } | null>(null);
   const [redeemUsageInfo, setRedeemUsageInfo] = useState<any>(null);
 
-  // 🔥 新增：使用 useMemo 计算派生状态，确保与 usageStats 同步
-  const derivedStats = useMemo(() => {
-    const dailyRemaining = usageStats.daily.remaining;
-    const cycleRemaining = usageStats.cycle.remaining;
-    
-    return {
-      isOverDailyLimit: dailyRemaining <= 0,
-      isNearDailyLimit: dailyRemaining > 0 && dailyRemaining <= 2,
-      isOverCycleLimit: cycleRemaining <= 0,
-      isNearCycleLimit: cycleRemaining > 0 && cycleRemaining <= 10,
-      dailyPercentage: Math.min(100, (usageStats.daily.used / usageStats.daily.limit) * 100),
-      cyclePercentage: Math.min(100, (usageStats.cycle.used / usageStats.cycle.limit) * 100),
+  // 🔥 关键修复：计算动态状态，确保每次渲染都重新计算
+  const dailyRemaining = usageStats.daily.remaining;
+  const cycleRemaining = usageStats.cycle.remaining;
+  const dailyLimit = usageStats.daily.limit;
+  const cycleLimit = usageStats.cycle.limit;
+  
+  // 🔥 直接在变量中计算，不使用缓存
+  const isOverDailyLimit = dailyRemaining <= 0;
+  const isNearDailyLimit = dailyRemaining > 0 && dailyRemaining <= 2;
+  const isOverCycleLimit = cycleRemaining <= 0;
+  const isNearCycleLimit = cycleRemaining > 0 && cycleRemaining <= 10;
+  const dailyPercentage = Math.min(100, (usageStats.daily.used / dailyLimit) * 100);
+  const cyclePercentage = Math.min(100, (usageStats.cycle.used / cycleLimit) * 100);
+
+  useEffect(() => {
+    console.log('🔄 组件状态更新:', {
       dailyRemaining,
-      cycleRemaining
-    };
-  }, [usageStats]);
+      cycleRemaining,
+      dailyLimit,
+      cycleLimit,
+      isOverDailyLimit,
+      isOverCycleLimit,
+      dailyPercentage,
+      cyclePercentage,
+      time: new Date().toISOString()
+    });
+  }, [dailyRemaining, cycleRemaining, dailyLimit, cycleLimit]);
 
   useEffect(() => {
     setMounted(true);
@@ -161,7 +167,6 @@ export default function GenerateTasksSection({
     fetchPreferences();
   }, []);
 
-  // 获取使用统计 - 🔥 修复版
   const fetchUsageStats = async () => {
     setLoadingStats(true);
     try {
@@ -172,7 +177,6 @@ export default function GenerateTasksSection({
         const data = await res.json();
         console.log('📊 API返回数据（原始）:', data);
         
-        // 🔥 关键修复：使用智能辅助函数获取限制值
         const dailyLimit = getLimit(data, 'daily');
         const cycleLimit = getLimit(data, 'cycle');
         
@@ -201,16 +205,10 @@ export default function GenerateTasksSection({
             endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
             daysRemaining: 30
           },
-          // 保存原始数据用于调试
           _raw: data
         };
         
         console.log('🔄 标准化后的数据:', normalizedData);
-        console.log('🎯 最终使用的限制值:', {
-          dailyLimit: normalizedData.daily.limit,
-          cycleLimit: normalizedData.cycle.limit
-        });
-        
         setUsageStats(normalizedData);
         return normalizedData;
         
@@ -220,12 +218,12 @@ export default function GenerateTasksSection({
           daily: {
             used: 0,
             remaining: 1,
-            limit: 1  // 🔥 新的默认值
+            limit: 1
           },
           cycle: {
             used: 0,
             remaining: 100,
-            limit: 100  // 🔥 新的默认值
+            limit: 100
           },
           cycleInfo: {
             startDate: new Date().toISOString(),
@@ -242,12 +240,12 @@ export default function GenerateTasksSection({
         daily: {
           used: 0,
           remaining: 1,
-          limit: 1  // 🔥 新的默认值
+          limit: 1
         },
         cycle: {
           used: 0,
           remaining: 100,
-          limit: 100  // 🔥 新的默认值
+          limit: 100
         },
         cycleInfo: {
           startDate: new Date().toISOString(),
@@ -264,10 +262,9 @@ export default function GenerateTasksSection({
 
   const openModal = async () => {
     console.log('🔄 开始加载使用统计...');
-    const stats = await fetchUsageStats(); // 🔥 等待获取数据
+    const stats = await fetchUsageStats();
     console.log('✅ 使用统计加载完成:', stats);
     
-    // 🔥 修复：使用获取到的统计数据
     const isOverDailyLimit = stats.daily.remaining <= 0;
     const isOverCycleLimit = stats.cycle.remaining <= 0;
     
@@ -280,16 +277,9 @@ export default function GenerateTasksSection({
       isOverCycleLimit
     });
     
-    // 如果次数用完，直接显示兑换弹窗
     if (isOverDailyLimit || isOverCycleLimit) {
       console.log('🚨 使用次数用完，显示兑换弹窗');
-      console.log('📋 传递给弹窗的数据:', {
-        daily: stats.daily,
-        cycle: stats.cycle
-      });
-      
       setShowRedeemModal(true);
-      // 🔥 修复：确保传递正确的数据结构
       setRedeemUsageInfo({
         daily: {
           used: stats.daily.used,
@@ -303,7 +293,6 @@ export default function GenerateTasksSection({
       return;
     }
     
-    // 次数未用完，正常打开生成模态框
     setShowModal(true);
     setError(null);
     setSuggestions([]);
@@ -317,9 +306,6 @@ export default function GenerateTasksSection({
 
   const generate = async () => {
     console.log('📱 前端generate函数被调用');
-    
-    // 🔥 移除本地状态检查，直接调用API
-    
     console.log('✅ 次数未用完，继续调用API');
     
     setLoading(true);
@@ -338,23 +324,18 @@ export default function GenerateTasksSection({
       
       const json = await res.json();
       
-      // 🔥 修改点：捕获AI次数不足的错误并显示兑换弹窗
       if (!res.ok) {
         if (res.status === 429) {
-          // 检查是否是AI次数不足的错误
           if (json.errorType === 'INSUFFICIENT_AI_USAGE') {
-            // 显示兑换弹窗
             console.log('🚨 API返回次数不足错误，显示兑换弹窗');
             setShowRedeemModal(true);
             setRedeemUsageInfo(json.usage || {});
-            setError(null); // 清除错误提示
+            setError(null);
             return;
           }
           
-          // 其他429错误
           setError(json?.error || "使用次数已用完");
           if (json.details) {
-            // 更新使用统计
             setUsageStats({
               daily: {
                 used: json.details.daily.used,
@@ -374,7 +355,6 @@ export default function GenerateTasksSection({
         throw new Error(json?.error || "生成失败");
       }
       
-      // 类型断言
       const aiResponse = json as AIGenerateResponse;
       
       setSuggestions(aiResponse.tasks || []);
@@ -383,7 +363,6 @@ export default function GenerateTasksSection({
       );
       setSelected(initialSelection);
       
-      // 更新使用统计
       if (aiResponse.usage) {
         setUsageStats(aiResponse.usage);
       }
@@ -395,7 +374,6 @@ export default function GenerateTasksSection({
     }
   };
 
-  // 🔥 新增：兑换函数
   const handleRedeem = async () => {
     if (!redeemKeyCode.trim()) {
       setRedeemResult({ success: false, message: '请输入AI密钥' });
@@ -426,14 +404,12 @@ export default function GenerateTasksSection({
         data: data.data
       });
 
-      // 🔥 关键：立即刷新并等待完成
       console.log('🔄 立即刷新使用统计...');
       await fetchUsageStats();
       console.log('✅ 使用统计刷新完成');
       
       setRedeemKeyCode('');
       
-      // 3秒后自动关闭弹窗
       setTimeout(() => {
         setShowRedeemModal(false);
         setRedeemResult(null);
@@ -480,7 +456,6 @@ export default function GenerateTasksSection({
     setError(null);
     startTransition(async () => {
       try {
-        // 修复：使用 FormData 格式调用 bulkInsertTasks
         const formData = new FormData();
         formData.append('theme_id', themeId);
         formData.append('tasks', JSON.stringify(tasks));
@@ -492,7 +467,6 @@ export default function GenerateTasksSection({
           setSuggestions([]);
           setSelected({});
           closeModal();
-          // 可选：刷新页面显示新任务
           window.location.reload();
         }
       } catch (err: any) {
@@ -509,20 +483,18 @@ export default function GenerateTasksSection({
   const hasGender = !!preferences.gender;
   const hasKinks = Array.isArray(preferences.kinks) && preferences.kinks.length > 0;
   const preferencesEmpty = !hasGender || !hasKinks;
-  
-  // 🔥 关键修复：移除缓存变量，直接使用 derivedStats
 
   console.log('🔄 组件渲染，使用统计:', {
-    dailyRemaining: derivedStats.dailyRemaining,
-    cycleRemaining: derivedStats.cycleRemaining,
-    dailyLimit: usageStats.daily.limit,
-    cycleLimit: usageStats.cycle.limit,
-    isOverDailyLimit: derivedStats.isOverDailyLimit,
-    isOverCycleLimit: derivedStats.isOverCycleLimit,
-    derivedStats // 显示所有派生状态
+    dailyRemaining,
+    cycleRemaining,
+    dailyLimit,
+    cycleLimit,
+    isOverDailyLimit,
+    isOverCycleLimit,
+    dailyPercentage,
+    cyclePercentage
   });
 
-  // 🔥 精美使用统计组件
   const renderUsageStats = () => (
     <div className="mb-4 glass backdrop-blur-lg bg-gradient-to-br from-white/10 to-purple-500/10 rounded-2xl p-4 border border-white/20 shadow-lg">
       <div className="flex items-center justify-between mb-4">
@@ -550,7 +522,6 @@ export default function GenerateTasksSection({
       </div>
       
       <div className="grid grid-cols-2 gap-4 mb-3">
-        {/* 今日使用 */}
         <div className="glass bg-white/5 rounded-xl p-3 border border-white/10">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center space-x-1">
@@ -558,27 +529,27 @@ export default function GenerateTasksSection({
               <span className="text-xs font-medium text-gray-300">今日</span>
             </div>
             <div className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-              derivedStats.isOverDailyLimit ? 'bg-red-500/20 text-red-300' :
-              derivedStats.isNearDailyLimit ? 'bg-yellow-500/20 text-yellow-300' : 
+              isOverDailyLimit ? 'bg-red-500/20 text-red-300' :
+              isNearDailyLimit ? 'bg-yellow-500/20 text-yellow-300' : 
               'bg-blue-500/20 text-blue-300'
             }`}>
-              {derivedStats.dailyRemaining}/{usageStats.daily.limit}
+              {dailyRemaining}/{dailyLimit}
             </div>
           </div>
           <div className="relative pt-1">
             <div className="flex mb-2 items-center justify-between">
               <div>
                 <span className="text-xs font-semibold inline-block text-white">
-                  {Math.round(derivedStats.dailyPercentage)}%
+                  {Math.round(dailyPercentage)}%
                 </span>
               </div>
             </div>
             <div className="overflow-hidden h-2 mb-1 text-xs flex rounded-full bg-gray-700">
               <div 
-                style={{ width: `${derivedStats.dailyPercentage}%` }}
+                style={{ width: `${dailyPercentage}%` }}
                 className={`shadow-none flex flex-col text-center whitespace-nowrap justify-center transition-all duration-500 ${
-                  derivedStats.isOverDailyLimit ? 'bg-gradient-to-r from-red-500 to-red-400' :
-                  derivedStats.isNearDailyLimit ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
+                  isOverDailyLimit ? 'bg-gradient-to-r from-red-500 to-red-400' :
+                  isNearDailyLimit ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
                   'bg-gradient-to-r from-blue-500 to-blue-400'
                 }`}
               />
@@ -586,11 +557,10 @@ export default function GenerateTasksSection({
           </div>
           <div className="text-xs text-gray-400 flex justify-between">
             <span>已用: {usageStats.daily.used}次</span>
-            <span>剩余: {derivedStats.dailyRemaining}次</span>
+            <span>剩余: {dailyRemaining}次</span>
           </div>
         </div>
 
-        {/* 周期使用 */}
         <div className="glass bg-white/5 rounded-xl p-3 border border-white/10">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center space-x-1">
@@ -598,27 +568,27 @@ export default function GenerateTasksSection({
               <span className="text-xs font-medium text-gray-300">周期</span>
             </div>
             <div className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-              derivedStats.isOverCycleLimit ? 'bg-red-500/20 text-red-300' :
-              derivedStats.isNearCycleLimit ? 'bg-yellow-500/20 text-yellow-300' : 
+              isOverCycleLimit ? 'bg-red-500/20 text-red-300' :
+              isNearCycleLimit ? 'bg-yellow-500/20 text-yellow-300' : 
               'bg-purple-500/20 text-purple-300'
             }`}>
-              {derivedStats.cycleRemaining}/{usageStats.cycle.limit}
+              {cycleRemaining}/{cycleLimit}
             </div>
           </div>
           <div className="relative pt-1">
             <div className="flex mb-2 items-center justify-between">
               <div>
                 <span className="text-xs font-semibold inline-block text-white">
-                  {Math.round(derivedStats.cyclePercentage)}%
+                  {Math.round(cyclePercentage)}%
                 </span>
               </div>
             </div>
             <div className="overflow-hidden h-2 mb-1 text-xs flex rounded-full bg-gray-700">
               <div 
-                style={{ width: `${derivedStats.cyclePercentage}%` }}
+                style={{ width: `${cyclePercentage}%` }}
                 className={`shadow-none flex flex-col text-center whitespace-nowrap justify-center transition-all duration-500 ${
-                  derivedStats.isOverCycleLimit ? 'bg-gradient-to-r from-red-500 to-red-400' :
-                  derivedStats.isNearCycleLimit ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
+                  isOverCycleLimit ? 'bg-gradient-to-r from-red-500 to-red-400' :
+                  isNearCycleLimit ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
                   'bg-gradient-to-r from-purple-500 to-purple-400'
                 }`}
               />
@@ -626,12 +596,11 @@ export default function GenerateTasksSection({
           </div>
           <div className="text-xs text-gray-400 flex justify-between">
             <span>已用: {usageStats.cycle.used}次</span>
-            <span>剩余: {derivedStats.cycleRemaining}次</span>
+            <span>剩余: {cycleRemaining}次</span>
           </div>
         </div>
       </div>
 
-      {/* 周期信息 */}
       <div className="glass bg-gradient-to-r from-gray-900/50 to-purple-900/30 rounded-xl p-3 border border-white/10">
         <div className="flex items-center space-x-2 mb-1">
           <Clock className="w-3 h-3 text-green-400" />
@@ -659,22 +628,21 @@ export default function GenerateTasksSection({
         </div>
       </div>
 
-      {/* 警告提示 */}
-      {(derivedStats.isNearDailyLimit || derivedStats.isNearCycleLimit) && (
+      {(isNearDailyLimit || isNearCycleLimit) && (
         <div className={`mt-3 p-2 rounded-lg flex items-center space-x-2 ${
-          derivedStats.isOverDailyLimit || derivedStats.isOverCycleLimit ? 
+          isOverDailyLimit || isOverCycleLimit ? 
           'bg-gradient-to-r from-red-900/30 to-red-800/20 border border-red-500/20' :
           'bg-gradient-to-r from-yellow-900/30 to-yellow-800/20 border border-yellow-500/20'
         }`}>
           <AlertTriangle className={`w-4 h-4 ${
-            derivedStats.isOverDailyLimit || derivedStats.isOverCycleLimit ? 'text-red-400' : 'text-yellow-400'
+            isOverDailyLimit || isOverCycleLimit ? 'text-red-400' : 'text-yellow-400'
           }`} />
           <p className={`text-xs ${
-            derivedStats.isOverDailyLimit || derivedStats.isOverCycleLimit ? 'text-red-300' : 'text-yellow-300'
+            isOverDailyLimit || isOverCycleLimit ? 'text-red-300' : 'text-yellow-300'
           }`}>
-            {derivedStats.isOverDailyLimit ? '今日次数已用完' : 
-             derivedStats.isOverCycleLimit ? '周期次数已用完' :
-             derivedStats.isNearDailyLimit ? '今日剩余次数较少，请合理安排使用' : '周期剩余次数较少'}
+            {isOverDailyLimit ? '今日次数已用完' : 
+             isOverCycleLimit ? '周期次数已用完' :
+             isNearDailyLimit ? '今日剩余次数较少，请合理安排使用' : '周期剩余次数较少'}
           </p>
         </div>
       )}
@@ -685,7 +653,6 @@ export default function GenerateTasksSection({
     if (suggestions.length === 0) {
       return (
         <>
-          {/* 🔥 关键修复：在模态框内显示AI使用统计 */}
           {renderUsageStats()}
           
           <div className="space-y-4 mb-6">
@@ -917,26 +884,25 @@ export default function GenerateTasksSection({
           onClick={openModal}
           className="gradient-primary glow-pink text-white flex items-center space-x-2 hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300"
         >
-          {/* 🔥 关键修复：直接使用 derivedStats 而不是缓存变量 */}
-          {derivedStats.isOverDailyLimit ? (
+          {/* 🔥 直接使用计算出的变量 */}
+          {isOverDailyLimit ? (
             <Key className="w-4 h-4" />
           ) : (
             <Sparkles className="w-4 h-4" />
           )}
-          <span>{derivedStats.isOverDailyLimit ? '兑换AI次数' : 'AI 生成任务'}</span>
-          {derivedStats.isNearDailyLimit && !derivedStats.isOverDailyLimit && (
+          <span>{isOverDailyLimit ? '兑换AI次数' : 'AI 生成任务'}</span>
+          {isNearDailyLimit && !isOverDailyLimit && (
             <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full">
-              仅剩{derivedStats.dailyRemaining}次
+              仅剩{dailyRemaining}次
             </span>
           )}
-          {derivedStats.isOverDailyLimit && (
+          {isOverDailyLimit && (
             <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full">
               今日已用完
             </span>
           )}
         </Button>
       ) : (
-        // 🔥 修复：恢复毛玻璃背景
         <div className="glass backdrop-blur-xl bg-gradient-to-br from-gray-900/50 to-purple-900/20 rounded-2xl p-6 border border-white/10 shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-3">
@@ -954,28 +920,26 @@ export default function GenerateTasksSection({
             基于主题和个人偏好，使用专业AI模型快速生成符合情侣互动的任务列表
           </p>
           
-          {/* 非内联模式：在模态框外显示AI计次 */}
           {renderUsageStats()}
           
           <Button
             onClick={openModal}
             className="w-full gradient-primary glow-pink hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 flex items-center justify-center space-x-2 group"
           >
-            {/* 🔥 关键修复：直接使用 derivedStats 而不是缓存变量 */}
-            {derivedStats.isOverDailyLimit ? (
+            {isOverDailyLimit ? (
               <Key className="w-4 h-4 group-hover:rotate-12 transition-transform" />
             ) : (
               <Sparkles className="w-4 h-4 group-hover:rotate-12 transition-transform" />
             )}
-            <span>{derivedStats.isOverDailyLimit ? '兑换AI次数' : '开始生成'}</span>
-            {derivedStats.isOverDailyLimit && (
+            <span>{isOverDailyLimit ? '兑换AI次数' : '开始生成'}</span>
+            {isOverDailyLimit && (
               <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full ml-2">
                 今日已用完，点击兑换
               </span>
             )}
-            {derivedStats.isNearDailyLimit && !derivedStats.isOverDailyLimit && (
+            {isNearDailyLimit && !isOverDailyLimit && (
               <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full ml-2">
-                仅剩{derivedStats.dailyRemaining}次
+                仅剩{dailyRemaining}次
               </span>
             )}
           </Button>
@@ -1006,7 +970,6 @@ export default function GenerateTasksSection({
         document.body
       )}
 
-      {/* 🔥 修复后的兑换弹窗 */}
       {showRedeemModal && mounted && createPortal(
         <div className="fixed inset-0 z-[1100] bg-black/80 backdrop-blur-lg flex items-center justify-center p-6">
           <div className="glass backdrop-blur-2xl bg-gradient-to-br from-gray-900/70 to-purple-900/40 rounded-3xl p-8 max-w-md w-full glow-pink border border-white/20 shadow-2xl">
@@ -1030,7 +993,6 @@ export default function GenerateTasksSection({
                 <p>您的AI使用次数已用完，兑换密钥可以立即获得更多次数。</p>
               </div>
               
-              {/* 🔥 关键修复：显示使用统计 - 使用智能获取限制值 */}
               <div className="p-4 bg-gradient-to-r from-gray-900/50 to-purple-900/30 rounded-xl border border-white/10">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-400">今日使用：</span>
