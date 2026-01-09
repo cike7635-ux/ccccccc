@@ -48,24 +48,6 @@ interface AIGenerateResponse {
   usage: UsageStats;
 }
 
-const getLimit = (usageInfo: any, type: 'daily' | 'cycle'): number => {
-  if (!usageInfo) {
-    return type === 'daily' ? 1 : 100;
-  }
-  
-  if (type === 'daily') {
-    return usageInfo.daily?.limit || 
-           usageInfo.dailyLimit || 
-           usageInfo.configInfo?.systemDefaultDaily || 
-           1;
-  } else {
-    return usageInfo.cycle?.limit || 
-           usageInfo.cycleLimit || 
-           usageInfo.configInfo?.systemDefaultCycle || 
-           100;
-  }
-};
-
 export default function GenerateTasksSection({ 
   themeId, 
   themeTitle, 
@@ -87,16 +69,17 @@ export default function GenerateTasksSection({
   const [preferences, setPreferences] = useState<{ gender?: string; kinks?: string[] }>({});
   const [mounted, setMounted] = useState(false);
   
+  // 🔥 修复：设置合理的初始状态，避免初始显示"已用完"
   const [usageStats, setUsageStats] = useState<UsageStats>({
     daily: {
       used: 0,
-      remaining: 0,
-      limit: 0
+      remaining: 1,  // 🔥 改为1，避免初始显示"已用完"
+      limit: 1       // 🔥 改为1，与API默认值一致
     },
     cycle: {
       used: 0,
-      remaining: 0,
-      limit: 0
+      remaining: 100, // 🔥 改为100
+      limit: 100      // 🔥 改为100
     },
     cycleInfo: {
       startDate: new Date().toISOString(),
@@ -116,20 +99,20 @@ export default function GenerateTasksSection({
   } | null>(null);
   const [redeemUsageInfo, setRedeemUsageInfo] = useState<any>(null);
 
-  // 🔥 关键修复：计算动态状态，确保每次渲染都重新计算
+  // 🔥 直接计算状态，不使用缓存
   const dailyRemaining = usageStats.daily.remaining;
   const cycleRemaining = usageStats.cycle.remaining;
   const dailyLimit = usageStats.daily.limit;
   const cycleLimit = usageStats.cycle.limit;
   
-  // 🔥 直接在变量中计算，不使用缓存
   const isOverDailyLimit = dailyRemaining <= 0;
   const isNearDailyLimit = dailyRemaining > 0 && dailyRemaining <= 2;
   const isOverCycleLimit = cycleRemaining <= 0;
   const isNearCycleLimit = cycleRemaining > 0 && cycleRemaining <= 10;
-  const dailyPercentage = Math.min(100, (usageStats.daily.used / dailyLimit) * 100);
-  const cyclePercentage = Math.min(100, (usageStats.cycle.used / cycleLimit) * 100);
+  const dailyPercentage = dailyLimit > 0 ? Math.min(100, (usageStats.daily.used / dailyLimit) * 100) : 0;
+  const cyclePercentage = cycleLimit > 0 ? Math.min(100, (usageStats.cycle.used / cycleLimit) * 100) : 0;
 
+  // 🔥 状态监控
   useEffect(() => {
     console.log('🔄 组件状态更新:', {
       dailyRemaining,
@@ -144,10 +127,19 @@ export default function GenerateTasksSection({
     });
   }, [dailyRemaining, cycleRemaining, dailyLimit, cycleLimit]);
 
+  // 🔥 关键修复：组件挂载时自动获取使用统计
   useEffect(() => {
     setMounted(true);
-    const fetchPreferences = async () => {
+    
+    const initializeData = async () => {
       try {
+        console.log('🚀 初始化组件数据...');
+        
+        // 1. 先获取使用统计（最重要！）
+        await fetchUsageStats();
+        console.log('✅ 使用统计初始化完成');
+        
+        // 2. 然后获取用户偏好
         const supabase = createClient();
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
@@ -158,16 +150,35 @@ export default function GenerateTasksSection({
             .maybeSingle();
           if (profile?.preferences) {
             setPreferences(profile.preferences as any);
+            console.log('✅ 用户偏好初始化完成');
           }
         }
       } catch (error) {
-        console.error("获取偏好设置失败:", error);
+        console.error('❌ 数据初始化失败:', error);
       }
     };
-    fetchPreferences();
+    
+    initializeData();
   }, []);
 
+  // 🔥 调试函数
+  const debugButtonState = () => {
+    console.log('🔍 按钮状态调试:');
+    console.log('dailyRemaining:', dailyRemaining);
+    console.log('dailyLimit:', dailyLimit);
+    console.log('isOverDailyLimit:', isOverDailyLimit);
+    console.log('按钮应显示:', isOverDailyLimit ? '兑换AI次数' : '开始生成');
+    console.log('API是否已调用:', loadingStats ? '加载中...' : '已完成');
+  };
+
+  // 调试监控
+  useEffect(() => {
+    debugButtonState();
+  }, [dailyRemaining, loadingStats]);
+
+  // 🔥 关键修复：fetchUsageStats 函数 - 直接使用API返回的limit
   const fetchUsageStats = async () => {
+    console.log('📡 开始获取使用统计...');
     setLoadingStats(true);
     try {
       const res = await fetch("/api/ai/usage-stats");
@@ -177,16 +188,14 @@ export default function GenerateTasksSection({
         const data = await res.json();
         console.log('📊 API返回数据（原始）:', data);
         
-        const dailyLimit = getLimit(data, 'daily');
-        const cycleLimit = getLimit(data, 'cycle');
+        // 🔥 直接使用 API 返回的 limit，不使用 getLimit 函数
+        const dailyLimit = data.daily?.limit || 1;
+        const cycleLimit = data.cycle?.limit || 100;
         
-        console.log('🎯 智能获取的限制值:', {
+        console.log('🎯 直接获取的限制值:', {
           dailyLimit,
           cycleLimit,
-          dailyLimit来源: data.daily?.limit ? 'daily.limit' : 
-                       data.configInfo?.systemDefaultDaily ? 'configInfo.systemDefaultDaily' : '默认值1',
-          cycleLimit来源: data.cycle?.limit ? 'cycle.limit' : 
-                       data.configInfo?.systemDefaultCycle ? 'configInfo.systemDefaultCycle' : '默认值100'
+          来源: 'data.daily?.limit'
         });
         
         const normalizedData = {
@@ -213,7 +222,7 @@ export default function GenerateTasksSection({
         return normalizedData;
         
       } else {
-        console.warn("AI使用统计API不可用，使用新默认值 1/100");
+        console.warn("AI使用统计API不可用，使用默认值 1/100");
         const fallbackData = {
           daily: {
             used: 0,
@@ -257,11 +266,15 @@ export default function GenerateTasksSection({
       return fallbackData;
     } finally {
       setLoadingStats(false);
+      console.log('✅ 使用统计获取完成');
     }
   };
 
   const openModal = async () => {
     console.log('🔄 开始加载使用统计...');
+    debugButtonState();
+    
+    // 🔥 关键修复：先重新获取最新数据
     const stats = await fetchUsageStats();
     console.log('✅ 使用统计加载完成:', stats);
     
@@ -336,16 +349,20 @@ export default function GenerateTasksSection({
           
           setError(json?.error || "使用次数已用完");
           if (json.details) {
+            // 更新使用统计
+            const dailyLimit = json.details.daily?.limit || 1;
+            const cycleLimit = json.details.cycle?.limit || 100;
+            
             setUsageStats({
               daily: {
-                used: json.details.daily.used,
-                remaining: Math.max(0, getLimit(json.details, 'daily') - json.details.daily.used),
-                limit: getLimit(json.details, 'daily')
+                used: json.details.daily?.used || 0,
+                remaining: Math.max(0, dailyLimit - (json.details.daily?.used || 0)),
+                limit: dailyLimit
               },
               cycle: {
-                used: json.details.cycle.used,
-                remaining: Math.max(0, getLimit(json.details, 'cycle') - json.details.cycle.used),
-                limit: getLimit(json.details, 'cycle')
+                used: json.details.cycle?.used || 0,
+                remaining: Math.max(0, cycleLimit - (json.details.cycle?.used || 0)),
+                limit: cycleLimit
               },
               cycleInfo: json.details.cycleInfo || usageStats.cycleInfo
             });
@@ -374,6 +391,7 @@ export default function GenerateTasksSection({
     }
   };
 
+  // 🔥 新增：兑换函数
   const handleRedeem = async () => {
     if (!redeemKeyCode.trim()) {
       setRedeemResult({ success: false, message: '请输入AI密钥' });
@@ -495,6 +513,7 @@ export default function GenerateTasksSection({
     cyclePercentage
   });
 
+  // 🔥 精美使用统计组件
   const renderUsageStats = () => (
     <div className="mb-4 glass backdrop-blur-lg bg-gradient-to-br from-white/10 to-purple-500/10 rounded-2xl p-4 border border-white/20 shadow-lg">
       <div className="flex items-center justify-between mb-4">
@@ -522,6 +541,7 @@ export default function GenerateTasksSection({
       </div>
       
       <div className="grid grid-cols-2 gap-4 mb-3">
+        {/* 今日使用 */}
         <div className="glass bg-white/5 rounded-xl p-3 border border-white/10">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center space-x-1">
@@ -561,6 +581,7 @@ export default function GenerateTasksSection({
           </div>
         </div>
 
+        {/* 周期使用 */}
         <div className="glass bg-white/5 rounded-xl p-3 border border-white/10">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center space-x-1">
@@ -601,6 +622,7 @@ export default function GenerateTasksSection({
         </div>
       </div>
 
+      {/* 周期信息 */}
       <div className="glass bg-gradient-to-r from-gray-900/50 to-purple-900/30 rounded-xl p-3 border border-white/10">
         <div className="flex items-center space-x-2 mb-1">
           <Clock className="w-3 h-3 text-green-400" />
@@ -628,6 +650,7 @@ export default function GenerateTasksSection({
         </div>
       </div>
 
+      {/* 警告提示 */}
       {(isNearDailyLimit || isNearCycleLimit) && (
         <div className={`mt-3 p-2 rounded-lg flex items-center space-x-2 ${
           isOverDailyLimit || isOverCycleLimit ? 
@@ -884,19 +907,23 @@ export default function GenerateTasksSection({
           onClick={openModal}
           className="gradient-primary glow-pink text-white flex items-center space-x-2 hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300"
         >
-          {/* 🔥 直接使用计算出的变量 */}
-          {isOverDailyLimit ? (
+          {/* 🔥 添加加载状态 */}
+          {loadingStats ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : isOverDailyLimit ? (
             <Key className="w-4 h-4" />
           ) : (
             <Sparkles className="w-4 h-4" />
           )}
-          <span>{isOverDailyLimit ? '兑换AI次数' : 'AI 生成任务'}</span>
-          {isNearDailyLimit && !isOverDailyLimit && (
+          <span>
+            {loadingStats ? '加载中...' : isOverDailyLimit ? '兑换AI次数' : 'AI 生成任务'}
+          </span>
+          {!loadingStats && isNearDailyLimit && !isOverDailyLimit && (
             <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full">
               仅剩{dailyRemaining}次
             </span>
           )}
-          {isOverDailyLimit && (
+          {!loadingStats && isOverDailyLimit && (
             <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full">
               今日已用完
             </span>
@@ -925,19 +952,24 @@ export default function GenerateTasksSection({
           <Button
             onClick={openModal}
             className="w-full gradient-primary glow-pink hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 flex items-center justify-center space-x-2 group"
+            disabled={loadingStats} // 🔥 添加禁用状态
           >
-            {isOverDailyLimit ? (
+            {loadingStats ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : isOverDailyLimit ? (
               <Key className="w-4 h-4 group-hover:rotate-12 transition-transform" />
             ) : (
               <Sparkles className="w-4 h-4 group-hover:rotate-12 transition-transform" />
             )}
-            <span>{isOverDailyLimit ? '兑换AI次数' : '开始生成'}</span>
-            {isOverDailyLimit && (
+            <span>
+              {loadingStats ? '加载中...' : isOverDailyLimit ? '兑换AI次数' : '开始生成'}
+            </span>
+            {!loadingStats && isOverDailyLimit && (
               <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full ml-2">
                 今日已用完，点击兑换
               </span>
             )}
-            {isNearDailyLimit && !isOverDailyLimit && (
+            {!loadingStats && isNearDailyLimit && !isOverDailyLimit && (
               <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full ml-2">
                 仅剩{dailyRemaining}次
               </span>
@@ -999,7 +1031,7 @@ export default function GenerateTasksSection({
                   <span className="text-white font-medium">
                     {(redeemUsageInfo?.daily?.used || 0)}/
                     <span className="text-blue-400">
-                      {redeemUsageInfo?.daily?.limit || getLimit(redeemUsageInfo, 'daily')}
+                      {redeemUsageInfo?.daily?.limit || 1}
                     </span>次
                   </span>
                 </div>
@@ -1008,7 +1040,7 @@ export default function GenerateTasksSection({
                   <span className="text-white font-medium">
                     {(redeemUsageInfo?.cycle?.used || 0)}/
                     <span className="text-purple-400">
-                      {redeemUsageInfo?.cycle?.limit || getLimit(redeemUsageInfo, 'cycle')}
+                      {redeemUsageInfo?.cycle?.limit || 100}
                     </span>次
                   </span>
                 </div>
