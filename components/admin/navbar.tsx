@@ -4,11 +4,11 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { 
-  LayoutDashboard, 
-  Users, 
-  Key, 
-  Brain, 
+import {
+  LayoutDashboard,
+  Users,
+  Key,
+  Brain,
   Settings,
   LogOut,
   Menu,
@@ -20,6 +20,7 @@ const navItems = [
   { href: '/admin/users', label: '用户管理', icon: Users },
   { href: '/admin/keys', label: '密钥管理', icon: Key },
   { href: '/admin/ai-usage', label: 'AI统计', icon: Brain },
+  { href: '/admin/feedback', label: '反馈管理', icon: MessageSquare },
   { href: '/admin/settings', label: '系统设置', icon: Settings },
 ]
 
@@ -27,15 +28,15 @@ export default function AdminNavbar() {
   const pathname = usePathname()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
-  
+
   // 确保组件在客户端渲染
   useEffect(() => {
     setIsMounted(true)
-    
+
     // 关闭移动端菜单当路由变化时
     setIsMobileMenuOpen(false)
   }, [pathname])
-  
+
   // 服务器端渲染时返回简单版本
   if (!isMounted) {
     return (
@@ -54,23 +55,23 @@ export default function AdminNavbar() {
       </nav>
     )
   }
-  
+
   const handleNavClick = (href: string) => {
     // 如果是移动端，点击后关闭菜单
     if (window.innerWidth < 768) {
       setIsMobileMenuOpen(false)
     }
   }
-  
+
   const handleLogout = () => {
     // 清除管理员会话
     document.cookie = 'admin_key_verified=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
     sessionStorage.removeItem('admin_session')
-    
+
     // 导航到登录页
     window.location.href = '/admin'
   }
-  
+
   return (
     <nav className="admin-navbar bg-gray-800 text-white shadow-lg">
       <div className="navbar-container mx-auto px-4">
@@ -92,20 +93,19 @@ export default function AdminNavbar() {
           <div className="navbar-desktop hidden md:flex items-center space-x-2">
             <div className="nav-items flex space-x-1">
               {navItems.map((item) => {
-                const isActive = pathname === item.href || 
-                               (item.href !== '/admin/dashboard' && 
-                                pathname?.startsWith(item.href))
+                const isActive = pathname === item.href ||
+                  (item.href !== '/admin/dashboard' &&
+                    pathname?.startsWith(item.href))
                 const Icon = item.icon
-                
+
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`nav-item flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
-                      isActive 
-                        ? 'bg-gray-900 text-white' 
+                    className={`nav-item flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${isActive
+                        ? 'bg-gray-900 text-white'
                         : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                    }`}
+                      }`}
                     onClick={() => handleNavClick(item.href)}
                   >
                     <Icon className="nav-icon w-5 h-5" />
@@ -114,7 +114,7 @@ export default function AdminNavbar() {
                 )
               })}
             </div>
-            
+
             {/* 退出按钮 */}
             <div className="navbar-actions ml-4">
               <button
@@ -128,7 +128,7 @@ export default function AdminNavbar() {
           </div>
 
           {/* 移动端菜单按钮 */}
-          <button 
+          <button
             className="mobile-menu-button md:hidden p-2 rounded-lg hover:bg-gray-700"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           >
@@ -145,20 +145,19 @@ export default function AdminNavbar() {
           <div className="navbar-mobile md:hidden bg-gray-800 border-t border-gray-700">
             <div className="mobile-nav-items py-2">
               {navItems.map((item) => {
-                const isActive = pathname === item.href || 
-                               (item.href !== '/admin/dashboard' && 
-                                pathname?.startsWith(item.href))
+                const isActive = pathname === item.href ||
+                  (item.href !== '/admin/dashboard' &&
+                    pathname?.startsWith(item.href))
                 const Icon = item.icon
-                
+
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`mobile-nav-item flex items-center space-x-3 px-4 py-3 rounded-lg mx-2 my-1 transition-colors ${
-                      isActive 
-                        ? 'bg-gray-900 text-white' 
+                    className={`mobile-nav-item flex items-center space-x-3 px-4 py-3 rounded-lg mx-2 my-1 transition-colors ${isActive
+                        ? 'bg-gray-900 text-white'
                         : 'text-gray-300 hover:bg-gray-700'
-                    }`}
+                      }`}
                     onClick={() => handleNavClick(item.href)}
                   >
                     <Icon className="mobile-nav-icon w-5 h-5" />
@@ -166,7 +165,7 @@ export default function AdminNavbar() {
                   </Link>
                 )
               })}
-              
+
               {/* 移动端退出按钮 */}
               <button
                 onClick={handleLogout}

@@ -1,5 +1,5 @@
 // /app/profile/page.tsx
-// 修复版本：使用统一Supabase客户端模式，移除setAll
+// 在原有代码基础上添加"我要反馈"功能
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
@@ -8,7 +8,17 @@ import PreferencesSection from "@/components/profile/preferences-section";
 import CopyAccountButton from "@/components/profile/copy-account-button";
 import NicknameEditor from "@/components/profile/nickname-editor";
 import { LogoutButton } from "@/components/logout-button";
-import { CalendarDays, Key, AlertCircle, CheckCircle2 } from "lucide-react";
+import { 
+  CalendarDays, 
+  Key, 
+  AlertCircle, 
+  CheckCircle2,
+  MessageSquare,  // 新增：反馈图标
+  History,
+  HelpCircle,
+  Settings,
+  Gift
+} from "lucide-react";
 import Link from "next/link";
 
 export default async function ProfilePage() {
@@ -22,7 +32,6 @@ export default async function ProfilePage() {
     { 
       cookies: { 
         getAll: () => cookieStore.getAll(),
-        // ❌ 移除setAll，让中间件处理cookie刷新
       }
     }
   );
@@ -47,7 +56,7 @@ export default async function ProfilePage() {
   let remainingDays: number | null = null;
   let accountStatus: 'active' | 'expired' | 'no_record' = 'no_record';
   let statusText = '';
-  let dataSource = '未查询'; // 用于追踪数据来源
+  let dataSource = '未查询';
 
   try {
     // 确保用户资料存在
@@ -248,27 +257,25 @@ export default async function ProfilePage() {
         {/* 菜单与功能区域 */}
         <div className="px-6 space-y-3">
           {/* 游戏记录 */}
-          <a
+          <Link
             href="/profile/history"
             className="w-full flex items-center justify-between p-5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl hover:bg-white/10 transition-all duration-200 active:scale-[0.98]"
           >
             <div className="flex items-center space-x-4">
               <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center shadow-lg">
-                <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <History className="w-6 h-6 text-white" />
               </div>
               <span className="font-semibold text-white">游戏记录</span>
             </div>
             <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
-          </a>
+          </Link>
 
           {/* 账户续费入口 */}
           <Link
             href="/renew"
-            className="w-full flex items-center justify-between p-5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl hover:bg-white/10 transition-all duration-200 active:scale-[0.98] block"
+            className="w-full flex items-center justify-between p-5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl hover:bg-white/10 transition-all duration-200 active:scale-[0.98]"
           >
             <div className="flex items-center space-x-4">
               <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-amber-500 rounded-2xl flex items-center justify-center shadow-lg">
@@ -287,16 +294,52 @@ export default async function ProfilePage() {
           {/* 偏好设置折叠区 */}
           <PreferencesSection initialGender={initialGender} initialKinks={initialKinks} />
 
+          {/* 🔥 新增：我要反馈 */}
+          <Link
+            href="/feedback"
+            className="w-full flex items-center justify-between p-5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl hover:bg-white/10 transition-all duration-200 active:scale-[0.98]"
+          >
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center shadow-lg">
+                <MessageSquare className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <div className="font-semibold text-white">我要反馈</div>
+                <div className="text-xs text-white/50">问题建议，一键反馈</div>
+              </div>
+            </div>
+            <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+
+          {/* AI次数兑换（如果存在） */}
+          <Link
+            href="/account/ai-boost"
+            className="w-full flex items-center justify-between p-5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl hover:bg-white/10 transition-all duration-200 active:scale-[0.98]"
+          >
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl flex items-center justify-center shadow-lg">
+                <Gift className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <div className="font-semibold text-white">AI次数兑换</div>
+                <div className="text-xs text-white/50">兑换更多AI使用次数</div>
+              </div>
+            </div>
+            <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+
           {/* 帮助中心 */}
-          <a
+          <Link
             href="/help"
             className="w-full flex items-center justify-between p-5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl hover:bg-white/10 transition-all duration-200 active:scale-[0.98]"
           >
             <div className="flex items-center space-x-4">
               <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-2xl flex items-center justify-center shadow-lg">
-                <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <HelpCircle className="w-6 h-6 text-white" />
               </div>
               <div>
                 <div className="font-semibold text-white">帮助中心</div>
@@ -306,12 +349,41 @@ export default async function ProfilePage() {
             <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
-          </a>
+          </Link>
+
+          {/* 系统设置（可选） */}
+          <Link
+            href="/settings"
+            className="w-full flex items-center justify-between p-5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl hover:bg-white/10 transition-all duration-200 active:scale-[0.98]"
+          >
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-gray-600 to-gray-700 rounded-2xl flex items-center justify-center shadow-lg">
+                <Settings className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <div className="font-semibold text-white">系统设置</div>
+                <div className="text-xs text-white/50">通知、隐私等</div>
+              </div>
+            </div>
+            <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
 
           {/* 退出登录 */}
           <div className="w-full rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-5 flex items-center justify-center">
             <LogoutButton />
           </div>
+        </div>
+
+        {/* 页面底部提示 */}
+        <div className="mt-8 px-6 text-center">
+          <p className="text-xs text-gray-500">
+            遇到问题？请使用"我要反馈"功能或联系客服邮箱
+          </p>
+          <p className="text-xs text-gray-400 mt-1">
+            support@xiyi.asia
+          </p>
         </div>
       </div>
     </>
