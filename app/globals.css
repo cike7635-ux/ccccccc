@@ -30,6 +30,7 @@
     --chart-5: 27 87% 67%;
     --radius: 0.5rem;
   }
+
   .dark {
     --background: 240 10% 6%;
     --foreground: 0 0% 98%;
@@ -62,6 +63,7 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
     background: linear-gradient(180deg, #0a0a12 0%, #12101a 50%, #1a0f1f 100%);
@@ -77,33 +79,38 @@
     @apply bg-white/5 backdrop-blur-xl border border-white/10;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
   }
+
   .gradient-primary {
     @apply bg-gradient-to-r from-brand-pink via-brand-rose to-brand-purple;
   }
+
   .gradient-secondary {
     @apply bg-gradient-to-r from-[#667EEA] to-[#764BA2];
   }
+
   .glow-pink {
     box-shadow: 0 8px 24px rgba(255, 107, 157, 0.2);
   }
+
   .glow-purple {
     box-shadow: 0 8px 24px rgba(102, 126, 234, 0.2);
   }
+
   .heart-pattern {
     background-image: radial-gradient(circle, rgba(255, 107, 157, 0.08) 1px, transparent 1px);
     background-size: 30px 30px;
   }
-  
+
   /* 苹果风格按钮 */
   .apple-button {
     @apply rounded-2xl font-semibold transition-all duration-200;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   }
-  
+
   .apple-button:active {
     transform: scale(0.98);
   }
-  
+
   /* 苹果风格卡片 */
   .apple-card {
     @apply bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl;
@@ -116,15 +123,19 @@
     0% {
       transform: rotate3d(1, 1, 0, 0deg);
     }
+
     25% {
       transform: rotate3d(1, 1, 0, 90deg) scale(1.1);
     }
+
     50% {
       transform: rotate3d(1, 1, 0, 180deg) scale(1.2);
     }
+
     75% {
       transform: rotate3d(1, 1, 0, 270deg) scale(1.1);
     }
+
     100% {
       transform: rotate3d(1, 1, 0, 360deg);
     }
@@ -139,10 +150,12 @@
       box-shadow: 0 0 0 rgba(255, 107, 157, 0);
       transform: translateY(0) scale(1);
     }
+
     50% {
       box-shadow: 0 0 20px rgba(255, 107, 157, 0.35);
       transform: translateY(-1px) scale(1.03);
     }
+
     100% {
       box-shadow: 0 0 0 rgba(255, 107, 157, 0);
       transform: translateY(0) scale(1);
@@ -157,9 +170,11 @@
     0% {
       transform: scale(1);
     }
+
     50% {
       transform: scale(0.96) translateY(1px);
     }
+
     100% {
       transform: scale(1);
     }
@@ -168,4 +183,127 @@
   .animate-button-press {
     animation: button-press 180ms ease-out;
   }
+}
+
+/* 公告弹窗特定样式 - 添加到文件末尾 */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 弹窗淡入动画 */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out;
+}
+
+/* 公告内容样式 */
+.prose {
+  color: #e5e7eb;
+}
+
+.prose a {
+  color: #60a5fa;
+  text-decoration: underline;
+}
+
+.prose strong {
+  color: #fbbf24;
+  font-weight: bold;
+}
+
+.prose ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin: 1rem 0;
+}
+
+.prose ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin: 1rem 0;
+}
+
+.prose li {
+  margin: 0.5rem 0;
+}
+
+.prose h1,
+.prose h2,
+.prose h3 {
+  color: #f3f4f6;
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.prose h1 {
+  font-size: 1.5em;
+}
+
+.prose h2 {
+  font-size: 1.3em;
+}
+
+.prose h3 {
+  font-size: 1.1em;
+}
+
+/* 手机端优化 */
+@media (max-width: 640px) {
+  .prose {
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .prose h1 {
+    font-size: 1.3em;
+  }
+
+  .prose h2 {
+    font-size: 1.2em;
+  }
+
+  .prose h3 {
+    font-size: 1.1em;
+  }
+}
+
+/* 滚动条优化 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* 文本选择颜色 */
+::selection {
+  background-color: rgba(255, 107, 157, 0.3);
+  color: white;
 }
