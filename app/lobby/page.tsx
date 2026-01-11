@@ -1,4 +1,3 @@
-// /app/lobby/page.tsx
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -6,10 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { listAvailableThemes, createRoom, joinRoom } from "./actions";
-import { Users, LogIn, Layers, ChevronDown, Hash, Github } from "lucide-react";
+import { Users, LogIn, Layers, ChevronDown, Hash, ShoppingCart } from "lucide-react";
 import PreferencesModal from "@/components/profile/preferences-modal";
 import Link from "next/link";
-import AnnouncementBanner from "@/components/announcement-banner";
+import AnnouncementModal from "@/components/announcement-modal";
 
 export default async function LobbyPage({ searchParams }: { searchParams?: { error?: string } }) {
   // 1. 创建简化的Supabase客户端
@@ -73,14 +72,13 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
   return (
     <>
       <PreferencesModal />
+      <AnnouncementModal />
+      
       <div className="max-w-md mx-auto min-h-svh flex flex-col p-6 pb-24">
         {/* 顶部提示小字 */}
         <p className="text-xs text-white/60 text-center mb-2">
           将网站添加到主屏幕可以获得近似app的体验哦~
         </p>
-        
-        {/* 🔥 新增：公告横幅 */}
-        <AnnouncementBanner />
         
         {/* 会员状态提示 */}
         <div className="mb-4 p-3 glass rounded-xl">
@@ -96,15 +94,18 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
             <h2 className="text-2xl font-bold">首页</h2>
             <p className="text-sm text-gray-400 mt-1">找到你的对手，开始游戏</p>
           </div>
-          <Link
-            href="https://"
+          
+          {/* 🔥 淘宝店铺链接 - 替换原来的GitHub链接 */}
+          <a
+            href="https://shop.m.taobao.com/shop/shop_index.htm?shop_id=584630473"
             target="_blank"
-            rel="noopener noreferrer"
-            className="w-10 h-10 bg-white rounded-xl flex items-center justify-center hover:bg-white/90 transition-all"
-            aria-label="GitHub 仓库"
+            rel="noopener noreferrer nofollow"
+            className="w-10 h-10 bg-gradient-to-r from-orange-400 to-red-500 rounded-xl flex items-center justify-center hover:from-orange-500 hover:to-red-600 hover:shadow-lg transition-all group"
+            aria-label="淘宝店铺"
+            title="访问我的淘宝店铺"
           >
-            <Github className="w-5 h-5 text-black" />
-          </Link>
+            <ShoppingCart className="w-5 h-5 text-white group-hover:scale-110 transition-transform" />
+          </a>
         </div>
 
         <div className="space-y-6">
