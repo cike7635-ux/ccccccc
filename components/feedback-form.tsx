@@ -1,9 +1,7 @@
 "use client";
 
-// 修复顶部导入
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
 import { 
   AlertCircle, 
   Star, 
@@ -17,7 +15,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from 'sonner';
 
 interface FeedbackFormProps {
@@ -27,7 +24,6 @@ interface FeedbackFormProps {
 
 export default function FeedbackForm({ onSuccess, hasPendingFeedback = false }: FeedbackFormProps) {
   const router = useRouter();
-  const supabase = createClientComponentClient();
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
@@ -50,7 +46,6 @@ export default function FeedbackForm({ onSuccess, hasPendingFeedback = false }: 
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     
-    // 清除对应错误
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
@@ -102,21 +97,11 @@ export default function FeedbackForm({ onSuccess, hasPendingFeedback = false }: 
     setIsSubmitting(true);
 
     try {
-      // 获取用户会话
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        toast.error('请先登录');
-        router.push('/login?redirect=/feedback');
-        return;
-      }
-
       // 提交反馈
       const response = await fetch('/api/feedback', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
           title: formData.title,
@@ -139,16 +124,11 @@ export default function FeedbackForm({ onSuccess, hasPendingFeedback = false }: 
         
         toast.success(result.message);
         
-        // 触发成功回调
         if (onSuccess) {
           onSuccess();
         }
       } else {
-        if (result.error.includes('待处理的反馈')) {
-          toast.error(result.error);
-        } else {
-          toast.error(result.error || '提交失败，请重试');
-        }
+        toast.error(result.error || '提交失败，请重试');
       }
     } catch (error) {
       console.error('提交反馈失败:', error);
@@ -163,32 +143,29 @@ export default function FeedbackForm({ onSuccess, hasPendingFeedback = false }: 
       {/* 分类选择 */}
       <div className="space-y-3">
         <Label>反馈类型</Label>
-        <RadioGroup 
-          value={formData.category} 
-          onValueChange={handleCategoryChange}
-          className="grid grid-cols-2 sm:grid-cols-5 gap-3"
-        >
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           {categories.map((category) => {
             const Icon = category.icon;
+            const isSelected = formData.category === category.value;
+            
             return (
-              <div key={category.value} className="relative">
-                <RadioGroupItem
-                  value={category.value}
-                  id={`category-${category.value}`}
-                  className="peer sr-only"
-                />
-                <Label
-                  htmlFor={`category-${category.value}`}
-                  className="flex flex-col items-center justify-center p-4 glass rounded-xl cursor-pointer transition-all hover:bg-white/5 peer-data-[state=checked]:bg-gradient-to-r peer-data-[state=checked]:from-pink-500/20 peer-data-[state=checked]:to-purple-600/20 peer-data-[state=checked]:border-pink-500/40"
-                >
-                  <Icon className="w-5 h-5 mb-2" />
-                  <span className="text-sm font-medium">{category.label}</span>
-                  <span className="text-xs text-gray-400 mt-1 text-center">{category.description}</span>
-                </Label>
-              </div>
+              <button
+                key={category.value}
+                type="button"
+                onClick={() => handleCategoryChange(category.value)}
+                className={`flex flex-col items-center justify-center p-4 glass rounded-xl cursor-pointer transition-all hover:bg-white/5 ${
+                  isSelected 
+                    ? 'bg-gradient-to-r from-pink-500/20 to-purple-600/20 border border-pink-500/40' 
+                    : ''
+                }`}
+              >
+                <Icon className="w-5 h-5 mb-2" />
+                <span className="text-sm font-medium">{category.label}</span>
+                <span className="text-xs text-gray-400 mt-1 text-center">{category.description}</span>
+              </button>
             );
           })}
-        </RadioGroup>
+        </div>
       </div>
 
       {/* 标题输入 */}
