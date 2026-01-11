@@ -1,8 +1,9 @@
 "use client";
 
+// 修复顶部导入
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@supabase/supabase-js';
 import { 
   AlertCircle, 
   Star, 

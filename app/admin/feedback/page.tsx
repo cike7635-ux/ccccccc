@@ -1,8 +1,8 @@
 "use client";
-
+// 修复顶部导入
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@supabase/supabase-js';
 import {
   MessageSquare,
   Filter,
@@ -36,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
+import { Label } from '@/components/ui/label';
 
 // 反馈类型定义
 interface Feedback {
