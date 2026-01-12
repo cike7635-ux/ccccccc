@@ -45,7 +45,7 @@ function isProtectedGamePath(path: string): boolean {
 }
 
 function isPublicPath(path: string): boolean {
-  const exactPublicPaths = ['/', '/login', '/account-expired', '/renew', '/admin/unauthorized', '/login/expired'];
+  const exactPublicPaths = ['/', '/login', '/account-expired', '/renew', '/admin/unauthorized', '/login/expired','/feedback'];
   if (exactPublicPaths.includes(path)) return true;
   const prefixPublicPaths = ['/auth/', '/api/auth/'];
   return prefixPublicPaths.some(prefix => path.startsWith(prefix));
