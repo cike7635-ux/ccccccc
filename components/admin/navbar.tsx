@@ -1,5 +1,9 @@
 // /components/admin/navbar.tsx - 完整修复版本
+// 确保这是完整的第一行
 'use client'
+
+import { useState, useEffect } from 'react';  // 添加这行
+import Link from 'next/link';  // 添加这行
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -12,6 +16,7 @@ import {
   X,
   MessageSquare
 } from 'lucide-react'
+
 
 const navItems = [
   { href: '/admin/dashboard', label: '仪表板', icon: LayoutDashboard },

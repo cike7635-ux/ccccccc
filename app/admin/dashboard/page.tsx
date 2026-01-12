@@ -2,7 +2,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/server' // 这行可能需要调整
+// import { createClient } from '@/lib/supabase/server' // 这行可能需要调整
 import StatsCards from './components/stats-cards'
 import UserGrowthChart from './components/user-growth-chart'
 import SystemStatus from './components/system-status'
