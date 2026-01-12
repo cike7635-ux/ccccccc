@@ -14,7 +14,9 @@ import {
   MessageCircle,
   Heart,
   RefreshCw,
-  LogOut
+  LogOut,
+  ArrowRight,
+  Users
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -48,7 +50,7 @@ interface Feedback {
 
 export default function FeedbackPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState('submit');
+  const [activeTab, setActiveTab] = useState('public'); // 默认显示公开反馈
   const [userFeedback, setUserFeedback] = useState<Feedback[]>([]);
   const [publicFeedback, setPublicFeedback] = useState<Feedback[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -61,116 +63,107 @@ export default function FeedbackPage() {
   });
   const [isClient, setIsClient] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [isLoadingPublic, setIsLoadingPublic] = useState(false);
   const authCheckCountRef = useRef(0);
 
   useEffect(() => {
     setIsClient(true);
-    
-    // 检查用户会话
     checkSession();
-  }, [activeTab]);
+  }, []);
+
+  useEffect(() => {
+    // 当用户状态或标签变化时加载数据
+    if (!isCheckingAuth) {
+      loadDataForCurrentTab();
+    }
+  }, [activeTab, user, isCheckingAuth]);
+
+  const loadDataForCurrentTab = async () => {
+    if (activeTab === 'public') {
+      await loadPublicFeedback();
+    } else if (activeTab === 'mine' && user) {
+      await loadUserFeedback();
+    }
+  };
 
   const checkSession = async () => {
     try {
       setIsCheckingAuth(true);
       console.log('🔍 开始检查用户会话...');
       
-      // 🔥 关键修复：增加重试机制，给Supabase时间恢复会话
-      let session = null;
-      let retryCount = 0;
-      const maxRetries = 5;
-      
-      while (retryCount < maxRetries && !session) {
-        const { data } = await supabase.auth.getSession();
-        session = data.session;
-        
-        if (!session) {
-          console.log(`⏳ 第 ${retryCount + 1} 次尝试：会话未就绪`);
-          // 增加等待时间，逐渐延长
-          const waitTime = 200 * (retryCount + 1);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-        }
-        retryCount++;
-      }
+      // 🔥 关键修复：先检查是否有缓存会话，不立即重定向
+      const { data: { session } } = await supabase.auth.getSession();
       
       console.log('会话检查结果:', {
         hasSession: !!session,
         userEmail: session?.user?.email,
-        retries: retryCount,
         checkCount: ++authCheckCountRef.current
       });
       
-      if (!session) {
-        console.log('❌ 经过多次重试后仍未获取到会话，重定向到登录页');
-        // 🔥 关键修复：使用replace而不是push，避免历史记录堆积
-        toast.error('请先登录');
-        router.replace(`/login?redirect=${encodeURIComponent('/feedback')}`);
-        return;
-      }
-      
-      // 🔥 关键修复：确保用户数据完整
-      if (!session.user?.email) {
-        console.log('⚠️ 会话存在但用户数据不完整，重新获取用户信息');
-        const { data: { user: freshUser }, error } = await supabase.auth.getUser();
+      if (session?.user) {
+        // ✅ 有会话，设置用户
+        setUser(session.user);
+        console.log('✅ 用户已登录:', session.user.email);
         
-        if (error || !freshUser) {
-          console.log('❌ 无法获取完整用户信息，重新登录');
-          toast.error('登录信息不完整，请重新登录');
-          router.replace(`/login?redirect=${encodeURIComponent('/feedback')}`);
-          return;
+        // 如果是"我的反馈"标签，加载用户反馈
+        if (activeTab === 'mine') {
+          await loadUserFeedback();
+        }
+      } else {
+        // ⚠️ 没有会话，但先不重定向
+        console.log('⚠️ 未检测到用户会话，显示公开反馈');
+        setUser(null);
+        
+        // 确保显示公开反馈标签
+        if (activeTab !== 'public') {
+          setActiveTab('public');
         }
         
-        session.user = freshUser;
+        // 加载公开反馈
+        await loadPublicFeedback();
       }
       
-      // 设置用户状态
-      setUser(session.user);
-      setIsCheckingAuth(false);
-      
-      console.log('✅ 用户已登录:', session.user.email);
-      
-      // 根据当前标签加载数据
-      if (activeTab === 'mine') {
-        loadUserFeedback(session.access_token);
-      } else if (activeTab === 'public') {
-        loadPublicFeedback();
-      }
     } catch (error) {
       console.error('检查会话失败:', error);
+      // 即使出错，也尝试加载公开反馈
+      setUser(null);
+      await loadPublicFeedback();
+    } finally {
       setIsCheckingAuth(false);
-      
-      // 🔥 关键修复：更好的错误处理
-      if (error instanceof Error) {
-        if (error.message.includes('网络') || error.message.includes('Network')) {
-          toast.error('网络连接不稳定，请检查网络后刷新页面');
-        } else {
-          toast.error('登录状态检查失败，请稍后重试');
-        }
-      }
     }
   };
 
-  const loadUserFeedback = async (accessToken?: string) => {
-    if (!accessToken) {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      accessToken = session.access_token;
+  const loadUserFeedback = async () => {
+    if (!user) {
+      console.log('⚠️ 未登录用户尝试加载个人反馈，自动切换到公开反馈');
+      setActiveTab('public');
+      await loadPublicFeedback();
+      return;
     }
     
     setIsLoading(true);
     try {
-      console.log('📥 加载用户反馈，使用token:', accessToken.substring(0, 10) + '...');
+      console.log('📥 加载用户反馈');
+      
+      // 获取当前会话
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.log('❌ 会话不存在，重定向到登录');
+        toast.error('请先登录');
+        return;
+      }
       
       const response = await fetch('/api/feedback/my', {
         headers: {
-          'Authorization': `Bearer ${accessToken}`
+          'Authorization': `Bearer ${session.access_token}`
         }
       });
       
       if (response.status === 401 || response.status === 403) {
         console.log('❌ Token无效或过期');
-        toast.error('登录已过期，请重新登录');
-        router.replace(`/login?redirect=${encodeURIComponent('/feedback')}`);
+        setUser(null);
+        toast.error('登录已过期');
+        setActiveTab('public');
         return;
       }
       
@@ -198,7 +191,7 @@ export default function FeedbackPage() {
   };
 
   const loadPublicFeedback = async () => {
-    setIsLoading(true);
+    setIsLoadingPublic(true);
     try {
       console.log('📥 加载公开反馈');
       
@@ -216,15 +209,14 @@ export default function FeedbackPage() {
       console.error('加载公开反馈异常:', error);
       toast.error('网络错误，请检查连接');
     } finally {
-      setIsLoading(false);
+      setIsLoadingPublic(false);
     }
   };
 
   const handleSubmitSuccess = async () => {
     // 重新加载用户反馈
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      loadUserFeedback(session.access_token);
+    if (user) {
+      await loadUserFeedback();
     }
     
     setActiveTab('mine');
@@ -232,15 +224,10 @@ export default function FeedbackPage() {
   };
 
   const handleRefresh = async () => {
-    if (activeTab === 'mine') {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        loadUserFeedback(session.access_token);
-      } else {
-        checkSession();
-      }
+    if (activeTab === 'mine' && user) {
+      await loadUserFeedback();
     } else if (activeTab === 'public') {
-      loadPublicFeedback();
+      await loadPublicFeedback();
     }
   };
 
@@ -248,11 +235,28 @@ export default function FeedbackPage() {
     try {
       await supabase.auth.signOut();
       toast.success('已退出登录');
-      router.replace('/login?redirect=/feedback');
+      setUser(null);
+      setActiveTab('public');
+      await loadPublicFeedback();
     } catch (error) {
       console.error('退出登录失败:', error);
       toast.error('退出登录失败');
     }
+  };
+
+  const handleTabChange = (tab: string) => {
+    if ((tab === 'submit' || tab === 'mine') && !user) {
+      toast.info('请先登录以使用此功能');
+      router.push(`/login?redirect=/feedback&tab=${tab}`);
+      return;
+    }
+    
+    if (tab === 'submit' && hasPendingFeedback) {
+      toast.error('您有待处理的反馈，请等待管理员回复后再提交新的反馈');
+      return;
+    }
+    
+    setActiveTab(tab);
   };
 
   const getStatusColor = (status: string) => {
@@ -287,6 +291,17 @@ export default function FeedbackPage() {
     }
   };
 
+  // 动态导入FeedbackForm，避免服务器端渲染问题
+  const [FeedbackFormComponent, setFeedbackFormComponent] = useState<React.ComponentType<any> | null>(null);
+  
+  useEffect(() => {
+    if (activeTab === 'submit' && user) {
+      import('@/components/feedback-form').then(module => {
+        setFeedbackFormComponent(() => module.default);
+      });
+    }
+  }, [activeTab, user]);
+
   // 显示认证检查状态
   if (isCheckingAuth) {
     return (
@@ -295,43 +310,190 @@ export default function FeedbackPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 mb-4">
             <RefreshCw className="w-8 h-8 text-white animate-spin" />
           </div>
-          <h1 className="text-3xl font-bold mb-2">正在验证登录状态...</h1>
-          <p className="text-gray-400 mb-2">请稍候，这可能需要几秒钟</p>
-          <p className="text-sm text-gray-500">
-            检查次数: {authCheckCountRef.current}
-          </p>
-          <div className="mt-6">
-            <button
-              onClick={() => {
-                console.log('用户手动触发重试');
-                checkSession();
-              }}
-              className="text-sm text-pink-500 hover:text-pink-400"
-            >
-              如果长时间停留，点击这里重试
-            </button>
-          </div>
+          <h1 className="text-3xl font-bold mb-2">正在加载...</h1>
+          <p className="text-gray-400">请稍候，正在检查您的登录状态</p>
         </div>
       </div>
     );
   }
 
-  // 如果用户未登录，显示空白或重定向（已由checkSession处理）
+  // 显示未登录状态的完整页面
   if (!user) {
     return (
       <div className="container mx-auto px-4 py-8 max-w-4xl">
+        {/* 页面标题 */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 mb-4">
-            <AlertCircle className="w-8 h-8 text-white" />
+            <MessageSquare className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-3xl font-bold mb-2">请先登录</h1>
-          <p className="text-gray-400">正在跳转到登录页面...</p>
-          <div className="mt-4">
+          <h1 className="text-3xl font-bold mb-2">用户反馈中心</h1>
+          <p className="text-gray-400">在这里查看其他用户的反馈和我们官方的回复</p>
+          
+          {/* 登录提示卡片 */}
+          <div className="mt-6 glass rounded-2xl p-6 max-w-md mx-auto">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-gradient-to-r from-pink-500 to-purple-600 rounded-full flex items-center justify-center">
+                <Users className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg">想要提交反馈？</h3>
+                <p className="text-sm text-gray-400">登录后可以提交自己的反馈并查看处理进度</p>
+              </div>
+            </div>
             <button
-              onClick={() => router.replace('/login')}
-              className="px-4 py-2 bg-pink-500 hover:bg-pink-600 rounded-lg text-white"
+              onClick={() => router.push('/login?redirect=/feedback')}
+              className="w-full px-6 py-3 bg-gradient-to-r from-pink-500 to-purple-600 hover:opacity-90 rounded-lg text-white font-medium flex items-center justify-center gap-2"
             >
               立即登录
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            <p className="text-xs text-gray-500 text-center mt-3">
+              登录后可以访问所有功能
+            </p>
+          </div>
+        </div>
+
+        {/* 标签页导航 - 未登录时只显示公开反馈 */}
+        <div className="flex border-b border-gray-800 mb-8 justify-center">
+          <button
+            onClick={() => setActiveTab('public')}
+            className={`px-6 py-3 font-medium text-sm ${activeTab === 'public' ? 'border-b-2 border-pink-500 text-pink-500' : 'text-gray-400 hover:text-gray-300'}`}
+          >
+            精选反馈
+          </button>
+          <button
+            onClick={() => {
+              toast.info('请先登录以提交反馈');
+              router.push('/login?redirect=/feedback&tab=submit');
+            }}
+            className="px-6 py-3 font-medium text-sm text-gray-400 hover:text-gray-300 flex items-center"
+          >
+            提交反馈
+          </button>
+          <button
+            onClick={() => {
+              toast.info('请先登录以查看个人反馈');
+              router.push('/login?redirect=/feedback&tab=mine');
+            }}
+            className="px-6 py-3 font-medium text-sm text-gray-400 hover:text-gray-300 flex items-center"
+          >
+            我的反馈
+          </button>
+        </div>
+
+        {/* 公开反馈内容 */}
+        <div className="glass rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <ThumbsUp className="w-5 h-5" />
+              精选反馈
+            </h2>
+            <button
+              onClick={handleRefresh}
+              disabled={isLoadingPublic}
+              className="text-sm text-gray-400 hover:text-white flex items-center disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 mr-1 ${isLoadingPublic ? 'animate-spin' : ''}`} />
+              刷新
+            </button>
+          </div>
+
+          {isLoadingPublic ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500 mx-auto"></div>
+              <p className="text-gray-400 mt-2">加载中...</p>
+            </div>
+          ) : publicFeedback.length === 0 ? (
+            <div className="text-center py-12">
+              <Heart className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-400">暂无精选反馈</p>
+              <p className="text-sm text-gray-500 mt-1">
+                管理员会将有价值的反馈精选到这里
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {publicFeedback.map((feedback) => (
+                <div key={feedback.id} className="glass rounded-xl p-6">
+                  {feedback.is_featured && (
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-6 h-6 bg-gradient-to-r from-pink-500 to-purple-600 rounded-full flex items-center justify-center">
+                        <Star className="w-3 h-3 text-white" />
+                      </div>
+                      <span className="text-sm font-semibold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-600">
+                        置顶精选
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="font-semibold text-xl mb-1">{feedback.title}</h3>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-400">
+                          {feedback.user_nickname || '匿名用户'}
+                        </span>
+                        <span className="text-xs text-gray-500">•</span>
+                        <span className="text-sm text-gray-400">
+                          {formatDate(feedback.created_at)}
+                        </span>
+                      </div>
+                    </div>
+                    {feedback.rating && (
+                      <div className="flex items-center">
+                        {[...Array(5)].map((_, i) => (
+                          <Star
+                            key={i}
+                            className={`w-5 h-5 ${i < feedback.rating!
+                                ? 'text-yellow-500 fill-yellow-500'
+                                : 'text-gray-400'
+                              }`}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mb-6">
+                    <p className="text-gray-300 text-lg whitespace-pre-wrap">{feedback.content}</p>
+                  </div>
+
+                  {feedback.admin_reply && (
+                    <div className="mt-6 p-5 rounded-xl bg-gradient-to-r from-blue-500/10 to-cyan-500/10">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full flex items-center justify-center">
+                          <CheckCircle className="w-4 h-4 text-white" />
+                        </div>
+                        <div>
+                          <div className="font-semibold text-lg">官方回复</div>
+                          <div className="text-sm text-gray-400">
+                            {feedback.replied_at && formatDate(feedback.replied_at)}
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-gray-300 text-lg whitespace-pre-wrap">
+                        {feedback.admin_reply}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 页面底部提示 */}
+        <div className="mt-8 text-center text-sm text-gray-500">
+          <p>我们重视每一条反馈，通常会在1-3个工作日内回复</p>
+          <p className="mt-1">
+            如需紧急帮助，请联系邮箱：<a href="mailto:support@xiyi.asia" className="text-pink-500 hover:underline">support@xiyi.asia</a>
+          </p>
+          <div className="mt-4">
+            <button
+              onClick={() => router.push('/login?redirect=/feedback')}
+              className="px-4 py-2 bg-gradient-to-r from-pink-500 to-purple-600 hover:opacity-90 rounded-lg text-white text-sm"
+            >
+              立即登录以提交反馈
             </button>
           </div>
         </div>
@@ -339,17 +501,7 @@ export default function FeedbackPage() {
     );
   }
 
-  // 动态导入FeedbackForm，避免服务器端渲染问题
-  const [FeedbackFormComponent, setFeedbackFormComponent] = useState<React.ComponentType<any> | null>(null);
-  
-  useEffect(() => {
-    if (activeTab === 'submit') {
-      import('@/components/feedback-form').then(module => {
-        setFeedbackFormComponent(() => module.default);
-      });
-    }
-  }, [activeTab]);
-
+  // 已登录用户的完整页面
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       {/* 页面标题和用户信息 */}
@@ -368,13 +520,11 @@ export default function FeedbackPage() {
           
           <div className="flex gap-2">
             <button
-              onClick={() => {
-                console.log('手动刷新会话状态');
-                checkSession();
-              }}
-              className="text-xs px-3 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors"
+              onClick={handleRefresh}
+              className="text-xs px-3 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors flex items-center gap-1"
             >
-              刷新会话
+              <RefreshCw className="w-3 h-3" />
+              刷新
             </button>
             
             <button
@@ -389,7 +539,7 @@ export default function FeedbackPage() {
       </div>
 
       {/* 警告提示 */}
-      {hasPendingFeedback && activeTab !== 'submit' && (
+      {hasPendingFeedback && activeTab === 'submit' && (
         <div className="mb-6 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30">
           <div className="flex items-center">
             <AlertCircle className="w-5 h-5 text-yellow-500 mr-2" />
@@ -403,13 +553,13 @@ export default function FeedbackPage() {
       {/* 标签页导航 */}
       <div className="flex border-b border-gray-800 mb-8">
         <button
-          onClick={() => setActiveTab('submit')}
+          onClick={() => handleTabChange('submit')}
           className={`px-6 py-3 font-medium text-sm ${activeTab === 'submit' ? 'border-b-2 border-pink-500 text-pink-500' : 'text-gray-400 hover:text-gray-300'}`}
         >
           提交反馈
         </button>
         <button
-          onClick={() => setActiveTab('mine')}
+          onClick={() => handleTabChange('mine')}
           className={`px-6 py-3 font-medium text-sm flex items-center ${activeTab === 'mine' ? 'border-b-2 border-pink-500 text-pink-500' : 'text-gray-400 hover:text-gray-300'}`}
         >
           我的反馈
@@ -420,7 +570,7 @@ export default function FeedbackPage() {
           )}
         </button>
         <button
-          onClick={() => setActiveTab('public')}
+          onClick={() => handleTabChange('public')}
           className={`px-6 py-3 font-medium text-sm ${activeTab === 'public' ? 'border-b-2 border-pink-500 text-pink-500' : 'text-gray-400 hover:text-gray-300'}`}
         >
           精选反馈
@@ -482,6 +632,12 @@ export default function FeedbackPage() {
               <p className="text-sm text-gray-500 mt-1">
                 快去提交第一条反馈吧！
               </p>
+              <button
+                onClick={() => setActiveTab('submit')}
+                className="mt-4 px-4 py-2 bg-gradient-to-r from-pink-500 to-purple-600 hover:opacity-90 rounded-lg text-white"
+              >
+                提交反馈
+              </button>
             </div>
           ) : (
             <div className="space-y-4">
@@ -568,15 +724,15 @@ export default function FeedbackPage() {
             </h2>
             <button
               onClick={handleRefresh}
-              disabled={isLoading}
+              disabled={isLoadingPublic}
               className="text-sm text-gray-400 hover:text-white flex items-center disabled:opacity-50"
             >
-              <RefreshCw className={`w-4 h-4 mr-1 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 mr-1 ${isLoadingPublic ? 'animate-spin' : ''}`} />
               刷新
             </button>
           </div>
 
-          {isLoading ? (
+          {isLoadingPublic ? (
             <div className="text-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500 mx-auto"></div>
               <p className="text-gray-400 mt-2">加载中...</p>
@@ -668,7 +824,7 @@ export default function FeedbackPage() {
           如需紧急帮助，请联系邮箱：<a href="mailto:support@xiyi.asia" className="text-pink-500 hover:underline">support@xiyi.asia</a>
         </p>
         <div className="mt-4 text-xs text-gray-600">
-          页面状态：已登录 | 检查次数：{authCheckCountRef.current} | 会话状态：正常
+          用户状态：已登录 | 检查次数：{authCheckCountRef.current}
         </div>
       </div>
     </div>
