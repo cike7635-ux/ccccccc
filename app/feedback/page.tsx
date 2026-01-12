@@ -1,8 +1,9 @@
-// app\feedback\page.tsx
+// /app/feedback/page.tsx
 "use client";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -12,14 +13,12 @@ import {
   Clock,
   Eye,
   ThumbsUp,
-  ChevronRight,
   AlertCircle,
   MessageCircle,
   Heart
 } from 'lucide-react';
 import FeedbackForm from '@/components/feedback-form';
 import { toast } from 'sonner';
-import Link from 'next/link';
 
 interface Feedback {
   id: number;
@@ -41,7 +40,7 @@ export default function FeedbackPage() {
   const [activeTab, setActiveTab] = useState('submit');
   const [userFeedback, setUserFeedback] = useState<Feedback[]>([]);
   const [publicFeedback, setPublicFeedback] = useState<Feedback[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [hasPendingFeedback, setHasPendingFeedback] = useState(false);
   const [stats, setStats] = useState({
@@ -51,24 +50,24 @@ export default function FeedbackPage() {
   });
 
   useEffect(() => {
-    // 简单检查用户是否登录
-    useEffect(() => {
-      // 只在客户端执行
-      if (typeof window === 'undefined') return;
+    // 只在客户端执行
+    if (typeof window === 'undefined') return;
 
-      const userEmail = localStorage.getItem('user_email');
-      if (!userEmail) {
-        router.push('/login?redirect=/feedback');
-        return;
-      }
-      setUser({ email: userEmail });
+    const userEmail = localStorage.getItem('user_email');
+    if (!userEmail) {
+      router.push('/login?redirect=/feedback');
+      return;
+    }
+    setUser({ email: userEmail });
 
-      if (activeTab === 'mine') {
-        loadUserFeedback();
-      } else if (activeTab === 'public') {
-        loadPublicFeedback();
-      }
-    }, [activeTab]);
+    // 根据当前标签加载数据
+    if (activeTab === 'mine') {
+      loadUserFeedback();
+    } else if (activeTab === 'public') {
+      loadPublicFeedback();
+    }
+  }, [activeTab]);
+
   const loadUserFeedback = async () => {
     setIsLoading(true);
     try {
