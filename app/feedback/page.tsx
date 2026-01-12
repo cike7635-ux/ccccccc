@@ -1,12 +1,15 @@
+// app\feedback\page.tsx
 "use client";
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  MessageSquare, 
-  Star, 
-  CheckCircle, 
-  Clock, 
+import {
+  MessageSquare,
+  Star,
+  CheckCircle,
+  Clock,
   Eye,
   ThumbsUp,
   ChevronRight,
@@ -49,27 +52,29 @@ export default function FeedbackPage() {
 
   useEffect(() => {
     // 简单检查用户是否登录
-    const userEmail = localStorage.getItem('user_email');
-    if (!userEmail) {
-      router.push('/login?redirect=/feedback');
-      return;
-    }
-    setUser({ email: userEmail });
-    
-    // 加载数据
-    if (activeTab === 'mine') {
-      loadUserFeedback();
-    } else if (activeTab === 'public') {
-      loadPublicFeedback();
-    }
-  }, [activeTab]);
+    useEffect(() => {
+      // 只在客户端执行
+      if (typeof window === 'undefined') return;
 
+      const userEmail = localStorage.getItem('user_email');
+      if (!userEmail) {
+        router.push('/login?redirect=/feedback');
+        return;
+      }
+      setUser({ email: userEmail });
+
+      if (activeTab === 'mine') {
+        loadUserFeedback();
+      } else if (activeTab === 'public') {
+        loadPublicFeedback();
+      }
+    }, [activeTab]);
   const loadUserFeedback = async () => {
     setIsLoading(true);
     try {
       const response = await fetch('/api/feedback/my');
       const result = await response.json();
-      
+
       if (result.success) {
         setUserFeedback(result.data);
         setStats(result.stats);
@@ -88,7 +93,7 @@ export default function FeedbackPage() {
     try {
       const response = await fetch('/api/feedback/public');
       const result = await response.json();
-      
+
       if (result.success) {
         setPublicFeedback(result.data);
       }
@@ -194,7 +199,7 @@ export default function FeedbackPage() {
           <p className="text-gray-400 mb-6">
             请详细描述您遇到的问题或建议，我们会认真阅读并尽快回复
           </p>
-          <FeedbackForm 
+          <FeedbackForm
             onSuccess={handleSubmitSuccess}
             hasPendingFeedback={hasPendingFeedback}
           />
@@ -208,7 +213,7 @@ export default function FeedbackPage() {
               <Eye className="w-5 h-5" />
               我的反馈记录
             </h2>
-            <button 
+            <button
               onClick={loadUserFeedback}
               disabled={isLoading}
               className="text-sm text-gray-400 hover:text-white"
@@ -256,8 +261,8 @@ export default function FeedbackPage() {
                       <h3 className="font-semibold text-lg">{feedback.title}</h3>
                       <div className="flex items-center gap-2 mt-1">
                         <span className={`px-2 py-1 rounded text-xs ${getStatusColor(feedback.status)}`}>
-                          {feedback.status === 'pending' ? '待处理' : 
-                           feedback.status === 'replied' ? '已回复' : '已解决'}
+                          {feedback.status === 'pending' ? '待处理' :
+                            feedback.status === 'replied' ? '已回复' : '已解决'}
                         </span>
                         <span className="text-sm text-gray-400">
                           {formatDate(feedback.created_at)}
@@ -269,11 +274,10 @@ export default function FeedbackPage() {
                         {[...Array(5)].map((_, i) => (
                           <Star
                             key={i}
-                            className={`w-4 h-4 ${
-                              i < feedback.rating! 
-                                ? 'text-yellow-500 fill-yellow-500' 
+                            className={`w-4 h-4 ${i < feedback.rating!
+                                ? 'text-yellow-500 fill-yellow-500'
                                 : 'text-gray-400'
-                            }`}
+                              }`}
                           />
                         ))}
                       </div>
@@ -341,7 +345,7 @@ export default function FeedbackPage() {
                       </span>
                     </div>
                   )}
-                  
+
                   <div className="flex items-start justify-between mb-4">
                     <div>
                       <h3 className="font-semibold text-xl mb-1">{feedback.title}</h3>
@@ -360,11 +364,10 @@ export default function FeedbackPage() {
                         {[...Array(5)].map((_, i) => (
                           <Star
                             key={i}
-                            className={`w-5 h-5 ${
-                              i < feedback.rating! 
-                                ? 'text-yellow-500 fill-yellow-500' 
+                            className={`w-5 h-5 ${i < feedback.rating!
+                                ? 'text-yellow-500 fill-yellow-500'
                                 : 'text-gray-400'
-                            }`}
+                              }`}
                           />
                         ))}
                       </div>
