@@ -23,7 +23,7 @@ const navItems = [
   { href: '/admin/users', label: '用户管理', icon: Users },
   { href: '/admin/keys', label: '密钥管理', icon: Key },
   { href: '/admin/ai-usage', label: 'AI统计', icon: Brain },
-  { href: '/admin/feedback', label: '反馈管理', icon: MessageSquare },
+  // { href: '/admin/feedback', label: '反馈管理', icon: MessageSquare },
   { href: '/admin/settings', label: '系统设置', icon: Settings },
 ]
 
