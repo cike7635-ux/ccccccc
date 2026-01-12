@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -13,7 +13,8 @@ import {
   AlertCircle,
   MessageCircle,
   Heart,
-  RefreshCw
+  RefreshCw,
+  LogOut
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -60,6 +61,7 @@ export default function FeedbackPage() {
   });
   const [isClient, setIsClient] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const authCheckCountRef = useRef(0);
 
   useEffect(() => {
     setIsClient(true);
@@ -73,20 +75,52 @@ export default function FeedbackPage() {
       setIsCheckingAuth(true);
       console.log('🔍 开始检查用户会话...');
       
-      // 使用Supabase检查会话
-      const { data: { session } } = await supabase.auth.getSession();
+      // 🔥 关键修复：增加重试机制，给Supabase时间恢复会话
+      let session = null;
+      let retryCount = 0;
+      const maxRetries = 5;
+      
+      while (retryCount < maxRetries && !session) {
+        const { data } = await supabase.auth.getSession();
+        session = data.session;
+        
+        if (!session) {
+          console.log(`⏳ 第 ${retryCount + 1} 次尝试：会话未就绪`);
+          // 增加等待时间，逐渐延长
+          const waitTime = 200 * (retryCount + 1);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+        retryCount++;
+      }
       
       console.log('会话检查结果:', {
         hasSession: !!session,
         userEmail: session?.user?.email,
-        sessionAge: session ? Date.now() - new Date(session.expires_at! * 1000).getTime() : 'N/A'
+        retries: retryCount,
+        checkCount: ++authCheckCountRef.current
       });
       
       if (!session) {
-        console.log('❌ 用户未登录，重定向到登录页');
+        console.log('❌ 经过多次重试后仍未获取到会话，重定向到登录页');
+        // 🔥 关键修复：使用replace而不是push，避免历史记录堆积
         toast.error('请先登录');
-        router.push('/login?redirect=/feedback');
+        router.replace(`/login?redirect=${encodeURIComponent('/feedback')}`);
         return;
+      }
+      
+      // 🔥 关键修复：确保用户数据完整
+      if (!session.user?.email) {
+        console.log('⚠️ 会话存在但用户数据不完整，重新获取用户信息');
+        const { data: { user: freshUser }, error } = await supabase.auth.getUser();
+        
+        if (error || !freshUser) {
+          console.log('❌ 无法获取完整用户信息，重新登录');
+          toast.error('登录信息不完整，请重新登录');
+          router.replace(`/login?redirect=${encodeURIComponent('/feedback')}`);
+          return;
+        }
+        
+        session.user = freshUser;
       }
       
       // 设置用户状态
@@ -104,7 +138,15 @@ export default function FeedbackPage() {
     } catch (error) {
       console.error('检查会话失败:', error);
       setIsCheckingAuth(false);
-      toast.error('登录状态检查失败');
+      
+      // 🔥 关键修复：更好的错误处理
+      if (error instanceof Error) {
+        if (error.message.includes('网络') || error.message.includes('Network')) {
+          toast.error('网络连接不稳定，请检查网络后刷新页面');
+        } else {
+          toast.error('登录状态检查失败，请稍后重试');
+        }
+      }
     }
   };
 
@@ -126,9 +168,9 @@ export default function FeedbackPage() {
       });
       
       if (response.status === 401 || response.status === 403) {
-        console.log('❌ Token无效或过期，刷新页面');
+        console.log('❌ Token无效或过期');
         toast.error('登录已过期，请重新登录');
-        router.push('/login?redirect=/feedback');
+        router.replace(`/login?redirect=${encodeURIComponent('/feedback')}`);
         return;
       }
       
@@ -145,7 +187,11 @@ export default function FeedbackPage() {
       }
     } catch (error) {
       console.error('加载用户反馈异常:', error);
-      toast.error('网络错误，请检查连接');
+      if (error instanceof Error && error.message.includes('Failed to fetch')) {
+        toast.error('网络错误，请检查您的网络连接');
+      } else {
+        toast.error('加载失败，请刷新页面重试');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -198,6 +244,17 @@ export default function FeedbackPage() {
     }
   };
 
+  const handleManualLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      toast.success('已退出登录');
+      router.replace('/login?redirect=/feedback');
+    } catch (error) {
+      console.error('退出登录失败:', error);
+      toast.error('退出登录失败');
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending': return 'bg-yellow-500/20 text-yellow-600';
@@ -238,8 +295,22 @@ export default function FeedbackPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 mb-4">
             <RefreshCw className="w-8 h-8 text-white animate-spin" />
           </div>
-          <h1 className="text-3xl font-bold mb-2">检查登录状态...</h1>
-          <p className="text-gray-400">正在验证您的登录状态</p>
+          <h1 className="text-3xl font-bold mb-2">正在验证登录状态...</h1>
+          <p className="text-gray-400 mb-2">请稍候，这可能需要几秒钟</p>
+          <p className="text-sm text-gray-500">
+            检查次数: {authCheckCountRef.current}
+          </p>
+          <div className="mt-6">
+            <button
+              onClick={() => {
+                console.log('用户手动触发重试');
+                checkSession();
+              }}
+              className="text-sm text-pink-500 hover:text-pink-400"
+            >
+              如果长时间停留，点击这里重试
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -255,30 +326,65 @@ export default function FeedbackPage() {
           </div>
           <h1 className="text-3xl font-bold mb-2">请先登录</h1>
           <p className="text-gray-400">正在跳转到登录页面...</p>
+          <div className="mt-4">
+            <button
+              onClick={() => router.replace('/login')}
+              className="px-4 py-2 bg-pink-500 hover:bg-pink-600 rounded-lg text-white"
+            >
+              立即登录
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   // 动态导入FeedbackForm，避免服务器端渲染问题
-  let FeedbackFormComponent: React.ComponentType<any> | null = null;
-  if (activeTab === 'submit') {
-    import('@/components/feedback-form').then(module => {
-      FeedbackFormComponent = module.default;
-    });
-  }
+  const [FeedbackFormComponent, setFeedbackFormComponent] = useState<React.ComponentType<any> | null>(null);
+  
+  useEffect(() => {
+    if (activeTab === 'submit') {
+      import('@/components/feedback-form').then(module => {
+        setFeedbackFormComponent(() => module.default);
+      });
+    }
+  }, [activeTab]);
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
-      {/* 页面标题 */}
+      {/* 页面标题和用户信息 */}
       <div className="text-center mb-8">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 mb-4">
           <MessageSquare className="w-8 h-8 text-white" />
         </div>
         <h1 className="text-3xl font-bold mb-2">用户反馈</h1>
         <p className="text-gray-400">您的意见对我们非常重要，帮助我们改进产品</p>
-        <div className="mt-2 text-sm text-gray-500">
-          当前用户: {user.email}
+        
+        {/* 用户信息和控制 */}
+        <div className="mt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
+          <div className="text-sm text-gray-500 bg-gray-800/50 px-4 py-2 rounded-lg">
+            当前用户: <span className="text-pink-400">{user.email}</span>
+          </div>
+          
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                console.log('手动刷新会话状态');
+                checkSession();
+              }}
+              className="text-xs px-3 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors"
+            >
+              刷新会话
+            </button>
+            
+            <button
+              onClick={handleManualLogout}
+              className="text-xs px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg flex items-center gap-1 transition-colors"
+            >
+              <LogOut className="w-3 h-3" />
+              退出登录
+            </button>
+          </div>
         </div>
       </div>
 
@@ -298,13 +404,13 @@ export default function FeedbackPage() {
       <div className="flex border-b border-gray-800 mb-8">
         <button
           onClick={() => setActiveTab('submit')}
-          className={`px-6 py-3 font-medium text-sm ${activeTab === 'submit' ? 'border-b-2 border-pink-500 text-pink-500' : 'text-gray-400'}`}
+          className={`px-6 py-3 font-medium text-sm ${activeTab === 'submit' ? 'border-b-2 border-pink-500 text-pink-500' : 'text-gray-400 hover:text-gray-300'}`}
         >
           提交反馈
         </button>
         <button
           onClick={() => setActiveTab('mine')}
-          className={`px-6 py-3 font-medium text-sm flex items-center ${activeTab === 'mine' ? 'border-b-2 border-pink-500 text-pink-500' : 'text-gray-400'}`}
+          className={`px-6 py-3 font-medium text-sm flex items-center ${activeTab === 'mine' ? 'border-b-2 border-pink-500 text-pink-500' : 'text-gray-400 hover:text-gray-300'}`}
         >
           我的反馈
           {stats.pending > 0 && (
@@ -315,7 +421,7 @@ export default function FeedbackPage() {
         </button>
         <button
           onClick={() => setActiveTab('public')}
-          className={`px-6 py-3 font-medium text-sm ${activeTab === 'public' ? 'border-b-2 border-pink-500 text-pink-500' : 'text-gray-400'}`}
+          className={`px-6 py-3 font-medium text-sm ${activeTab === 'public' ? 'border-b-2 border-pink-500 text-pink-500' : 'text-gray-400 hover:text-gray-300'}`}
         >
           精选反馈
         </button>
@@ -353,13 +459,10 @@ export default function FeedbackPage() {
               我的反馈记录
             </h2>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-400">
-                已登录: {user.email}
-              </span>
               <button
                 onClick={handleRefresh}
                 disabled={isLoading}
-                className="text-sm text-gray-400 hover:text-white flex items-center"
+                className="text-sm text-gray-400 hover:text-white flex items-center disabled:opacity-50"
               >
                 <RefreshCw className={`w-4 h-4 mr-1 ${isLoading ? 'animate-spin' : ''}`} />
                 刷新
@@ -466,7 +569,7 @@ export default function FeedbackPage() {
             <button
               onClick={handleRefresh}
               disabled={isLoading}
-              className="text-sm text-gray-400 hover:text-white flex items-center"
+              className="text-sm text-gray-400 hover:text-white flex items-center disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 mr-1 ${isLoading ? 'animate-spin' : ''}`} />
               刷新
@@ -564,6 +667,9 @@ export default function FeedbackPage() {
         <p className="mt-1">
           如需紧急帮助，请联系邮箱：<a href="mailto:support@xiyi.asia" className="text-pink-500 hover:underline">support@xiyi.asia</a>
         </p>
+        <div className="mt-4 text-xs text-gray-600">
+          页面状态：已登录 | 检查次数：{authCheckCountRef.current} | 会话状态：正常
+        </div>
       </div>
     </div>
   );
