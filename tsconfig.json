@@ -35,7 +35,7 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
-  ],
+, "app/admin/dashboard/page.tsx", "app/admin/feedback/page.tsx.bak"  ],
   "exclude": [
     "node_modules"
   ]
