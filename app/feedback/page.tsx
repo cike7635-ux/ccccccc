@@ -1,8 +1,8 @@
-// /app/feedback/page.tsx
 "use client";
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@supabase/supabase-js';
 import {
   MessageSquare,
   Star,
@@ -12,10 +12,23 @@ import {
   ThumbsUp,
   AlertCircle,
   MessageCircle,
-  Heart
+  Heart,
+  RefreshCw
 } from 'lucide-react';
-import FeedbackForm from '@/components/feedback-form';
 import { toast } from 'sonner';
+
+// 初始化Supabase客户端
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false
+    }
+  }
+);
 
 interface Feedback {
   id: number;
@@ -46,40 +59,93 @@ export default function FeedbackPage() {
     resolved: 0
   });
   const [isClient, setIsClient] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   useEffect(() => {
     setIsClient(true);
     
-    // 只在客户端执行
-    const userEmail = localStorage.getItem('user_email');
-    if (!userEmail) {
-      router.push('/login?redirect=/feedback');
-      return;
-    }
-    setUser({ email: userEmail });
-
-    // 根据当前标签加载数据
-    if (activeTab === 'mine') {
-      loadUserFeedback();
-    } else if (activeTab === 'public') {
-      loadPublicFeedback();
-    }
+    // 检查用户会话
+    checkSession();
   }, [activeTab]);
 
-  const loadUserFeedback = async () => {
-    setIsLoading(true);
+  const checkSession = async () => {
     try {
-      const response = await fetch('/api/feedback/my');
-      const result = await response.json();
-
-      if (result.success) {
-        setUserFeedback(result.data);
-        setStats(result.stats);
-        setHasPendingFeedback(result.stats.pending > 0);
+      setIsCheckingAuth(true);
+      console.log('🔍 开始检查用户会话...');
+      
+      // 使用Supabase检查会话
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      console.log('会话检查结果:', {
+        hasSession: !!session,
+        userEmail: session?.user?.email,
+        sessionAge: session ? Date.now() - new Date(session.expires_at! * 1000).getTime() : 'N/A'
+      });
+      
+      if (!session) {
+        console.log('❌ 用户未登录，重定向到登录页');
+        toast.error('请先登录');
+        router.push('/login?redirect=/feedback');
+        return;
+      }
+      
+      // 设置用户状态
+      setUser(session.user);
+      setIsCheckingAuth(false);
+      
+      console.log('✅ 用户已登录:', session.user.email);
+      
+      // 根据当前标签加载数据
+      if (activeTab === 'mine') {
+        loadUserFeedback(session.access_token);
+      } else if (activeTab === 'public') {
+        loadPublicFeedback();
       }
     } catch (error) {
-      console.error('加载用户反馈失败:', error);
-      toast.error('加载反馈失败');
+      console.error('检查会话失败:', error);
+      setIsCheckingAuth(false);
+      toast.error('登录状态检查失败');
+    }
+  };
+
+  const loadUserFeedback = async (accessToken?: string) => {
+    if (!accessToken) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      accessToken = session.access_token;
+    }
+    
+    setIsLoading(true);
+    try {
+      console.log('📥 加载用户反馈，使用token:', accessToken.substring(0, 10) + '...');
+      
+      const response = await fetch('/api/feedback/my', {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+      
+      if (response.status === 401 || response.status === 403) {
+        console.log('❌ Token无效或过期，刷新页面');
+        toast.error('登录已过期，请重新登录');
+        router.push('/login?redirect=/feedback');
+        return;
+      }
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log('✅ 成功加载用户反馈，数量:', result.data?.length || 0);
+        setUserFeedback(result.data || []);
+        setStats(result.stats || { pending: 0, replied: 0, resolved: 0 });
+        setHasPendingFeedback(result.stats?.pending > 0);
+      } else {
+        console.error('加载用户反馈失败:', result.error);
+        toast.error(result.error || '加载反馈失败');
+      }
+    } catch (error) {
+      console.error('加载用户反馈异常:', error);
+      toast.error('网络错误，请检查连接');
     } finally {
       setIsLoading(false);
     }
@@ -88,24 +154,48 @@ export default function FeedbackPage() {
   const loadPublicFeedback = async () => {
     setIsLoading(true);
     try {
+      console.log('📥 加载公开反馈');
+      
       const response = await fetch('/api/feedback/public');
       const result = await response.json();
 
       if (result.success) {
-        setPublicFeedback(result.data);
+        console.log('✅ 成功加载公开反馈，数量:', result.data?.length || 0);
+        setPublicFeedback(result.data || []);
+      } else {
+        console.error('加载公开反馈失败:', result.error);
+        toast.error(result.error || '加载公开反馈失败');
       }
     } catch (error) {
-      console.error('加载公开反馈失败:', error);
-      toast.error('加载公开反馈失败');
+      console.error('加载公开反馈异常:', error);
+      toast.error('网络错误，请检查连接');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSubmitSuccess = () => {
+  const handleSubmitSuccess = async () => {
+    // 重新加载用户反馈
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      loadUserFeedback(session.access_token);
+    }
+    
     setActiveTab('mine');
-    loadUserFeedback();
     toast.success('反馈提交成功！我们会在3个工作日内回复您');
+  };
+
+  const handleRefresh = async () => {
+    if (activeTab === 'mine') {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        loadUserFeedback(session.access_token);
+      } else {
+        checkSession();
+      }
+    } else if (activeTab === 'public') {
+      loadPublicFeedback();
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -127,28 +217,55 @@ export default function FeedbackPage() {
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('zh-CN', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('zh-CN', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return '日期格式错误';
+    }
   };
 
-  // 如果还在服务器端渲染，显示加载状态
-  if (!isClient) {
+  // 显示认证检查状态
+  if (isCheckingAuth) {
     return (
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 mb-4">
-            <MessageSquare className="w-8 h-8 text-white" />
+            <RefreshCw className="w-8 h-8 text-white animate-spin" />
           </div>
-          <h1 className="text-3xl font-bold mb-2">用户反馈</h1>
-          <p className="text-gray-400">加载中...</p>
+          <h1 className="text-3xl font-bold mb-2">检查登录状态...</h1>
+          <p className="text-gray-400">正在验证您的登录状态</p>
         </div>
       </div>
     );
+  }
+
+  // 如果用户未登录，显示空白或重定向（已由checkSession处理）
+  if (!user) {
+    return (
+      <div className="container mx-auto px-4 py-8 max-w-4xl">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 mb-4">
+            <AlertCircle className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold mb-2">请先登录</h1>
+          <p className="text-gray-400">正在跳转到登录页面...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 动态导入FeedbackForm，避免服务器端渲染问题
+  let FeedbackFormComponent: React.ComponentType<any> | null = null;
+  if (activeTab === 'submit') {
+    import('@/components/feedback-form').then(module => {
+      FeedbackFormComponent = module.default;
+    });
   }
 
   return (
@@ -160,10 +277,13 @@ export default function FeedbackPage() {
         </div>
         <h1 className="text-3xl font-bold mb-2">用户反馈</h1>
         <p className="text-gray-400">您的意见对我们非常重要，帮助我们改进产品</p>
+        <div className="mt-2 text-sm text-gray-500">
+          当前用户: {user.email}
+        </div>
       </div>
 
       {/* 警告提示 */}
-      {hasPendingFeedback && (
+      {hasPendingFeedback && activeTab !== 'submit' && (
         <div className="mb-6 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30">
           <div className="flex items-center">
             <AlertCircle className="w-5 h-5 text-yellow-500 mr-2" />
@@ -211,10 +331,17 @@ export default function FeedbackPage() {
           <p className="text-gray-400 mb-6">
             请详细描述您遇到的问题或建议，我们会认真阅读并尽快回复
           </p>
-          <FeedbackForm
-            onSuccess={handleSubmitSuccess}
-            hasPendingFeedback={hasPendingFeedback}
-          />
+          {FeedbackFormComponent ? (
+            <FeedbackFormComponent
+              onSuccess={handleSubmitSuccess}
+              hasPendingFeedback={hasPendingFeedback}
+            />
+          ) : (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500 mx-auto"></div>
+              <p className="text-gray-400 mt-2">加载反馈表单...</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -225,13 +352,19 @@ export default function FeedbackPage() {
               <Eye className="w-5 h-5" />
               我的反馈记录
             </h2>
-            <button
-              onClick={loadUserFeedback}
-              disabled={isLoading}
-              className="text-sm text-gray-400 hover:text-white"
-            >
-              刷新
-            </button>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-400">
+                已登录: {user.email}
+              </span>
+              <button
+                onClick={handleRefresh}
+                disabled={isLoading}
+                className="text-sm text-gray-400 hover:text-white flex items-center"
+              >
+                <RefreshCw className={`w-4 h-4 mr-1 ${isLoading ? 'animate-spin' : ''}`} />
+                刷新
+              </button>
+            </div>
           </div>
 
           {isLoading ? (
@@ -325,10 +458,20 @@ export default function FeedbackPage() {
 
       {activeTab === 'public' && (
         <div className="glass rounded-2xl p-6">
-          <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-            <ThumbsUp className="w-5 h-5" />
-            精选反馈
-          </h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <ThumbsUp className="w-5 h-5" />
+              精选反馈
+            </h2>
+            <button
+              onClick={handleRefresh}
+              disabled={isLoading}
+              className="text-sm text-gray-400 hover:text-white flex items-center"
+            >
+              <RefreshCw className={`w-4 h-4 mr-1 ${isLoading ? 'animate-spin' : ''}`} />
+              刷新
+            </button>
+          </div>
 
           {isLoading ? (
             <div className="text-center py-8">
