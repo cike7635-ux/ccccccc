@@ -1,9 +1,6 @@
 // /components/admin/navbar.tsx - 完整修复版本
 'use client'
 
-import { useState, useEffect } from 'react'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
   Users,
@@ -12,7 +9,8 @@ import {
   Settings,
   LogOut,
   Menu,
-  X
+  X,
+  MessageSquare
 } from 'lucide-react'
 
 const navItems = [
@@ -103,8 +101,8 @@ export default function AdminNavbar() {
                     key={item.href}
                     href={item.href}
                     className={`nav-item flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${isActive
-                        ? 'bg-gray-900 text-white'
-                        : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-300 hover:bg-gray-700 hover:text-white'
                       }`}
                     onClick={() => handleNavClick(item.href)}
                   >
@@ -155,8 +153,8 @@ export default function AdminNavbar() {
                     key={item.href}
                     href={item.href}
                     className={`mobile-nav-item flex items-center space-x-3 px-4 py-3 rounded-lg mx-2 my-1 transition-colors ${isActive
-                        ? 'bg-gray-900 text-white'
-                        : 'text-gray-300 hover:bg-gray-700'
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-300 hover:bg-gray-700'
                       }`}
                     onClick={() => handleNavClick(item.href)}
                   >
