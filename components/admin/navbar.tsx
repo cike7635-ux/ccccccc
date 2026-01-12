@@ -1,6 +1,6 @@
 // /components/admin/navbar.tsx - 完整修复版本
 'use client'
-
+import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Users,
