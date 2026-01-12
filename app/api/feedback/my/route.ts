@@ -7,93 +7,101 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 );
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    // 验证用户登录状态
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json(
-        { error: '未授权，请先登录' },
-        { status: 401 }
-      );
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const body = await request.json();
     
-    if (authError || !user) {
+    // 基础验证
+    if (!body.title || body.title.trim().length < 2) {
       return NextResponse.json(
-        { error: '用户验证失败' },
-        { status: 401 }
+        { success: false, error: '标题至少2个字符' },
+        { status: 400 }
+      );
+    }
+    
+    if (!body.content || body.content.trim().length < 10) {
+      return NextResponse.json(
+        { success: false, error: '内容至少10个字符' },
+        { status: 400 }
       );
     }
 
-    // 获取查询参数
-    const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '20');
-    const offset = parseInt(searchParams.get('offset') || '0');
-    const status = searchParams.get('status'); // pending/replied/resolved
+    // 获取用户信息（如果有）
+    const userEmail = body.userEmail || '匿名用户';
+    const userId = body.userId || null;
 
-    // 构建查询
-    let query = supabase
-      .from('feedbacks')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+    // 检查用户是否已有待处理的反馈
+    if (userId) {
+      const { data: pendingFeedbacks } = await supabase
+        .from('feedbacks')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('status', 'pending');
 
-    if (status) {
-      query = query.eq('status', status);
+      if (pendingFeedbacks && pendingFeedbacks.length > 0) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: '您有待处理的反馈，请等待管理员回复后再提交新的反馈'
+          },
+          { status: 400 }
+        );
+      }
     }
 
-    const { data: feedbacks, error, count } = await query;
+    // 创建新反馈
+    const newFeedback = {
+      user_id: userId,
+      user_email: userEmail,
+      user_nickname: body.nickname || (userId ? '登录用户' : '匿名用户'),
+      title: body.title.trim(),
+      content: body.content.trim(),
+      category: body.category || 'general',
+      rating: body.rating || null,
+      status: 'pending',
+      is_public: false,
+      is_featured: false
+    };
+
+    const { data, error } = await supabase
+      .from('feedbacks')
+      .insert(newFeedback)
+      .select()
+      .single();
 
     if (error) {
-      console.error('获取反馈失败:', error);
+      console.error('❌ 创建反馈失败:', error);
       return NextResponse.json(
-        { error: '获取反馈失败' },
+        { success: false, error: '提交反馈失败' },
         { status: 500 }
       );
     }
 
-    // 获取反馈统计
-    const { data: stats } = await supabase
-      .from('feedbacks')
-      .select('status', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .group('status');
-
-    const statsMap = {
-      pending: 0,
-      replied: 0,
-      resolved: 0,
-      archived: 0
-    };
-
-    stats?.forEach(stat => {
-      statsMap[stat.status as keyof typeof statsMap] = stat.count;
-    });
+    console.log(`✅ 新反馈提交: ${newFeedback.title}`);
 
     return NextResponse.json({
       success: true,
-      data: feedbacks || [],
-      pagination: {
-        limit,
-        offset,
-        total: count || 0,
-        hasMore: (count || 0) > offset + limit
-      },
-      stats: statsMap,
-      reminder: feedbacks?.some(f => f.status === 'pending') 
-        ? '您有待处理的反馈，请等待管理员回复后再提交新的反馈'
-        : null
+      data,
+      message: '反馈提交成功！我们会在3个工作日内回复您'
     });
 
-  } catch (error) {
-    console.error('获取用户反馈异常:', error);
+  } catch (error: any) {
+    console.error('❌ 提交反馈异常:', error);
     return NextResponse.json(
-      { error: '服务器内部错误' },
+      { success: false, error: '服务器内部错误' },
       { status: 500 }
     );
   }
+}
+
+export async function GET() {
+  return NextResponse.json({
+    success: true,
+    message: '反馈API已就绪',
+    endpoints: {
+      POST: '提交新反馈',
+      '/my': '获取我的反馈（需要认证）',
+      '/public': '获取公开反馈'
+    }
+  });
 }
