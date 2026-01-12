@@ -1,23 +1,18 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+// 初始化Supabase客户端
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  { auth: { persistSession: false } }
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    // 获取查询参数
-    const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '10');
-    const offset = parseInt(searchParams.get('offset') || '0');
-    const category = searchParams.get('category');
-    const featured = searchParams.get('featured') === 'true';
-
-    // 构建查询：只获取公开的反馈
-    let query = supabase
+    console.log('📊 开始获取公开反馈数据...');
+    
+    // 🔥 修复：移除 .group() 方法，使用正确的查询
+    const { data: feedbacks, error } = await supabase
       .from('feedbacks')
       .select(`
         id,
@@ -25,69 +20,49 @@ export async function GET(request: NextRequest) {
         content,
         category,
         rating,
-        is_public,
-        is_featured,
+        status,
         admin_reply,
         replied_at,
-        user_nickname,
-        created_at
+        is_public,
+        is_featured,
+        created_at,
+        user_nickname
       `)
-      .eq('is_public', true)
-      .eq('status', 'resolved') // 只显示已解决的公开反馈
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    // 应用筛选条件
-    if (category && category !== 'all') {
-      query = query.eq('category', category);
-    }
-
-    if (featured) {
-      query = query.eq('is_featured', true);
-    }
-
-    const { data: feedbacks, error, count } = await query;
+      .eq('is_public', true)  // 只获取公开的反馈
+      .order('is_featured', { ascending: false })  // 精选的排前面
+      .order('created_at', { ascending: false })   // 最新的排前面
+      .limit(20);  // 限制数量
 
     if (error) {
-      console.error('获取公开反馈失败:', error);
+      console.error('❌ 获取公开反馈失败:', error);
       return NextResponse.json(
-        { error: '获取公开反馈失败' },
+        { 
+          success: false, 
+          error: '获取公开反馈失败',
+          details: error.message 
+        }, 
         { status: 500 }
       );
     }
 
-    // 获取分类统计（用于前端筛选）
-    const { data: categories } = await supabase
-      .from('feedbacks')
-      .select('category')
-      .eq('is_public', true)
-      .eq('status', 'resolved')
-      .group('category');
-
-    const categoryStats = categories?.reduce((acc: any, curr) => {
-      acc[curr.category] = (acc[curr.category] || 0) + 1;
-      return acc;
-    }, {});
-
+    console.log(`✅ 成功获取公开反馈，数量: ${feedbacks?.length || 0}`);
+    
     return NextResponse.json({
       success: true,
       data: feedbacks || [],
-      pagination: {
-        limit,
-        offset,
-        total: count || 0,
-        hasMore: (count || 0) > offset + limit
-      },
-      filters: {
-        categories: categoryStats || {},
-        totalPublic: count || 0
-      }
+      count: feedbacks?.length || 0,
+      timestamp: new Date().toISOString()
     });
 
-  } catch (error) {
-    console.error('获取公开反馈异常:', error);
+  } catch (error: any) {
+    console.error('❌ 获取公开反馈异常:', error);
+    
     return NextResponse.json(
-      { error: '服务器内部错误' },
+      { 
+        success: false, 
+        error: '服务器内部错误',
+        message: error.message 
+      }, 
       { status: 500 }
     );
   }
