@@ -38,14 +38,14 @@ function isAdminEmail(email: string | undefined | null): boolean {
 }
 
 function isProtectedGamePath(path: string): boolean {
-  const exactPaths = ['/lobby', '/game', '/profile', '/themes', '/game-history', '/themes/new'];
+  const exactPaths = ['/lobby', '/game', '/profile', '/themes', '/game-history', '/themes/new', '/feedback']; // 🔥 添加 '/feedback' 到这里
   if (exactPaths.includes(path)) return true;
   const prefixPaths = ['/game/', '/themes/'];
   return prefixPaths.some(prefix => path.startsWith(prefix));
 }
 
 function isPublicPath(path: string): boolean {
-  const exactPublicPaths = ['/', '/login', '/account-expired', '/renew', '/admin/unauthorized', '/login/expired','/feedback'];
+  const exactPublicPaths = ['/', '/login', '/account-expired', '/renew', '/admin/unauthorized', '/login/expired']; // 🔥 移除 '/feedback' 从这里
   if (exactPublicPaths.includes(path)) return true;
   const prefixPublicPaths = ['/auth/', '/api/auth/'];
   return prefixPublicPaths.some(prefix => path.startsWith(prefix));
