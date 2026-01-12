@@ -1,8 +1,9 @@
+// /app/admin/feedback/page.tsx - 修复后的版本
 "use client";
 // 修复顶部导入
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js'; // ✅ 已导入
 import {
   MessageSquare,
   Filter,
@@ -75,7 +76,11 @@ interface FeedbackStats {
 
 export default function AdminFeedbackPage() {
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  // 🔥 修复这一行：使用正确的Supabase客户端
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
   
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
