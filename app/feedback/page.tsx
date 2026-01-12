@@ -1,9 +1,6 @@
 // /app/feedback/page.tsx
 "use client";
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -48,11 +45,12 @@ export default function FeedbackPage() {
     replied: 0,
     resolved: 0
   });
+  const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
+    setIsClient(true);
+    
     // 只在客户端执行
-    if (typeof window === 'undefined') return;
-
     const userEmail = localStorage.getItem('user_email');
     if (!userEmail) {
       router.push('/login?redirect=/feedback');
@@ -137,6 +135,21 @@ export default function FeedbackPage() {
       minute: '2-digit'
     });
   };
+
+  // 如果还在服务器端渲染，显示加载状态
+  if (!isClient) {
+    return (
+      <div className="container mx-auto px-4 py-8 max-w-4xl">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 mb-4">
+            <MessageSquare className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold mb-2">用户反馈</h1>
+          <p className="text-gray-400">加载中...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
