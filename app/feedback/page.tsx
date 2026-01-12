@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr'; // 🔥 关键修复：使用 SSR 客户端
 import {
   MessageSquare,
   Star,
@@ -16,21 +16,17 @@ import {
   RefreshCw,
   LogOut,
   ArrowRight,
-  Users
+  Users,
+  Shield,
+  Check,
+  X
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-// 初始化Supabase客户端
-const supabase = createClient(
+// 🔥 关键修复：使用 createBrowserClient（与登录页面相同）
+const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: false
-    }
-  }
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
 interface Feedback {
@@ -50,7 +46,7 @@ interface Feedback {
 
 export default function FeedbackPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState('public'); // 默认显示公开反馈
+  const [activeTab, setActiveTab] = useState('public');
   const [userFeedback, setUserFeedback] = useState<Feedback[]>([]);
   const [publicFeedback, setPublicFeedback] = useState<Feedback[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -64,6 +60,7 @@ export default function FeedbackPage() {
   const [isClient, setIsClient] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isLoadingPublic, setIsLoadingPublic] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string>('');
   const authCheckCountRef = useRef(0);
 
   useEffect(() => {
@@ -72,7 +69,6 @@ export default function FeedbackPage() {
   }, []);
 
   useEffect(() => {
-    // 当用户状态或标签变化时加载数据
     if (!isCheckingAuth) {
       loadDataForCurrentTab();
     }
@@ -91,27 +87,33 @@ export default function FeedbackPage() {
       setIsCheckingAuth(true);
       console.log('🔍 开始检查用户会话...');
       
-      // 🔥 关键修复：先检查是否有缓存会话，不立即重定向
-      const { data: { session } } = await supabase.auth.getSession();
+      // 🔥 关键修复：使用与登录页面相同的检查逻辑
+      const { data: { user }, error } = await supabase.auth.getUser();
       
-      console.log('会话检查结果:', {
-        hasSession: !!session,
-        userEmail: session?.user?.email,
-        checkCount: ++authCheckCountRef.current
-      });
+      const debugMsg = `检查结果: ${user ? '有用户' : '无用户'}, 邮箱: ${user?.email || '无'}`;
+      console.log(debugMsg);
+      setDebugInfo(debugMsg);
       
-      if (session?.user) {
-        // ✅ 有会话，设置用户
-        setUser(session.user);
-        console.log('✅ 用户已登录:', session.user.email);
+      if (error) {
+        console.log('❌ 获取用户失败:', error);
+        setUser(null);
+        await loadPublicFeedback();
+        setIsCheckingAuth(false);
+        return;
+      }
+      
+      if (user) {
+        // ✅ 有用户，设置用户
+        setUser(user);
+        console.log('✅ 用户已登录:', user.email);
         
         // 如果是"我的反馈"标签，加载用户反馈
         if (activeTab === 'mine') {
           await loadUserFeedback();
         }
       } else {
-        // ⚠️ 没有会话，但先不重定向
-        console.log('⚠️ 未检测到用户会话，显示公开反馈');
+        // ⚠️ 没有用户，显示公开反馈
+        console.log('⚠️ 未检测到用户，显示公开反馈');
         setUser(null);
         
         // 确保显示公开反馈标签
@@ -125,7 +127,6 @@ export default function FeedbackPage() {
       
     } catch (error) {
       console.error('检查会话失败:', error);
-      // 即使出错，也尝试加载公开反馈
       setUser(null);
       await loadPublicFeedback();
     } finally {
@@ -148,8 +149,10 @@ export default function FeedbackPage() {
       // 获取当前会话
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        console.log('❌ 会话不存在，重定向到登录');
+        console.log('❌ 会话不存在，请重新登录');
         toast.error('请先登录');
+        setUser(null);
+        setActiveTab('public');
         return;
       }
       
@@ -162,7 +165,7 @@ export default function FeedbackPage() {
       if (response.status === 401 || response.status === 403) {
         console.log('❌ Token无效或过期');
         setUser(null);
-        toast.error('登录已过期');
+        toast.error('登录已过期，请重新登录');
         setActiveTab('public');
         return;
       }
@@ -214,7 +217,6 @@ export default function FeedbackPage() {
   };
 
   const handleSubmitSuccess = async () => {
-    // 重新加载用户反馈
     if (user) {
       await loadUserFeedback();
     }
@@ -259,6 +261,53 @@ export default function FeedbackPage() {
     setActiveTab(tab);
   };
 
+  // 🔥 添加手动检查登录状态函数
+  const handleManualAuthCheck = async () => {
+    console.log('🔄 手动检查登录状态...');
+    
+    try {
+      // 1. 尝试刷新会话
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      console.log('刷新会话:', { 
+        error: refreshError, 
+        user: refreshData?.user?.email 
+      });
+      
+      // 2. 获取当前用户
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      console.log('获取用户:', { 
+        error: userError, 
+        user: user?.email 
+      });
+      
+      // 3. 获取会话
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log('获取会话:', { 
+        session: session?.user?.email 
+      });
+      
+      if (user) {
+        toast.success(`检测到登录用户: ${user.email}`);
+        setUser(user);
+        
+        // 重新加载对应标签的数据
+        if (activeTab === 'mine') {
+          await loadUserFeedback();
+        }
+      } else {
+        toast.info('未检测到登录用户');
+        setUser(null);
+      }
+      
+      const debugMsg = `手动检查: ${user ? '有用户' : '无用户'}, 邮箱: ${user?.email || '无'}`;
+      setDebugInfo(debugMsg);
+      
+    } catch (error) {
+      console.error('手动检查失败:', error);
+      toast.error('检查失败，请刷新页面');
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending': return 'bg-yellow-500/20 text-yellow-600';
@@ -291,7 +340,7 @@ export default function FeedbackPage() {
     }
   };
 
-  // 动态导入FeedbackForm，避免服务器端渲染问题
+  // 动态导入FeedbackForm
   const [FeedbackFormComponent, setFeedbackFormComponent] = useState<React.ComponentType<any> | null>(null);
   
   useEffect(() => {
@@ -312,6 +361,14 @@ export default function FeedbackPage() {
           </div>
           <h1 className="text-3xl font-bold mb-2">正在加载...</h1>
           <p className="text-gray-400">请稍候，正在检查您的登录状态</p>
+          <div className="mt-4">
+            <button
+              onClick={handleManualAuthCheck}
+              className="text-sm text-pink-500 hover:text-pink-400"
+            >
+              如果长时间停留，点击这里手动检查
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -347,9 +404,20 @@ export default function FeedbackPage() {
               立即登录
               <ArrowRight className="w-4 h-4" />
             </button>
-            <p className="text-xs text-gray-500 text-center mt-3">
-              登录后可以访问所有功能
-            </p>
+            
+            {/* 🔥 调试信息 */}
+            <div className="mt-4 p-3 bg-gray-800/50 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-gray-400">调试信息</span>
+                <button
+                  onClick={handleManualAuthCheck}
+                  className="text-xs text-pink-500 hover:text-pink-400"
+                >
+                  手动检查
+                </button>
+              </div>
+              <p className="text-xs text-gray-500">{debugInfo}</p>
+            </div>
           </div>
         </div>
 
@@ -388,14 +456,22 @@ export default function FeedbackPage() {
               <ThumbsUp className="w-5 h-5" />
               精选反馈
             </h2>
-            <button
-              onClick={handleRefresh}
-              disabled={isLoadingPublic}
-              className="text-sm text-gray-400 hover:text-white flex items-center disabled:opacity-50"
-            >
-              <RefreshCw className={`w-4 h-4 mr-1 ${isLoadingPublic ? 'animate-spin' : ''}`} />
-              刷新
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleManualAuthCheck}
+                className="text-xs px-3 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors"
+              >
+                检查登录
+              </button>
+              <button
+                onClick={handleRefresh}
+                disabled={isLoadingPublic}
+                className="text-sm text-gray-400 hover:text-white flex items-center disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 mr-1 ${isLoadingPublic ? 'animate-spin' : ''}`} />
+                刷新
+              </button>
+            </div>
           </div>
 
           {isLoadingPublic ? (
@@ -488,12 +564,18 @@ export default function FeedbackPage() {
           <p className="mt-1">
             如需紧急帮助，请联系邮箱：<a href="mailto:support@xiyi.asia" className="text-pink-500 hover:underline">support@xiyi.asia</a>
           </p>
-          <div className="mt-4">
+          <div className="mt-4 flex flex-col sm:flex-row gap-2 justify-center">
             <button
               onClick={() => router.push('/login?redirect=/feedback')}
               className="px-4 py-2 bg-gradient-to-r from-pink-500 to-purple-600 hover:opacity-90 rounded-lg text-white text-sm"
             >
               立即登录以提交反馈
+            </button>
+            <button
+              onClick={handleManualAuthCheck}
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-white text-sm"
+            >
+              手动检查登录状态
             </button>
           </div>
         </div>
@@ -514,19 +596,28 @@ export default function FeedbackPage() {
         
         {/* 用户信息和控制 */}
         <div className="mt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
-          <div className="text-sm text-gray-500 bg-gray-800/50 px-4 py-2 rounded-lg">
-            当前用户: <span className="text-pink-400">{user.email}</span>
+          <div className="text-sm bg-gradient-to-r from-pink-500/20 to-purple-600/20 border border-pink-500/30 px-4 py-2 rounded-lg">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+              <span className="text-pink-400">已登录: {user.email}</span>
+            </div>
           </div>
           
           <div className="flex gap-2">
             <button
-              onClick={handleRefresh}
+              onClick={handleManualAuthCheck}
               className="text-xs px-3 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors flex items-center gap-1"
+            >
+              <Shield className="w-3 h-3" />
+              验证状态
+            </button>
+            <button
+              onClick={handleRefresh}
+              className="text-xs px-3 py-1 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg transition-colors flex items-center gap-1"
             >
               <RefreshCw className="w-3 h-3" />
               刷新
             </button>
-            
             <button
               onClick={handleManualLogout}
               className="text-xs px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg flex items-center gap-1 transition-colors"
@@ -534,6 +625,15 @@ export default function FeedbackPage() {
               <LogOut className="w-3 h-3" />
               退出登录
             </button>
+          </div>
+        </div>
+        
+        {/* 🔥 调试信息 */}
+        <div className="mt-2">
+          <div className="inline-flex items-center gap-2 text-xs text-gray-500 bg-gray-800/30 px-3 py-1 rounded-full">
+            <span>检查次数: {authCheckCountRef.current}</span>
+            <span>•</span>
+            <span>状态: {user ? '已登录' : '未登录'}</span>
           </div>
         </div>
       </div>
@@ -824,7 +924,7 @@ export default function FeedbackPage() {
           如需紧急帮助，请联系邮箱：<a href="mailto:support@xiyi.asia" className="text-pink-500 hover:underline">support@xiyi.asia</a>
         </p>
         <div className="mt-4 text-xs text-gray-600">
-          用户状态：已登录 | 检查次数：{authCheckCountRef.current}
+          用户状态: {user ? `已登录 (${user.email})` : '未登录'} | 检查次数: {authCheckCountRef.current}
         </div>
       </div>
     </div>
