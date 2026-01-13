@@ -1,11 +1,11 @@
-// /app/api/feedback/route.ts - 使用Service Role Key验证用户
+// /app/api/feedback/route.ts - 统一使用匿名密钥
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// 使用Service Role Key（关键！）
-const supabaseAdmin = createClient(
+// 使用匿名密钥（与/my API一致）
+const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // 🔥 必须是Service Role Key
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, // 使用匿名密钥
   { auth: { persistSession: false } }
 );
 
@@ -15,6 +15,8 @@ export async function POST(request: NextRequest) {
     
     // 1. 从请求头获取Authorization token
     const authHeader = request.headers.get('authorization');
+    console.log('📨 Authorization头:', authHeader ? '存在' : '不存在');
+    
     if (!authHeader) {
       console.log('❌ 没有Authorization头');
       return NextResponse.json(
@@ -26,11 +28,19 @@ export async function POST(request: NextRequest) {
     const token = authHeader.replace('Bearer ', '');
     console.log('🔑 Token长度:', token.length);
     
-    // 2. 使用Service Role Key验证token
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    // 2. 验证用户（使用匿名密钥）
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     
-    if (authError || !user) {
-      console.log('❌ 用户验证失败:', authError?.message);
+    if (authError) {
+      console.log('❌ 用户验证失败:', authError.message);
+      return NextResponse.json(
+        { success: false, error: '用户验证失败，请重新登录' },
+        { status: 401 }
+      );
+    }
+    
+    if (!user) {
+      console.log('❌ 用户不存在');
       return NextResponse.json(
         { success: false, error: '用户验证失败，请重新登录' },
         { status: 401 }
@@ -66,7 +76,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. 检查用户是否已有待处理的反馈
-    const { data: pendingFeedbacks } = await supabaseAdmin
+    const { data: pendingFeedbacks } = await supabase
       .from('feedbacks')
       .select('id')
       .eq('user_id', user.id)
@@ -84,7 +94,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 6. 获取用户资料
-    const { data: profile } = await supabaseAdmin
+    const { data: profile } = await supabase
       .from('profiles')
       .select('nickname')
       .eq('id', user.id)
@@ -104,7 +114,7 @@ export async function POST(request: NextRequest) {
       is_featured: false
     };
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from('feedbacks')
       .insert(newFeedback)
       .select()
@@ -133,16 +143,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-export async function GET() {
-  return NextResponse.json({
-    success: true,
-    message: '反馈API已就绪',
-    endpoints: {
-      POST: '提交新反馈（需要认证）',
-      '/my': '获取我的反馈（需要认证）',
-      '/public': '获取公开反馈'
-    }
-  });
 }
