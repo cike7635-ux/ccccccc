@@ -1,4 +1,4 @@
-// /app/admin/feedback/page.tsx - 修复版本
+// /app/admin/feedback/page.tsx - 完整修复版本
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -17,7 +17,10 @@ import {
   Reply,
   Trash2,
   RefreshCw,
-  Users
+  Users,
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -65,7 +68,7 @@ const formatDate = (dateString: string) => {
   }
 };
 
-// ==================== 简单UI组件（如果原组件不存在） ====================
+// ==================== 简单UI组件 ====================
 const SimpleCard = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
   <div className={`bg-gray-900 border border-gray-800 rounded-lg shadow ${className}`}>
     {children}
@@ -89,27 +92,39 @@ const SimpleButton = ({
   onClick, 
   disabled = false,
   variant = 'default',
-  className = ''
+  size = 'md',
+  className = '',
+  type = 'button'
 }: { 
   children: React.ReactNode; 
   onClick?: () => void;
   disabled?: boolean;
-  variant?: 'default' | 'outline' | 'destructive';
+  variant?: 'default' | 'outline' | 'destructive' | 'success';
+  size?: 'sm' | 'md' | 'lg';
   className?: string;
+  type?: 'button' | 'submit' | 'reset';
 }) => {
-  const baseStyles = "px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+  const baseStyles = "font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center";
+  
+  const sizeStyles = {
+    sm: "px-3 py-1.5 text-sm rounded-md",
+    md: "px-4 py-2 text-sm rounded-lg",
+    lg: "px-6 py-3 text-base rounded-lg"
+  };
   
   const variantStyles = {
     default: "bg-blue-600 hover:bg-blue-700 text-white",
     outline: "border border-gray-700 hover:bg-gray-800 text-gray-300",
-    destructive: "bg-red-600 hover:bg-red-700 text-white"
+    destructive: "bg-red-600 hover:bg-red-700 text-white",
+    success: "bg-green-600 hover:bg-green-700 text-white"
   };
   
   return (
     <button
+      type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`${baseStyles} ${variantStyles[variant]} ${className}`}
+      className={`${baseStyles} ${sizeStyles[size]} ${variantStyles[variant]} ${className}`}
     >
       {children}
     </button>
@@ -228,6 +243,13 @@ export default function AdminFeedbackPage() {
   });
   const [replyingTo, setReplyingTo] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+
+  // 添加调试日志
+  const addDebugLog = (message: string) => {
+    console.log(`🔍 ${message}`);
+    setDebugLogs(prev => [...prev.slice(-10), `${new Date().toLocaleTimeString()}: ${message}`]);
+  };
 
   // 加载反馈数据
   useEffect(() => {
@@ -237,6 +259,8 @@ export default function AdminFeedbackPage() {
   const loadFeedbacks = async () => {
     setIsLoading(true);
     try {
+      addDebugLog('开始加载反馈列表...');
+      
       const queryParams = new URLSearchParams({
         limit: pagination.limit.toString(),
         offset: pagination.offset.toString(),
@@ -247,15 +271,21 @@ export default function AdminFeedbackPage() {
         sortOrder: filters.sortOrder
       });
 
-      const response = await fetch(`/api/admin/feedbacks?${queryParams}`);
+      const apiUrl = `/api/admin/feedbacks?${queryParams}`;
+      addDebugLog(`请求API: ${apiUrl}`);
+      
+      const response = await fetch(apiUrl);
       
       if (response.status === 401 || response.status === 403) {
+        addDebugLog(`权限错误: ${response.status}`);
         toast.error('无权访问，请重新登录');
         router.push('/admin');
         return;
       }
       
       const result = await response.json();
+      
+      addDebugLog(`API响应: ${result.success ? '成功' : '失败'}, 数据量: ${result.data?.length || 0}`);
       
       if (result.success) {
         setFeedbacks(result.data || []);
@@ -269,11 +299,14 @@ export default function AdminFeedbackPage() {
           total: result.pagination?.total || 0,
           hasMore: result.pagination?.hasMore || false
         }));
+        toast.success(`已加载 ${result.data?.length || 0} 条反馈`);
       } else {
+        addDebugLog(`加载失败: ${result.error}`);
         toast.error(result.error || '加载反馈失败');
       }
     } catch (error) {
-      console.error('加载反馈失败:', error);
+      const errorMsg = error instanceof Error ? error.message : '未知错误';
+      addDebugLog(`加载失败异常: ${errorMsg}`);
       toast.error('加载失败，请检查网络连接');
     } finally {
       setIsLoading(false);
@@ -287,18 +320,25 @@ export default function AdminFeedbackPage() {
     }
 
     try {
+      addDebugLog(`开始回复反馈 #${feedbackId}`);
+      
+      const requestBody = {
+        admin_reply: replyText.trim(),
+        status: 'replied' as const
+      };
+      
+      addDebugLog(`请求体: ${JSON.stringify(requestBody)}`);
+      
       const response = await fetch(`/api/admin/feedbacks/${feedbackId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          admin_reply: replyText,
-          status: 'replied'
-        })
+        body: JSON.stringify(requestBody)
       });
 
       const result = await response.json();
+      addDebugLog(`回复API响应: 状态 ${response.status}, 成功 ${result.success}`);
       
       if (result.success) {
         toast.success('回复成功');
@@ -306,63 +346,86 @@ export default function AdminFeedbackPage() {
         setReplyText('');
         loadFeedbacks();
       } else {
+        addDebugLog(`回复失败: ${result.error}`);
         toast.error(result.error || '回复失败');
       }
     } catch (error) {
-      console.error('回复失败:', error);
+      const errorMsg = error instanceof Error ? error.message : '未知错误';
+      addDebugLog(`回复失败异常: ${errorMsg}`);
       toast.error('回复失败');
     }
   };
 
   const handleTogglePublic = async (feedback: Feedback) => {
     try {
+      const newPublicState = !feedback.is_public;
+      addDebugLog(`切换公开状态: 反馈 #${feedback.id}, 新状态: ${newPublicState}`);
+      
+      // 🔥 修复关键：发送正确的请求体
+      const requestBody = {
+        is_public: newPublicState,
+        status: newPublicState ? 'resolved' as const : feedback.status
+      };
+      
+      addDebugLog(`请求体: ${JSON.stringify(requestBody)}`);
+      
       const response = await fetch(`/api/admin/feedbacks/${feedback.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          is_public: !feedback.is_public,
-          status: feedback.is_public ? 'replied' : 'resolved'
-        })
+        body: JSON.stringify(requestBody)
       });
 
       const result = await response.json();
+      addDebugLog(`公开API响应: 状态 ${response.status}, 成功 ${result.success}`);
       
       if (result.success) {
-        toast.success(feedback.is_public ? '已取消公开' : '已设为公开');
+        toast.success(newPublicState ? '已设为公开' : '已取消公开');
         loadFeedbacks();
       } else {
+        addDebugLog(`公开操作失败: ${result.error}`);
         toast.error(result.error || '操作失败');
       }
     } catch (error) {
-      console.error('操作失败:', error);
+      const errorMsg = error instanceof Error ? error.message : '未知错误';
+      addDebugLog(`公开操作异常: ${errorMsg}`);
       toast.error('操作失败');
     }
   };
 
   const handleToggleFeatured = async (feedback: Feedback) => {
     try {
+      const newFeaturedState = !feedback.is_featured;
+      addDebugLog(`切换置顶状态: 反馈 #${feedback.id}, 新状态: ${newFeaturedState}`);
+      
+      const requestBody = {
+        is_featured: newFeaturedState
+      };
+      
+      addDebugLog(`请求体: ${JSON.stringify(requestBody)}`);
+      
       const response = await fetch(`/api/admin/feedbacks/${feedback.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          is_featured: !feedback.is_featured
-        })
+        body: JSON.stringify(requestBody)
       });
 
       const result = await response.json();
+      addDebugLog(`置顶API响应: 状态 ${response.status}, 成功 ${result.success}`);
       
       if (result.success) {
-        toast.success(feedback.is_featured ? '已取消置顶' : '已设为置顶');
+        toast.success(newFeaturedState ? '已设为置顶' : '已取消置顶');
         loadFeedbacks();
       } else {
+        addDebugLog(`置顶操作失败: ${result.error}`);
         toast.error(result.error || '操作失败');
       }
     } catch (error) {
-      console.error('操作失败:', error);
+      const errorMsg = error instanceof Error ? error.message : '未知错误';
+      addDebugLog(`置顶操作异常: ${errorMsg}`);
       toast.error('操作失败');
     }
   };
@@ -373,25 +436,31 @@ export default function AdminFeedbackPage() {
     }
 
     try {
+      addDebugLog(`开始归档反馈 #${feedbackId}`);
+      
       const response = await fetch(`/api/admin/feedbacks/${feedbackId}`, {
         method: 'DELETE'
       });
 
       const result = await response.json();
+      addDebugLog(`归档API响应: 状态 ${response.status}, 成功 ${result.success}`);
       
       if (result.success) {
         toast.success('反馈已归档');
         loadFeedbacks();
       } else {
+        addDebugLog(`归档失败: ${result.error}`);
         toast.error(result.error || '归档失败');
       }
     } catch (error) {
-      console.error('归档失败:', error);
+      const errorMsg = error instanceof Error ? error.message : '未知错误';
+      addDebugLog(`归档异常: ${errorMsg}`);
       toast.error('归档失败');
     }
   };
 
   const handleFilterChange = (key: string, value: string) => {
+    addDebugLog(`筛选条件变化: ${key} = ${value}`);
     setFilters(prev => ({ ...prev, [key]: value }));
     setPagination(prev => ({ ...prev, offset: 0 }));
   };
@@ -427,6 +496,51 @@ export default function AdminFeedbackPage() {
     return categoryMap[category] || category;
   };
 
+  const handleTestAPI = async () => {
+    try {
+      addDebugLog('开始测试API连接...');
+      
+      // 测试获取反馈列表
+      const listResponse = await fetch('/api/admin/feedbacks?limit=5');
+      const listResult = await listResponse.json();
+      
+      addDebugLog(`列表API测试: 状态 ${listResponse.status}, 成功 ${listResult.success}`);
+      
+      if (listResult.success && listResult.data && listResult.data.length > 0) {
+        // 测试第一个反馈的更新操作
+        const testFeedback = listResult.data[0];
+        const testBody = {
+          is_public: !testFeedback.is_public,
+          status: !testFeedback.is_public ? 'resolved' : testFeedback.status
+        };
+        
+        addDebugLog(`测试更新反馈 #${testFeedback.id}: ${JSON.stringify(testBody)}`);
+        
+        const updateResponse = await fetch(`/api/admin/feedbacks/${testFeedback.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(testBody)
+        });
+        
+        const updateResult = await updateResponse.json();
+        addDebugLog(`更新API测试: 状态 ${updateResponse.status}, 成功 ${updateResult.success}`);
+        
+        if (updateResult.success) {
+          toast.success('API测试成功！');
+        } else {
+          toast.error(`更新测试失败: ${updateResult.error}`);
+        }
+      } else {
+        toast.error('没有找到可测试的反馈数据');
+      }
+      
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : '未知错误';
+      addDebugLog(`API测试异常: ${errorMsg}`);
+      toast.error('API测试失败');
+    }
+  };
+
   if (!isAdmin) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -439,23 +553,77 @@ export default function AdminFeedbackPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* 页面标题 */}
-      <div className="flex items-center justify-between mb-8">
+    <div className="container mx-auto px-4 py-8 max-w-7xl">
+      {/* 页面标题和操作栏 */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-bold">反馈管理</h1>
+          <h1 className="text-3xl font-bold flex items-center gap-2">
+            <MessageSquare className="w-8 h-8 text-blue-500" />
+            反馈管理
+          </h1>
           <p className="text-gray-400 mt-1">管理用户反馈，回复用户问题</p>
         </div>
-        <SimpleButton
-          variant="outline"
-          onClick={loadFeedbacks}
-          disabled={isLoading}
-          className="flex items-center"
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          刷新
-        </SimpleButton>
+        
+        <div className="flex flex-wrap gap-2">
+          <SimpleButton
+            variant="outline"
+            onClick={loadFeedbacks}
+            disabled={isLoading}
+            className="flex items-center"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            刷新
+          </SimpleButton>
+          
+          <SimpleButton
+            variant="outline"
+            onClick={handleTestAPI}
+            className="flex items-center"
+          >
+            <AlertCircle className="w-4 h-4 mr-2" />
+            测试API
+          </SimpleButton>
+          
+          {debugLogs.length > 0 && (
+            <div className="lg:hidden w-full mt-2">
+              <details className="text-xs">
+                <summary className="cursor-pointer text-gray-400">查看调试日志 ({debugLogs.length})</summary>
+                <div className="mt-2 p-2 bg-gray-900 rounded text-gray-500 max-h-32 overflow-y-auto">
+                  {debugLogs.map((log, index) => (
+                    <div key={index} className="py-1 border-b border-gray-800 last:border-0">
+                      {log}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* 调试面板（桌面版） */}
+      {debugLogs.length > 0 && (
+        <div className="hidden lg:block mb-6">
+          <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-medium text-gray-300">调试日志</h3>
+              <button 
+                onClick={() => setDebugLogs([])}
+                className="text-xs text-gray-500 hover:text-gray-300"
+              >
+                清空
+              </button>
+            </div>
+            <div className="text-xs text-gray-500 max-h-40 overflow-y-auto">
+              {debugLogs.map((log, index) => (
+                <div key={index} className="py-1 border-b border-gray-800 last:border-0">
+                  {log}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 统计卡片 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -463,7 +631,7 @@ export default function AdminFeedbackPage() {
           <SimpleCardContent>
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-2xl font-bold">{stats.byStatus.pending}</div>
+                <div className="text-2xl font-bold text-yellow-500">{stats.byStatus.pending}</div>
                 <div className="text-sm text-gray-400">待处理</div>
               </div>
               <div className="w-10 h-10 bg-yellow-500/20 rounded-full flex items-center justify-center">
@@ -477,7 +645,7 @@ export default function AdminFeedbackPage() {
           <SimpleCardContent>
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-2xl font-bold">{stats.byStatus.replied}</div>
+                <div className="text-2xl font-bold text-blue-500">{stats.byStatus.replied}</div>
                 <div className="text-sm text-gray-400">已回复</div>
               </div>
               <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center">
@@ -491,7 +659,7 @@ export default function AdminFeedbackPage() {
           <SimpleCardContent>
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-2xl font-bold">{stats.byStatus.resolved}</div>
+                <div className="text-2xl font-bold text-green-500">{stats.byStatus.resolved}</div>
                 <div className="text-sm text-gray-400">已解决</div>
               </div>
               <div className="w-10 h-10 bg-green-500/20 rounded-full flex items-center justify-center">
@@ -505,7 +673,7 @@ export default function AdminFeedbackPage() {
           <SimpleCardContent>
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-2xl font-bold">{stats.total}</div>
+                <div className="text-2xl font-bold text-purple-500">{stats.total}</div>
                 <div className="text-sm text-gray-400">总计反馈</div>
               </div>
               <div className="w-10 h-10 bg-purple-500/20 rounded-full flex items-center justify-center">
@@ -519,7 +687,7 @@ export default function AdminFeedbackPage() {
       {/* 筛选工具栏 */}
       <SimpleCard className="mb-6">
         <SimpleCardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* 搜索框 */}
             <div>
               <label className="block text-sm text-gray-400 mb-2">搜索</label>
@@ -589,15 +757,23 @@ export default function AdminFeedbackPage() {
       {/* 反馈列表 */}
       <SimpleCard>
         <SimpleCardHeader>
-          <h2 className="text-xl font-bold">用户反馈列表</h2>
-          <p className="text-gray-400 text-sm mt-1">
-            共 {stats.total} 条反馈，{stats.byStatus.pending} 条待处理
-          </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold">用户反馈列表</h2>
+              <p className="text-gray-400 text-sm mt-1">
+                共 {stats.total} 条反馈，{stats.byStatus.pending} 条待处理
+              </p>
+            </div>
+            <div className="text-sm text-gray-400">
+              显示 {pagination.offset + 1} - {Math.min(pagination.offset + pagination.limit, pagination.total)} 条
+            </div>
+          </div>
         </SimpleCardHeader>
+        
         <SimpleCardContent>
           {isLoading ? (
             <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500 mx-auto"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
               <p className="text-gray-400 mt-4">加载中...</p>
             </div>
           ) : feedbacks.length === 0 ? (
@@ -615,10 +791,10 @@ export default function AdminFeedbackPage() {
               {feedbacks.map((feedback) => (
                 <div key={feedback.id} className="bg-gray-900 border border-gray-800 rounded-xl p-6">
                   {/* 反馈头部 */}
-                  <div className="flex justify-between items-start mb-4">
+                  <div className="flex flex-col lg:flex-row lg:items-start justify-between mb-4 gap-4">
                     <div className="flex-1">
                       <div className="flex flex-wrap items-center gap-2 mb-2">
-                        <h3 className="font-semibold text-lg">{feedback.title}</h3>
+                        <h3 className="font-semibold text-lg text-gray-100">{feedback.title}</h3>
                         <SimpleBadge variant={getStatusColor(feedback.status)}>
                           <span className="flex items-center">
                             {getStatusIcon(feedback.status)}
@@ -676,14 +852,18 @@ export default function AdminFeedbackPage() {
                       </div>
                     </div>
                     
-                    {/* 操作按钮 - 简化版本 */}
+                    {/* 操作按钮 */}
                     <div className="flex flex-wrap gap-2">
                       <SimpleButton
-                        variant="outline"
+                        variant={replyingTo === feedback.id ? "default" : "outline"}
                         size="sm"
                         onClick={() => {
-                          setReplyingTo(feedback.id);
-                          setReplyText(feedback.admin_reply || '');
+                          if (replyingTo === feedback.id) {
+                            setReplyingTo(null);
+                          } else {
+                            setReplyingTo(feedback.id);
+                            setReplyText(feedback.admin_reply || '');
+                          }
                         }}
                       >
                         <Reply className="w-4 h-4 mr-1" />
@@ -691,7 +871,7 @@ export default function AdminFeedbackPage() {
                       </SimpleButton>
                       
                       <SimpleButton
-                        variant="outline"
+                        variant={feedback.is_public ? "success" : "outline"}
                         size="sm"
                         onClick={() => handleTogglePublic(feedback)}
                       >
@@ -709,7 +889,25 @@ export default function AdminFeedbackPage() {
                       </SimpleButton>
                       
                       <SimpleButton
-                        variant="outline"
+                        variant={feedback.is_featured ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => handleToggleFeatured(feedback)}
+                      >
+                        {feedback.is_featured ? (
+                          <>
+                            <StarOff className="w-4 h-4 mr-1" />
+                            取消置顶
+                          </>
+                        ) : (
+                          <>
+                            <Star className="w-4 h-4 mr-1" />
+                            置顶
+                          </>
+                        )}
+                      </SimpleButton>
+                      
+                      <SimpleButton
+                        variant="destructive"
                         size="sm"
                         onClick={() => handleDelete(feedback.id)}
                       >
@@ -731,7 +929,7 @@ export default function AdminFeedbackPage() {
                         <div className="w-6 h-6 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full flex items-center justify-center">
                           <Reply className="w-3 h-3 text-white" />
                         </div>
-                        <span className="font-semibold">我的回复</span>
+                        <span className="font-semibold text-gray-100">我的回复</span>
                         <span className="text-xs text-gray-400">
                           {feedback.replied_at && formatDate(feedback.replied_at)}
                         </span>
@@ -753,17 +951,21 @@ export default function AdminFeedbackPage() {
                   ) : replyingTo === feedback.id ? (
                     <div className="mt-4 p-4 rounded-lg bg-gradient-to-r from-green-500/10 to-emerald-500/10">
                       <div className="mb-3">
-                        <label className="block text-sm font-medium mb-2">回复内容</label>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">回复内容</label>
                         <SimpleTextarea
                           value={replyText}
                           onChange={setReplyText}
                           placeholder="请输入回复内容..."
                           rows={4}
                         />
+                        <p className="text-xs text-gray-500 mt-1">
+                          用户将在"我的反馈"中看到此回复
+                        </p>
                       </div>
                       <div className="flex justify-end gap-2">
                         <SimpleButton
                           variant="outline"
+                          size="sm"
                           onClick={() => {
                             setReplyingTo(null);
                             setReplyText('');
@@ -772,6 +974,7 @@ export default function AdminFeedbackPage() {
                           取消
                         </SimpleButton>
                         <SimpleButton
+                          size="sm"
                           onClick={() => handleReply(feedback.id)}
                         >
                           发送回复
@@ -782,6 +985,7 @@ export default function AdminFeedbackPage() {
                     <div className="flex justify-end">
                       <SimpleButton
                         variant="outline"
+                        size="sm"
                         onClick={() => {
                           setReplyingTo(feedback.id);
                           setReplyText('');
@@ -806,17 +1010,23 @@ export default function AdminFeedbackPage() {
               <div className="flex gap-2">
                 <SimpleButton
                   variant="outline"
+                  size="sm"
                   onClick={() => setPagination(prev => ({ ...prev, offset: Math.max(0, prev.offset - prev.limit) }))}
                   disabled={pagination.offset === 0}
+                  className="flex items-center"
                 >
+                  <ChevronLeft className="w-4 h-4 mr-1" />
                   上一页
                 </SimpleButton>
                 <SimpleButton
                   variant="outline"
+                  size="sm"
                   onClick={() => setPagination(prev => ({ ...prev, offset: prev.offset + prev.limit }))}
                   disabled={!pagination.hasMore}
+                  className="flex items-center"
                 >
                   下一页
+                  <ChevronRight className="w-4 h-4 ml-1" />
                 </SimpleButton>
               </div>
             </div>
@@ -829,6 +1039,9 @@ export default function AdminFeedbackPage() {
         <p>✨ 提示：设为公开的反馈会在用户反馈页面展示，置顶的反馈会优先显示</p>
         <p className="mt-1">
           📊 数据统计：待处理 {stats.byStatus.pending} 条，已回复 {stats.byStatus.replied} 条，已解决 {stats.byStatus.resolved} 条
+        </p>
+        <p className="mt-4 text-xs text-gray-600">
+          系统版本: 反馈管理 v1.1 | 最后更新: {new Date().toLocaleDateString()}
         </p>
       </div>
     </div>
