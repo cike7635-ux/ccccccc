@@ -1,3 +1,4 @@
+// /app/api/feedback/my/route.ts - 获取用户反馈列表
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -7,101 +8,71 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 );
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
-    const body = await request.json();
+    console.log('🎯 获取用户反馈API被调用');
     
-    // 基础验证
-    if (!body.title || body.title.trim().length < 2) {
+    // 1. 从请求头获取Authorization token
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader) {
+      console.log('❌ 没有Authorization头');
       return NextResponse.json(
-        { success: false, error: '标题至少2个字符' },
-        { status: 400 }
-      );
-    }
-    
-    if (!body.content || body.content.trim().length < 10) {
-      return NextResponse.json(
-        { success: false, error: '内容至少10个字符' },
-        { status: 400 }
+        { success: false, error: '未授权，请先登录' },
+        { status: 401 }
       );
     }
 
-    // 获取用户信息（如果有）
-    const userEmail = body.userEmail || '匿名用户';
-    const userId = body.userId || null;
-
-    // 检查用户是否已有待处理的反馈
-    if (userId) {
-      const { data: pendingFeedbacks } = await supabase
-        .from('feedbacks')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('status', 'pending');
-
-      if (pendingFeedbacks && pendingFeedbacks.length > 0) {
-        return NextResponse.json(
-          { 
-            success: false, 
-            error: '您有待处理的反馈，请等待管理员回复后再提交新的反馈'
-          },
-          { status: 400 }
-        );
-      }
+    const token = authHeader.replace('Bearer ', '');
+    
+    // 2. 验证用户
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      console.log('❌ 用户验证失败:', authError?.message);
+      return NextResponse.json(
+        { success: false, error: '用户验证失败' },
+        { status: 401 }
+      );
     }
 
-    // 创建新反馈
-    const newFeedback = {
-      user_id: userId,
-      user_email: userEmail,
-      user_nickname: body.nickname || (userId ? '登录用户' : '匿名用户'),
-      title: body.title.trim(),
-      content: body.content.trim(),
-      category: body.category || 'general',
-      rating: body.rating || null,
-      status: 'pending',
-      is_public: false,
-      is_featured: false
-    };
-
-    const { data, error } = await supabase
+    console.log('✅ 用户已认证:', user.email);
+    
+    // 3. 获取用户的反馈
+    const { data: feedbacks, error: fetchError } = await supabase
       .from('feedbacks')
-      .insert(newFeedback)
-      .select()
-      .single();
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('❌ 创建反馈失败:', error);
+    if (fetchError) {
+      console.error('❌ 获取反馈失败:', fetchError);
       return NextResponse.json(
-        { success: false, error: '提交反馈失败' },
+        { success: false, error: '获取反馈失败' },
         { status: 500 }
       );
     }
 
-    console.log(`✅ 新反馈提交: ${newFeedback.title}`);
+    // 4. 计算统计信息
+    const stats = {
+      pending: feedbacks?.filter(f => f.status === 'pending').length || 0,
+      replied: feedbacks?.filter(f => f.status === 'replied').length || 0,
+      resolved: feedbacks?.filter(f => f.status === 'resolved').length || 0
+    };
+
+    console.log(`✅ 成功获取用户反馈，数量: ${feedbacks?.length || 0}`);
 
     return NextResponse.json({
       success: true,
-      data,
-      message: '反馈提交成功！我们会在3个工作日内回复您'
+      data: feedbacks || [],
+      stats,
+      message: '获取反馈成功'
     });
 
   } catch (error: any) {
-    console.error('❌ 提交反馈异常:', error);
+    console.error('❌ 获取用户反馈异常:', error);
     return NextResponse.json(
       { success: false, error: '服务器内部错误' },
       { status: 500 }
     );
   }
-}
-
-export async function GET() {
-  return NextResponse.json({
-    success: true,
-    message: '反馈API已就绪',
-    endpoints: {
-      POST: '提交新反馈',
-      '/my': '获取我的反馈（需要认证）',
-      '/public': '获取公开反馈'
-    }
-  });
 }

@@ -1,37 +1,24 @@
-// /app/api/feedback/route.ts - 完整修复版本
+// /app/api/feedback/route.ts - 使用Service Role Key验证用户
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { z } from 'zod';
 
-// 创建Supabase客户端（使用Service Role Key！）
-const supabase = createClient(
+// 使用Service Role Key（关键！）
+const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // 🔥 关键：使用Service Role Key
+  process.env.SUPABASE_SERVICE_ROLE_KEY!, // 🔥 必须是Service Role Key
   { auth: { persistSession: false } }
 );
-
-// 验证schema
-const feedbackSchema = z.object({
-  title: z.string()
-    .min(2, '标题至少2个字符')
-    .max(100, '标题最多100个字符'),
-  content: z.string()
-    .min(10, '内容至少10个字符')
-    .max(1000, '内容最多1000个字符'),
-  category: z.enum(['general', 'bug', 'suggestion', 'question', 'feature_request']).default('general'),
-  rating: z.number().min(1).max(5).optional(),
-});
 
 export async function POST(request: NextRequest) {
   try {
     console.log('🎯 反馈提交API被调用');
     
-    // 验证用户登录状态
+    // 1. 从请求头获取Authorization token
     const authHeader = request.headers.get('authorization');
     if (!authHeader) {
       console.log('❌ 没有Authorization头');
       return NextResponse.json(
-        { error: '未授权，请先登录' },
+        { success: false, error: '未授权，请先登录' },
         { status: 401 }
       );
     }
@@ -39,117 +26,112 @@ export async function POST(request: NextRequest) {
     const token = authHeader.replace('Bearer ', '');
     console.log('🔑 Token长度:', token.length);
     
-    // 🔥 关键修复：使用Service Role Key验证用户
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    // 2. 使用Service Role Key验证token
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
     
     if (authError || !user) {
       console.log('❌ 用户验证失败:', authError?.message);
       return NextResponse.json(
-        { error: '用户验证失败，请重新登录' },
+        { success: false, error: '用户验证失败，请重新登录' },
         { status: 401 }
       );
     }
 
     console.log('✅ 用户已认证:', user.email);
     
-    // 解析请求体
+    // 3. 解析请求体
     const body = await request.json();
-    const validatedData = feedbackSchema.parse(body);
+    console.log('📦 请求数据:', { 
+      title: body.title?.substring(0, 50),
+      contentLength: body.content?.length,
+      category: body.category,
+      rating: body.rating 
+    });
+    
+    const { title, content, category = 'general', rating } = body;
+    
+    // 4. 基础验证
+    if (!title || title.trim().length < 2) {
+      return NextResponse.json(
+        { success: false, error: '标题至少2个字符' },
+        { status: 400 }
+      );
+    }
+    
+    if (!content || content.trim().length < 10) {
+      return NextResponse.json(
+        { success: false, error: '内容至少10个字符' },
+        { status: 400 }
+      );
+    }
 
-    // 检查用户是否已有待处理的反馈
-    const { data: existingFeedback, error: checkError } = await supabase
+    // 5. 检查用户是否已有待处理的反馈
+    const { data: pendingFeedbacks } = await supabaseAdmin
       .from('feedbacks')
-      .select('id, status')
+      .select('id')
       .eq('user_id', user.id)
-      .eq('status', 'pending')
-      .single();
+      .eq('status', 'pending');
 
-    if (existingFeedback) {
-      console.log('⚠️ 用户有待处理反馈:', existingFeedback.id);
+    if (pendingFeedbacks && pendingFeedbacks.length > 0) {
+      console.log('⚠️ 用户有待处理反馈:', pendingFeedbacks[0].id);
       return NextResponse.json(
         { 
-          error: '您已有一条待处理的反馈，请等待管理员回复后再提交新的反馈',
-          existingId: existingFeedback.id 
+          success: false, 
+          error: '您有待处理的反馈，请等待管理员回复后再提交新的反馈'
         },
         { status: 400 }
       );
     }
 
-    // 获取用户资料
-    const { data: profile } = await supabase
+    // 6. 获取用户资料
+    const { data: profile } = await supabaseAdmin
       .from('profiles')
-      .select('email, nickname')
+      .select('nickname')
       .eq('id', user.id)
       .single();
 
-    // 创建反馈
-    const { data: feedback, error: insertError } = await supabase
+    // 7. 创建新反馈
+    const newFeedback = {
+      user_id: user.id,
+      user_email: user.email,
+      user_nickname: profile?.nickname || user.email?.split('@')[0],
+      title: title.trim(),
+      content: content.trim(),
+      category: category || 'general',
+      rating: rating || null,
+      status: 'pending',
+      is_public: false,
+      is_featured: false
+    };
+
+    const { data, error } = await supabaseAdmin
       .from('feedbacks')
-      .insert({
-        user_id: user.id,
-        user_email: profile?.email || user.email,
-        user_nickname: profile?.nickname || user.email?.split('@')[0],
-        title: validatedData.title,
-        content: validatedData.content,
-        category: validatedData.category,
-        rating: validatedData.rating,
-        status: 'pending',
-        is_public: false,
-        created_at: new Date().toISOString()
-      })
+      .insert(newFeedback)
       .select()
       .single();
 
-    if (insertError) {
-      console.error('❌ 创建反馈失败:', insertError);
+    if (error) {
+      console.error('❌ 创建反馈失败:', error);
       return NextResponse.json(
-        { error: '提交反馈失败，请稍后重试' },
+        { success: false, error: '提交反馈失败' },
         { status: 500 }
       );
     }
 
-    console.log('✅ 反馈创建成功，ID:', feedback.id);
-    
-    // 发送通知（可选）
-    await sendFeedbackNotification(feedback, user);
+    console.log(`✅ 新反馈提交成功，ID: ${data.id}`);
 
     return NextResponse.json({
       success: true,
-      message: '反馈提交成功！我们会在3个工作日内回复您',
-      data: feedback,
-      reminder: '在管理员回复前，您无法提交新的反馈'
+      data,
+      message: '反馈提交成功！我们会在3个工作日内回复您'
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ 提交反馈异常:', error);
-    
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: '数据验证失败', details: error.errors },
-        { status: 400 }
-      );
-    }
-
     return NextResponse.json(
-      { error: '服务器内部错误' },
+      { success: false, error: '服务器内部错误' },
       { status: 500 }
     );
-  }
-}
-
-// 发送通知函数（可选实现）
-async function sendFeedbackNotification(feedback: any, user: any) {
-  try {
-    console.log('📩 新反馈通知:', {
-      feedbackId: feedback.id,
-      userId: user.id,
-      userEmail: user.email,
-      title: feedback.title,
-      category: feedback.category,
-      time: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('发送通知失败:', error);
   }
 }
 
