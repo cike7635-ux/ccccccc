@@ -729,7 +729,7 @@ export default function GenerateTasksSection({
                     className="inline-flex items-center space-x-1 text-brand-pink hover:text-pink-300 text-xs font-medium transition-colors"
                   >
                     <Sparkles className="w-3 h-3" />
-                    <span>去设置偏好以获得更精准的生成</span>
+                    <span>去设置偏好和昵称以获得更精准的生成</span>
                   </Link>
                 </div>
               )}
@@ -741,7 +741,7 @@ export default function GenerateTasksSection({
                   <Sparkles className="w-4 h-4 text-white" />
                 </div>
                 <Label htmlFor="customRequirement" className="text-sm font-semibold">
-                  特别需求（可选）
+                  特别需求（推荐）
                 </Label>
               </div>
               <textarea
@@ -750,7 +750,7 @@ export default function GenerateTasksSection({
                 onChange={(e) => setCustomRequirement(e.target.value)}
                 rows={4}
                 className="w-full glass bg-white/5 rounded-xl border border-white/20 px-3 py-3 text-sm outline-none focus:border-brand-pink focus:ring-1 focus:ring-brand-pink/30 transition-all placeholder-gray-500"
-                placeholder="例如：增加户外活动、避免需要高消费的任务、希望有更多情感交流类的内容..."
+                placeholder="(需求越详细，生成的任务越符合预期）例如：我们现在正在图书馆，我希望可以有一些刺激的内容，比如适当的露出..."
               />
             </div>
           </div>
