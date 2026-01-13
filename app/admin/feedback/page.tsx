@@ -87,16 +87,16 @@ const SimpleCardContent = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 
-const SimpleButton = ({ 
-  children, 
-  onClick, 
+const SimpleButton = ({
+  children,
+  onClick,
   disabled = false,
   variant = 'default',
   size = 'md',
   className = '',
   type = 'button'
-}: { 
-  children: React.ReactNode; 
+}: {
+  children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   variant?: 'default' | 'outline' | 'destructive' | 'success';
@@ -105,20 +105,20 @@ const SimpleButton = ({
   type?: 'button' | 'submit' | 'reset';
 }) => {
   const baseStyles = "font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center";
-  
+
   const sizeStyles = {
     sm: "px-3 py-1.5 text-sm rounded-md",
     md: "px-4 py-2 text-sm rounded-lg",
     lg: "px-6 py-3 text-base rounded-lg"
   };
-  
+
   const variantStyles = {
     default: "bg-blue-600 hover:bg-blue-700 text-white",
     outline: "border border-gray-700 hover:bg-gray-800 text-gray-300",
     destructive: "bg-red-600 hover:bg-red-700 text-white",
     success: "bg-green-600 hover:bg-green-700 text-white"
   };
-  
+
   return (
     <button
       type={type}
@@ -131,12 +131,12 @@ const SimpleButton = ({
   );
 };
 
-const SimpleBadge = ({ 
-  children, 
+const SimpleBadge = ({
+  children,
   variant = 'default',
   className = ''
-}: { 
-  children: React.ReactNode; 
+}: {
+  children: React.ReactNode;
   variant?: 'default' | 'success' | 'warning' | 'error' | 'info';
   className?: string;
 }) => {
@@ -147,7 +147,7 @@ const SimpleBadge = ({
     error: "bg-red-900/30 text-red-400 border border-red-800/50",
     info: "bg-blue-900/30 text-blue-400 border border-blue-800/50"
   };
-  
+
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${variantStyles[variant]} ${className}`}>
       {children}
@@ -155,13 +155,13 @@ const SimpleBadge = ({
   );
 };
 
-const SimpleInput = ({ 
-  value, 
-  onChange, 
+const SimpleInput = ({
+  value,
+  onChange,
   placeholder,
   className = ''
-}: { 
-  value: string; 
+}: {
+  value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
@@ -175,14 +175,14 @@ const SimpleInput = ({
   />
 );
 
-const SimpleTextarea = ({ 
-  value, 
-  onChange, 
+const SimpleTextarea = ({
+  value,
+  onChange,
   placeholder,
   rows = 4,
   className = ''
-}: { 
-  value: string; 
+}: {
+  value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   rows?: number;
@@ -197,13 +197,13 @@ const SimpleTextarea = ({
   />
 );
 
-const SimpleSelect = ({ 
-  value, 
-  onChange, 
+const SimpleSelect = ({
+  value,
+  onChange,
   children,
   className = ''
-}: { 
-  value: string; 
+}: {
+  value: string;
   onChange: (value: string) => void;
   children: React.ReactNode;
   className?: string;
@@ -260,7 +260,7 @@ export default function AdminFeedbackPage() {
     setIsLoading(true);
     try {
       addDebugLog('开始加载反馈列表...');
-      
+
       const queryParams = new URLSearchParams({
         limit: pagination.limit.toString(),
         offset: pagination.offset.toString(),
@@ -273,20 +273,20 @@ export default function AdminFeedbackPage() {
 
       const apiUrl = `/api/admin/feedbacks?${queryParams}`;
       addDebugLog(`请求API: ${apiUrl}`);
-      
+
       const response = await fetch(apiUrl);
-      
+
       if (response.status === 401 || response.status === 403) {
         addDebugLog(`权限错误: ${response.status}`);
         toast.error('无权访问，请重新登录');
         router.push('/admin');
         return;
       }
-      
+
       const result = await response.json();
-      
+
       addDebugLog(`API响应: ${result.success ? '成功' : '失败'}, 数据量: ${result.data?.length || 0}`);
-      
+
       if (result.success) {
         setFeedbacks(result.data || []);
         setStats(result.stats || {
@@ -321,14 +321,14 @@ export default function AdminFeedbackPage() {
 
     try {
       addDebugLog(`开始回复反馈 #${feedbackId}`);
-      
+
       const requestBody = {
         admin_reply: replyText.trim(),
         status: 'replied' as const
       };
-      
+
       addDebugLog(`请求体: ${JSON.stringify(requestBody)}`);
-      
+
       const response = await fetch(`/api/admin/feedbacks/${feedbackId}`, {
         method: 'PATCH',
         headers: {
@@ -339,7 +339,7 @@ export default function AdminFeedbackPage() {
 
       const result = await response.json();
       addDebugLog(`回复API响应: 状态 ${response.status}, 成功 ${result.success}`);
-      
+
       if (result.success) {
         toast.success('回复成功');
         setReplyingTo(null);
@@ -360,15 +360,15 @@ export default function AdminFeedbackPage() {
     try {
       const newPublicState = !feedback.is_public;
       addDebugLog(`切换公开状态: 反馈 #${feedback.id}, 新状态: ${newPublicState}`);
-      
+
       // 🔥 修复关键：发送正确的请求体
       const requestBody = {
         is_public: newPublicState,
         status: newPublicState ? 'resolved' as const : feedback.status
       };
-      
+
       addDebugLog(`请求体: ${JSON.stringify(requestBody)}`);
-      
+
       const response = await fetch(`/api/admin/feedbacks/${feedback.id}`, {
         method: 'PATCH',
         headers: {
@@ -379,7 +379,7 @@ export default function AdminFeedbackPage() {
 
       const result = await response.json();
       addDebugLog(`公开API响应: 状态 ${response.status}, 成功 ${result.success}`);
-      
+
       if (result.success) {
         toast.success(newPublicState ? '已设为公开' : '已取消公开');
         loadFeedbacks();
@@ -398,13 +398,13 @@ export default function AdminFeedbackPage() {
     try {
       const newFeaturedState = !feedback.is_featured;
       addDebugLog(`切换置顶状态: 反馈 #${feedback.id}, 新状态: ${newFeaturedState}`);
-      
+
       const requestBody = {
         is_featured: newFeaturedState
       };
-      
+
       addDebugLog(`请求体: ${JSON.stringify(requestBody)}`);
-      
+
       const response = await fetch(`/api/admin/feedbacks/${feedback.id}`, {
         method: 'PATCH',
         headers: {
@@ -415,7 +415,7 @@ export default function AdminFeedbackPage() {
 
       const result = await response.json();
       addDebugLog(`置顶API响应: 状态 ${response.status}, 成功 ${result.success}`);
-      
+
       if (result.success) {
         toast.success(newFeaturedState ? '已设为置顶' : '已取消置顶');
         loadFeedbacks();
@@ -437,14 +437,14 @@ export default function AdminFeedbackPage() {
 
     try {
       addDebugLog(`开始归档反馈 #${feedbackId}`);
-      
+
       const response = await fetch(`/api/admin/feedbacks/${feedbackId}`, {
         method: 'DELETE'
       });
 
       const result = await response.json();
       addDebugLog(`归档API响应: 状态 ${response.status}, 成功 ${result.success}`);
-      
+
       if (result.success) {
         toast.success('反馈已归档');
         loadFeedbacks();
@@ -499,13 +499,13 @@ export default function AdminFeedbackPage() {
   const handleTestAPI = async () => {
     try {
       addDebugLog('开始测试API连接...');
-      
+
       // 测试获取反馈列表
       const listResponse = await fetch('/api/admin/feedbacks?limit=5');
       const listResult = await listResponse.json();
-      
+
       addDebugLog(`列表API测试: 状态 ${listResponse.status}, 成功 ${listResult.success}`);
-      
+
       if (listResult.success && listResult.data && listResult.data.length > 0) {
         // 测试第一个反馈的更新操作
         const testFeedback = listResult.data[0];
@@ -513,18 +513,18 @@ export default function AdminFeedbackPage() {
           is_public: !testFeedback.is_public,
           status: !testFeedback.is_public ? 'resolved' : testFeedback.status
         };
-        
+
         addDebugLog(`测试更新反馈 #${testFeedback.id}: ${JSON.stringify(testBody)}`);
-        
+
         const updateResponse = await fetch(`/api/admin/feedbacks/${testFeedback.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(testBody)
         });
-        
+
         const updateResult = await updateResponse.json();
         addDebugLog(`更新API测试: 状态 ${updateResponse.status}, 成功 ${updateResult.success}`);
-        
+
         if (updateResult.success) {
           toast.success('API测试成功！');
         } else {
@@ -533,7 +533,7 @@ export default function AdminFeedbackPage() {
       } else {
         toast.error('没有找到可测试的反馈数据');
       }
-      
+
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : '未知错误';
       addDebugLog(`API测试异常: ${errorMsg}`);
@@ -563,7 +563,7 @@ export default function AdminFeedbackPage() {
           </h1>
           <p className="text-gray-400 mt-1">管理用户反馈，回复用户问题</p>
         </div>
-        
+
         <div className="flex flex-wrap gap-2">
           <SimpleButton
             variant="outline"
@@ -574,7 +574,7 @@ export default function AdminFeedbackPage() {
             <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             刷新
           </SimpleButton>
-          
+
           <SimpleButton
             variant="outline"
             onClick={handleTestAPI}
@@ -583,7 +583,7 @@ export default function AdminFeedbackPage() {
             <AlertCircle className="w-4 h-4 mr-2" />
             测试API
           </SimpleButton>
-          
+
           {debugLogs.length > 0 && (
             <div className="lg:hidden w-full mt-2">
               <details className="text-xs">
@@ -607,7 +607,7 @@ export default function AdminFeedbackPage() {
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-gray-300">调试日志</h3>
-              <button 
+              <button
                 onClick={() => setDebugLogs([])}
                 className="text-xs text-gray-500 hover:text-gray-300"
               >
@@ -640,7 +640,7 @@ export default function AdminFeedbackPage() {
             </div>
           </SimpleCardContent>
         </SimpleCard>
-        
+
         <SimpleCard>
           <SimpleCardContent>
             <div className="flex items-center justify-between">
@@ -654,7 +654,7 @@ export default function AdminFeedbackPage() {
             </div>
           </SimpleCardContent>
         </SimpleCard>
-        
+
         <SimpleCard>
           <SimpleCardContent>
             <div className="flex items-center justify-between">
@@ -668,7 +668,7 @@ export default function AdminFeedbackPage() {
             </div>
           </SimpleCardContent>
         </SimpleCard>
-        
+
         <SimpleCard>
           <SimpleCardContent>
             <div className="flex items-center justify-between">
@@ -687,6 +687,7 @@ export default function AdminFeedbackPage() {
       {/* 筛选工具栏 */}
       <SimpleCard className="mb-6">
         <SimpleCardContent>
+         // 在筛选工具栏部分，修改分类筛选
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* 搜索框 */}
             <div>
@@ -717,21 +718,21 @@ export default function AdminFeedbackPage() {
               </SimpleSelect>
             </div>
 
-            {/* 分类筛选 */}
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">分类</label>
-              <SimpleSelect
-                value={filters.category}
-                onChange={(value) => handleFilterChange('category', value)}
-              >
-                <option value="all">全部分类</option>
-                {Object.keys(stats.byCategory).map(category => (
-                  <option key={category} value={category}>
-                    {getCategoryName(category)}
-                  </option>
-                ))}
-              </SimpleSelect>
-            </div>
+            {/* 🔥 修复：分类筛选（由于没有数据，暂时隐藏） */}
+            {/* <div>
+    <label className="block text-sm text-gray-400 mb-2">分类</label>
+    <SimpleSelect
+      value={filters.category}
+      onChange={(value) => handleFilterChange('category', value)}
+    >
+      <option value="all">全部分类</option>
+      {Object.keys(stats.byCategory || {}).map(category => (
+        <option key={category} value={category}>
+          {getCategoryName(category)}
+        </option>
+      ))}
+    </SimpleSelect>
+  </div> */}
 
             {/* 排序方式 */}
             <div>
@@ -769,7 +770,7 @@ export default function AdminFeedbackPage() {
             </div>
           </div>
         </SimpleCardHeader>
-        
+
         <SimpleCardContent>
           {isLoading ? (
             <div className="text-center py-12">
@@ -798,12 +799,12 @@ export default function AdminFeedbackPage() {
                         <SimpleBadge variant={getStatusColor(feedback.status)}>
                           <span className="flex items-center">
                             {getStatusIcon(feedback.status)}
-                            {feedback.status === 'pending' ? '待处理' : 
-                             feedback.status === 'replied' ? '已回复' : 
-                             feedback.status === 'resolved' ? '已解决' : '已归档'}
+                            {feedback.status === 'pending' ? '待处理' :
+                              feedback.status === 'replied' ? '已回复' :
+                                feedback.status === 'resolved' ? '已解决' : '已归档'}
                           </span>
                         </SimpleBadge>
-                        
+
                         {feedback.is_public && (
                           <SimpleBadge variant="success">
                             <span className="flex items-center">
@@ -812,7 +813,7 @@ export default function AdminFeedbackPage() {
                             </span>
                           </SimpleBadge>
                         )}
-                        
+
                         {feedback.is_featured && (
                           <SimpleBadge variant="info">
                             <span className="flex items-center">
@@ -822,7 +823,7 @@ export default function AdminFeedbackPage() {
                           </SimpleBadge>
                         )}
                       </div>
-                      
+
                       <div className="flex flex-wrap items-center gap-2 text-sm text-gray-400">
                         <span className="flex items-center gap-1">
                           <Users className="w-3 h-3" />
@@ -839,11 +840,10 @@ export default function AdminFeedbackPage() {
                               {[...Array(5)].map((_, i) => (
                                 <Star
                                   key={i}
-                                  className={`w-3 h-3 ${
-                                    i < feedback.rating! 
-                                      ? 'text-yellow-500 fill-yellow-500' 
+                                  className={`w-3 h-3 ${i < feedback.rating!
+                                      ? 'text-yellow-500 fill-yellow-500'
                                       : 'text-gray-400'
-                                  }`}
+                                    }`}
                                 />
                               ))}
                             </span>
@@ -851,7 +851,7 @@ export default function AdminFeedbackPage() {
                         )}
                       </div>
                     </div>
-                    
+
                     {/* 操作按钮 */}
                     <div className="flex flex-wrap gap-2">
                       <SimpleButton
@@ -869,7 +869,7 @@ export default function AdminFeedbackPage() {
                         <Reply className="w-4 h-4 mr-1" />
                         {feedback.admin_reply ? '修改回复' : '回复'}
                       </SimpleButton>
-                      
+
                       <SimpleButton
                         variant={feedback.is_public ? "success" : "outline"}
                         size="sm"
@@ -887,7 +887,7 @@ export default function AdminFeedbackPage() {
                           </>
                         )}
                       </SimpleButton>
-                      
+
                       <SimpleButton
                         variant={feedback.is_featured ? "default" : "outline"}
                         size="sm"
@@ -905,7 +905,7 @@ export default function AdminFeedbackPage() {
                           </>
                         )}
                       </SimpleButton>
-                      
+
                       <SimpleButton
                         variant="destructive"
                         size="sm"
