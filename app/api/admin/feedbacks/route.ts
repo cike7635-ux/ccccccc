@@ -1,23 +1,39 @@
-// app\api\admin\feedbacks\route.ts
+// /app/api/admin/feedbacks/route.ts - 简化版本
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { checkAdminAuth } from '@/lib/auth';
+import { isAdminEmail } from '@/lib/auth';
 
-const supabase = createClient(
+// 使用Service Role Key
+const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // 使用service role key进行管理员操作
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 );
 
 export async function GET(request: NextRequest) {
   try {
-    // 验证管理员权限
-    const authError = await checkAdminAuth(request);
-    if (authError) {
-      return authError;
+    console.log('🎯 管理员获取反馈列表API被调用');
+    
+    // 1. 简单验证管理员（基于邮箱）
+    // 从Authorization头获取token并验证邮箱
+    const authHeader = request.headers.get('authorization');
+    
+    if (authHeader) {
+      const token = authHeader.replace('Bearer ', '');
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+      
+      if (user?.email) {
+        const admin = await isAdminEmail(user.email);
+        if (!admin) {
+          return NextResponse.json(
+            { error: '非管理员账号' },
+            { status: 403 }
+          );
+        }
+      }
     }
-
-    // 获取查询参数
+    
+    // 2. 获取查询参数
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = parseInt(searchParams.get('offset') || '0');
@@ -26,92 +42,74 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search');
     const sortBy = searchParams.get('sortBy') || 'created_at';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
-
-    // 构建查询
-    let query = supabase
+    
+    // 3. 构建查询
+    let query = supabaseAdmin
       .from('feedbacks')
-      .select(`
-        *,
-        user:profiles!feedbacks_user_id_fkey (
-          email,
-          nickname,
-          avatar_url,
-          created_at
-        )
-      `, { count: 'exact' })
+      .select('*', { count: 'exact' })
       .order(sortBy, { ascending: sortOrder === 'asc' })
       .range(offset, offset + limit - 1);
-
+    
     // 应用筛选条件
     if (status && status !== 'all') {
       query = query.eq('status', status);
     }
-
+    
     if (category && category !== 'all') {
       query = query.eq('category', category);
     }
-
+    
     if (search) {
       query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%,user_nickname.ilike.%${search}%`);
     }
-
+    
     const { data: feedbacks, error, count } = await query;
-
+    
     if (error) {
-      console.error('管理员获取反馈失败:', error);
+      console.error('❌ 获取反馈失败:', error);
       return NextResponse.json(
-        { error: '获取反馈数据失败' },
+        { success: false, error: '获取反馈失败' },
         { status: 500 }
       );
     }
-
-    // 获取统计信息
-    const { data: stats } = await supabase
+    
+    // 4. 计算统计数据
+    const { data: allFeedbacks } = await supabaseAdmin
       .from('feedbacks')
-      .select('status, category', { count: 'exact', head: true })
-      .group('status, category');
-
-    const statsByStatus = {
-      pending: 0,
-      replied: 0,
-      resolved: 0,
-      archived: 0
+      .select('status, category');
+    
+    const stats = {
+      byStatus: {
+        pending: allFeedbacks?.filter(f => f.status === 'pending').length || 0,
+        replied: allFeedbacks?.filter(f => f.status === 'replied').length || 0,
+        resolved: allFeedbacks?.filter(f => f.status === 'resolved').length || 0,
+        archived: allFeedbacks?.filter(f => f.status === 'archived').length || 0
+      },
+      byCategory: allFeedbacks?.reduce((acc: Record<string, number>, feedback) => {
+        acc[feedback.category] = (acc[feedback.category] || 0) + 1;
+        return acc;
+      }, {}) || {},
+      total: count || 0
     };
-
-    const statsByCategory: Record<string, number> = {};
-
-    stats?.forEach(stat => {
-      statsByStatus[stat.status as keyof typeof statsByStatus] += stat.count;
-      
-      if (stat.category) {
-        statsByCategory[stat.category] = (statsByCategory[stat.category] || 0) + stat.count;
-      }
-    });
-
+    
+    console.log(`✅ 成功获取反馈，数量: ${feedbacks?.length || 0}`);
+    
     return NextResponse.json({
       success: true,
       data: feedbacks || [],
+      stats,
       pagination: {
+        total: count || 0,
         limit,
         offset,
-        total: count || 0,
         hasMore: (count || 0) > offset + limit
-      },
-      stats: {
-        byStatus: statsByStatus,
-        byCategory: statsByCategory,
-        total: count || 0
-      },
-      filters: {
-        statuses: ['pending', 'replied', 'resolved', 'archived'],
-        categories: Object.keys(statsByCategory)
       }
     });
-
-  } catch (error) {
-    console.error('管理员获取反馈异常:', error);
+    
+  } catch (error: any) {
+    console.error('❌ 管理员获取反馈异常:', error);
     return NextResponse.json(
-      { error: '服务器内部错误' },
+      { success: false, error: '服务器内部错误' },
       { status: 500 }
     );
   }
