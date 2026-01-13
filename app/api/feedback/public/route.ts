@@ -1,4 +1,4 @@
-// /app/api/feedback/public/route.ts - 修改版本
+// /app/api/feedback/public/route.ts - 修复500错误版本
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -10,13 +10,13 @@ const supabase = createClient(
 
 export async function GET(request: NextRequest) {
   try {
-    console.log('🎯 获取公开反馈列表（关联profiles表）');
+    console.log('🎯 获取公开反馈列表');
     
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '20');
     const offset = parseInt(searchParams.get('offset') || '0');
     
-    // 🔥 关键修改：关联profiles表获取真实昵称
+    // 🔥 简化查询：先不关联profiles表，避免语法错误
     const { data: feedbacks, error, count } = await supabase
       .from('feedbacks')
       .select(`
@@ -29,12 +29,9 @@ export async function GET(request: NextRequest) {
         replied_at,
         is_featured,
         created_at,
-        user_nickname,  // 来自feedbacks表（邮箱用户名）
-        user_id,        // 用于关联查询
-        status,
-        profiles!feedbacks_user_id_fkey (
-          nickname      // 🔥 来自profiles表的真实昵称
-        )
+        user_nickname,
+        user_email,
+        status
       `, { count: 'exact' })
       .eq('is_public', true)
       .eq('status', 'resolved')
@@ -45,48 +42,59 @@ export async function GET(request: NextRequest) {
     if (error) {
       console.error('❌ 获取公开反馈失败:', error);
       return NextResponse.json(
-        { success: false, error: '获取公开反馈失败' },
+        { 
+          success: false, 
+          error: '获取公开反馈失败',
+          details: error.message,
+          hint: error.hint
+        },
         { status: 500 }
       );
     }
     
-    // 🔥 数据处理：使用profiles表的真实昵称，如果为空则使用邮箱用户名
-    const safeFeedbacks = feedbacks?.map(feedback => {
-      // 优先使用profiles表的真实昵称
-      const profileNickname = feedback.profiles?.nickname;
-      // 如果没有真实昵称，使用反馈表的邮箱用户名（去掉@后的部分）
-      const feedbackUsername = feedback.user_nickname || 
-                               feedback.user_email?.split('@')[0] || 
-                               '用户';
-      
-      return {
-        id: feedback.id,
-        title: feedback.title,
-        content: feedback.content,
-        category: feedback.category,
-        rating: feedback.rating,
-        admin_reply: feedback.admin_reply,
-        replied_at: feedback.replied_at,
-        is_featured: feedback.is_featured,
-        created_at: feedback.created_at,
-        user_nickname: profileNickname || feedbackUsername, // 🔥 显示真实昵称
-        // 确保不包含敏感信息
-        user_email: undefined,
-        profiles: undefined,
-        user_id: undefined,
-        status: feedback.status
-      };
-    }) || [];
+    console.log('🔍 获取到的反馈数量:', feedbacks?.length || 0);
     
-    console.log(`✅ 获取公开反馈成功: ${safeFeedbacks.length} 条`);
-    console.log('🔍 昵称处理结果:', safeFeedbacks.map(f => ({
-      id: f.id,
-      nickname: f.user_nickname
-    })));
+    // 🔥 手动关联查询profiles表获取昵称
+    const enhancedFeedbacks = await Promise.all(
+      (feedbacks || []).map(async (feedback) => {
+        try {
+          // 查询profiles表获取真实昵称
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('nickname')
+            .eq('id', feedback.user_id)
+            .single();
+          
+          // 优先使用profiles表的真实昵称
+          const nickname = profile?.nickname || 
+                          feedback.user_nickname || 
+                          feedback.user_email?.split('@')[0] || 
+                          '用户';
+          
+          return {
+            ...feedback,
+            user_nickname: nickname, // 🔥 显示真实昵称
+            user_email: undefined // 隐藏邮箱保护隐私
+          };
+        } catch (profileError) {
+          console.error('查询profile失败:', profileError);
+          // 如果查询失败，使用反馈表的昵称
+          return {
+            ...feedback,
+            user_nickname: feedback.user_nickname || 
+                          feedback.user_email?.split('@')[0] || 
+                          '用户',
+            user_email: undefined
+          };
+        }
+      })
+    );
+    
+    console.log(`✅ 成功处理公开反馈，数量: ${enhancedFeedbacks.length}`);
     
     return NextResponse.json({
       success: true,
-      data: safeFeedbacks,
+      data: enhancedFeedbacks,
       pagination: {
         total: count || 0,
         limit,
@@ -98,7 +106,12 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('❌ 获取公开反馈异常:', error);
     return NextResponse.json(
-      { success: false, error: '服务器内部错误' },
+      { 
+        success: false, 
+        error: '服务器内部错误',
+        message: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      },
       { status: 500 }
     );
   }
