@@ -313,7 +313,7 @@ export default async function ProfilePage() {
             </svg>
           </Link>
 
-          {/* AI次数兑换（如果存在） */}
+          {/* AI次数兑换（如果存在）
           <Link
             href="/account/ai-boost"
             className="w-full flex items-center justify-between p-5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl hover:bg-white/10 transition-all duration-200 active:scale-[0.98]"
@@ -330,7 +330,7 @@ export default async function ProfilePage() {
             <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
-          </Link>
+          </Link> */}
 
           {/* 帮助中心 */}
           <Link
@@ -351,7 +351,7 @@ export default async function ProfilePage() {
             </svg>
           </Link>
 
-          {/* 系统设置（可选） */}
+          {/* 系统设置（可选）
           <Link
             href="/settings"
             className="w-full flex items-center justify-between p-5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl hover:bg-white/10 transition-all duration-200 active:scale-[0.98]"
@@ -368,7 +368,7 @@ export default async function ProfilePage() {
             <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
-          </Link>
+          </Link> */}
 
           {/* 退出登录 */}
           <div className="w-full rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-5 flex items-center justify-center">
@@ -382,7 +382,7 @@ export default async function ProfilePage() {
             遇到问题？请使用"我要反馈"功能或联系客服邮箱
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            support@xiyi.asia
+           cike7653@gmail.com
           </p>
         </div>
       </div>

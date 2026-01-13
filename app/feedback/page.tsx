@@ -610,7 +610,7 @@ export default function FeedbackPage() {
         <div className="mt-8 text-center text-sm text-gray-500">
           <p>我们重视每一条反馈，通常会在1-3个工作日内回复</p>
           <p className="mt-1">
-            如需紧急帮助，请联系邮箱：<a href="mailto:support@xiyi.asia" className="text-pink-500 hover:underline">support@xiyi.asia</a>
+            如需紧急帮助，请联系微信：xiyi1397<a href="mailto:cike7653@gmail.com" className="text-pink-500 hover:underline">cike7653@gmail.com</a>
           </p>
           <div className="mt-4 flex flex-col sm:flex-row gap-2 justify-center">
             <button
@@ -973,7 +973,7 @@ export default function FeedbackPage() {
       <div className="mt-8 text-center text-sm text-gray-500">
         <p>我们重视每一条反馈，通常会在1-3个工作日内回复</p>
         <p className="mt-1">
-          如需紧急帮助，请联系邮箱：<a href="mailto:support@xiyi.asia" className="text-pink-500 hover:underline">support@xiyi.asia</a>
+          如需紧急帮助，请联系微信xiyi1397或者邮箱：<a href="mailto:cike7653@gmail.com" className="text-pink-500 hover:underline">cike7653@gmail.com</a>
         </p>
         <div className="mt-4 text-xs text-gray-600">
           用户状态: {user ? `已登录 (${user.email})` : '未登录'} | 检查次数: {authCheckCountRef.current}
