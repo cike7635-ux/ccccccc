@@ -1,7 +1,9 @@
+// /components/feedback-form.tsx - 完整修复版本
 "use client";
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { createBrowserClient } from '@supabase/ssr'; // 🔥 添加这行
 import { 
   AlertCircle, 
   Star, 
@@ -16,6 +18,12 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+
+// 🔥 添加Supabase客户端
+const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 interface FeedbackFormProps {
   onSuccess?: () => void;
@@ -97,11 +105,23 @@ export default function FeedbackForm({ onSuccess, hasPendingFeedback = false }: 
     setIsSubmitting(true);
 
     try {
-      // 提交反馈
+      // 🔥 关键修复：获取当前会话
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        toast.error('请先登录');
+        setIsSubmitting(false);
+        return;
+      }
+
+      console.log('🔑 发送token，长度:', session.access_token.length);
+      
+      // 提交反馈 - 必须发送Authorization头
       const response = await fetch('/api/feedback', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}` // 🔥 必须发送
         },
         body: JSON.stringify({
           title: formData.title,
@@ -111,7 +131,11 @@ export default function FeedbackForm({ onSuccess, hasPendingFeedback = false }: 
         })
       });
 
+      console.log('📨 API响应状态:', response.status);
+      
       const result = await response.json();
+      
+      console.log('📨 API响应结果:', result);
 
       if (result.success) {
         // 重置表单

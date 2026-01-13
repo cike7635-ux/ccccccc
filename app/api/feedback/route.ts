@@ -1,11 +1,11 @@
-// /app/api/feedback/route.ts - 统一使用匿名密钥
+// /app/api/feedback/route.ts - 确保使用匿名密钥验证
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// 使用匿名密钥（与/my API一致）
+// 使用匿名密钥验证token
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, // 使用匿名密钥
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, // 必须是匿名密钥
   { auth: { persistSession: false } }
 );
 
@@ -93,18 +93,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 6. 获取用户资料
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('nickname')
-      .eq('id', user.id)
-      .single();
-
-    // 7. 创建新反馈
+    // 6. 创建新反馈
     const newFeedback = {
       user_id: user.id,
       user_email: user.email,
-      user_nickname: profile?.nickname || user.email?.split('@')[0],
+      user_nickname: user.email?.split('@')[0],
       title: title.trim(),
       content: content.trim(),
       category: category || 'general',
