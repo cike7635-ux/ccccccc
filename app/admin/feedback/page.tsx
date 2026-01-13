@@ -1,4 +1,3 @@
-// /app/admin/feedback/page.tsx - 完全优化版本
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
@@ -116,7 +115,7 @@ const truncateText = (text: string, maxLength: number = 80): string => {
   return text.substring(0, maxLength) + '...';
 };
 
-// ==================== 简单UI组件（优化版） ====================
+// ==================== 简单UI组件 ====================
 const SimpleCard = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
   <div className={`bg-gray-900/50 border border-gray-800 rounded-xl shadow-xl backdrop-blur-sm ${className}`}>
     {children}
@@ -278,7 +277,7 @@ export default function AdminFeedbackPage() {
     total: 0
   });
   
-  // 🔥 修复：状态和排序栏使用明显的颜色
+  // 🔥 筛选状态
   const [filters, setFilters] = useState({
     status: 'all',
     category: 'all',
@@ -322,7 +321,6 @@ export default function AdminFeedbackPage() {
         sortOrder: filters.sortOrder
       });
 
-      // 🔥 修复：只有在不是"all"时才添加筛选参数
       if (filters.status && filters.status !== 'all') {
         queryParams.append('status', filters.status);
       }
@@ -377,7 +375,7 @@ export default function AdminFeedbackPage() {
     }
   };
 
-  // 🔥 修复：搜索防抖
+  // 🔥 搜索防抖
   const handleSearchChange = (value: string) => {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
@@ -498,9 +496,7 @@ export default function AdminFeedbackPage() {
       
       if (result.success) {
         toast.success('反馈已永久删除');
-        // 从本地状态中移除已删除的反馈
         setFeedbacks(prev => prev.filter(f => f.id !== feedbackId));
-        // 更新统计信息
         setStats(prev => ({
           ...prev,
           total: prev.total - 1
@@ -688,7 +684,7 @@ export default function AdminFeedbackPage() {
           </SimpleCard>
         </div>
 
-        {/* 🔥 修复：筛选工具栏 - 使用明显的颜色 */}
+        {/* 筛选工具栏 */}
         <SimpleCard className="mb-8">
           <SimpleCardHeader>
             <h2 className="text-xl font-bold text-gray-100">筛选与搜索</h2>
@@ -711,7 +707,7 @@ export default function AdminFeedbackPage() {
                 </div>
               </div>
 
-              {/* 🔥 修复：状态筛选 - 使用明显的背景和文字颜色 */}
+              {/* 状态筛选 */}
               <div>
                 <label className="block text-sm text-gray-300 mb-2 font-medium">状态筛选</label>
                 <div className="relative">
@@ -861,7 +857,7 @@ export default function AdminFeedbackPage() {
                     key={feedback.id} 
                     className="bg-gray-900/50 border border-gray-800 rounded-2xl p-6 transition-all duration-300 hover:border-gray-700 hover:shadow-xl"
                   >
-                    {/* 反馈头部 */}
+                    {/* 🔥 修复：用户信息显示格式 - 真实昵称 (完整邮箱) */}
                     <div className="flex flex-col lg:flex-row lg:items-start justify-between mb-6 gap-4">
                       <div className="flex-1">
                         <div className="flex flex-wrap items-center gap-3 mb-3">
@@ -893,21 +889,29 @@ export default function AdminFeedbackPage() {
                         </div>
                         
                         <div className="flex flex-wrap items-center gap-4 text-sm text-gray-400">
-                          <span className="flex items-center gap-2">
+                          {/* 🔥 修改：显示"真实昵称 (完整邮箱)" */}
+                          <div className="flex items-center gap-2">
                             <Users className="w-4 h-4" />
-                            {/* 🔥 修复：只显示邮箱用户名部分 */}
-                            <span className="text-gray-300 font-medium">
-                              {extractUsername(feedback.user_email)}
-                            </span>
-                          </span>
+                            <div className="flex flex-col">
+                              <span className="text-gray-300 font-medium">
+                                {feedback.user_nickname || extractUsername(feedback.user_email)}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                {feedback.user_email}
+                              </span>
+                            </div>
+                          </div>
+                          
                           <span className="flex items-center gap-2">
                             <Calendar className="w-4 h-4" />
                             {formatDate(feedback.created_at)}
                           </span>
+                          
                           <span className="flex items-center gap-2">
                             <Tag className="w-4 h-4" />
                             {getCategoryText(feedback.category)}
                           </span>
+                          
                           {feedback.rating !== null && feedback.rating > 0 && (
                             <span className="flex items-center gap-2">
                               {renderStars(feedback.rating)}

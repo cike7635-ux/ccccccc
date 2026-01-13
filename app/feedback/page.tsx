@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { createBrowserClient } from '@supabase/ssr'; // 🔥 关键修复：使用 SSR 客户端
+import { createBrowserClient } from '@supabase/ssr';
 import {
   MessageSquare,
   Star,
@@ -19,11 +19,13 @@ import {
   Users,
   Shield,
   Check,
-  X
+  X,
+  Mail,
+  User
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-// 🔥 关键修复：使用 createBrowserClient（与登录页面相同）
+// 🔥 使用与登录页面相同的客户端
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -42,6 +44,7 @@ interface Feedback {
   is_featured: boolean;
   created_at: string;
   user_nickname: string;
+  user_email?: string; // 🔥 仅在用户自己的反馈中显示
 }
 
 export default function FeedbackPage() {
@@ -63,9 +66,71 @@ export default function FeedbackPage() {
   const [debugInfo, setDebugInfo] = useState<string>('');
   const authCheckCountRef = useRef(0);
 
+  // 🔥 修复：添加导航栏隐藏逻辑
   useEffect(() => {
     setIsClient(true);
+    
+    // 隐藏导航栏函数 - 参考续费页面
+    const hideBottomNav = () => {
+      const selectors = [
+        'nav',
+        'footer',
+        '[class*="nav"]',
+        '[class*="Nav"]',
+        '[class*="bottom"]',
+        '[class*="Bottom"]',
+        '[class*="footer"]',
+        '[role="navigation"]',
+        'header'
+      ];
+      
+      selectors.forEach(selector => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+          (el as HTMLElement).style.display = 'none';
+        });
+      });
+    };
+    
+    // 立即执行
+    hideBottomNav();
+    
+    // 延迟执行，确保DOM加载完成
+    setTimeout(hideBottomNav, 100);
+    setTimeout(hideBottomNav, 500);
+    
+    // 监听DOM变化
+    const observer = new MutationObserver(hideBottomNav);
+    observer.observe(document.body, { 
+      childList: true, 
+      subtree: true,
+      attributes: true
+    });
+    
     checkSession();
+    
+    return () => {
+      observer.disconnect();
+      // 恢复导航栏显示
+      const selectors = [
+        'nav',
+        'footer',
+        '[class*="nav"]',
+        '[class*="Nav"]',
+        '[class*="bottom"]',
+        '[class*="Bottom"]',
+        '[class*="footer"]',
+        '[role="navigation"]',
+        'header'
+      ];
+      
+      selectors.forEach(selector => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+          (el as HTMLElement).style.display = '';
+        });
+      });
+    };
   }, []);
 
   useEffect(() => {
@@ -87,7 +152,6 @@ export default function FeedbackPage() {
       setIsCheckingAuth(true);
       console.log('🔍 开始检查用户会话...');
       
-      // 🔥 关键修复：使用与登录页面相同的检查逻辑
       const { data: { user }, error } = await supabase.auth.getUser();
       
       const debugMsg = `检查结果: ${user ? '有用户' : '无用户'}, 邮箱: ${user?.email || '无'}`;
@@ -103,25 +167,20 @@ export default function FeedbackPage() {
       }
       
       if (user) {
-        // ✅ 有用户，设置用户
         setUser(user);
         console.log('✅ 用户已登录:', user.email);
         
-        // 如果是"我的反馈"标签，加载用户反馈
         if (activeTab === 'mine') {
           await loadUserFeedback();
         }
       } else {
-        // ⚠️ 没有用户，显示公开反馈
         console.log('⚠️ 未检测到用户，显示公开反馈');
         setUser(null);
         
-        // 确保显示公开反馈标签
         if (activeTab !== 'public') {
           setActiveTab('public');
         }
         
-        // 加载公开反馈
         await loadPublicFeedback();
       }
       
@@ -146,7 +205,6 @@ export default function FeedbackPage() {
     try {
       console.log('📥 加载用户反馈');
       
-      // 获取当前会话
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         console.log('❌ 会话不存在，请重新登录');
@@ -261,36 +319,20 @@ export default function FeedbackPage() {
     setActiveTab(tab);
   };
 
-  // 🔥 添加手动检查登录状态函数
   const handleManualAuthCheck = async () => {
     console.log('🔄 手动检查登录状态...');
     
     try {
-      // 1. 尝试刷新会话
-      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-      console.log('刷新会话:', { 
-        error: refreshError, 
-        user: refreshData?.user?.email 
-      });
-      
-      // 2. 获取当前用户
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       console.log('获取用户:', { 
         error: userError, 
         user: user?.email 
       });
       
-      // 3. 获取会话
-      const { data: { session } } = await supabase.auth.getSession();
-      console.log('获取会话:', { 
-        session: session?.user?.email 
-      });
-      
       if (user) {
         toast.success(`检测到登录用户: ${user.email}`);
         setUser(user);
         
-        // 重新加载对应标签的数据
         if (activeTab === 'mine') {
           await loadUserFeedback();
         }
@@ -405,7 +447,7 @@ export default function FeedbackPage() {
               <ArrowRight className="w-4 h-4" />
             </button>
             
-            {/* 🔥 调试信息 */}
+            {/* 调试信息 */}
             <div className="mt-4 p-3 bg-gray-800/50 rounded-lg">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-gray-400">调试信息</span>
@@ -506,7 +548,9 @@ export default function FeedbackPage() {
                     <div>
                       <h3 className="font-semibold text-xl mb-1">{feedback.title}</h3>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-400">
+                        {/* 🔥 修复：公开反馈显示真实昵称，不显示邮箱 */}
+                        <span className="text-sm text-gray-400 flex items-center gap-2">
+                          <User className="w-3 h-3" />
                           {feedback.user_nickname || '匿名用户'}
                         </span>
                         <span className="text-xs text-gray-500">•</span>
@@ -531,7 +575,10 @@ export default function FeedbackPage() {
                   </div>
 
                   <div className="mb-6">
-                    <p className="text-gray-300 text-lg whitespace-pre-wrap">{feedback.content}</p>
+                    {/* 🔥 修复：文本换行 */}
+                    <p className="text-gray-300 text-lg whitespace-pre-wrap break-words leading-relaxed">
+                      {feedback.content}
+                    </p>
                   </div>
 
                   {feedback.admin_reply && (
@@ -547,7 +594,8 @@ export default function FeedbackPage() {
                           </div>
                         </div>
                       </div>
-                      <p className="text-gray-300 text-lg whitespace-pre-wrap">
+                      {/* 🔥 修复：回复文本换行 */}
+                      <p className="text-gray-300 text-lg whitespace-pre-wrap break-words leading-relaxed">
                         {feedback.admin_reply}
                       </p>
                     </div>
@@ -594,12 +642,15 @@ export default function FeedbackPage() {
         <h1 className="text-3xl font-bold mb-2">用户反馈</h1>
         <p className="text-gray-400">您的意见对我们非常重要，帮助我们改进产品</p>
         
-        {/* 用户信息和控制 */}
+        {/* 🔥 修改：用户信息显示 - 显示完整邮箱 */}
         <div className="mt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
           <div className="text-sm bg-gradient-to-r from-pink-500/20 to-purple-600/20 border border-pink-500/30 px-4 py-2 rounded-lg">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-              <span className="text-pink-400">已登录: {user.email}</span>
+              <span className="text-pink-400 flex items-center gap-2">
+                <Mail className="w-3 h-3" />
+                {user.email}
+              </span>
             </div>
           </div>
           
@@ -625,15 +676,6 @@ export default function FeedbackPage() {
               <LogOut className="w-3 h-3" />
               退出登录
             </button>
-          </div>
-        </div>
-        
-        {/* 🔥 调试信息 */}
-        <div className="mt-2">
-          <div className="inline-flex items-center gap-2 text-xs text-gray-500 bg-gray-800/30 px-3 py-1 rounded-full">
-            <span>检查次数: {authCheckCountRef.current}</span>
-            <span>•</span>
-            <span>状态: {user ? '已登录' : '未登录'}</span>
           </div>
         </div>
       </div>
@@ -789,7 +831,10 @@ export default function FeedbackPage() {
                   </div>
 
                   <div className="mb-4">
-                    <p className="text-gray-300 whitespace-pre-wrap">{feedback.content}</p>
+                    {/* 🔥 修复：文本换行 */}
+                    <p className="text-gray-300 whitespace-pre-wrap break-words leading-relaxed">
+                      {feedback.content}
+                    </p>
                   </div>
 
                   {feedback.admin_reply && (
@@ -803,7 +848,8 @@ export default function FeedbackPage() {
                           {feedback.replied_at && formatDate(feedback.replied_at)}
                         </span>
                       </div>
-                      <p className="text-gray-300 whitespace-pre-wrap">
+                      {/* 🔥 修复：回复文本换行 */}
+                      <p className="text-gray-300 whitespace-pre-wrap break-words leading-relaxed">
                         {feedback.admin_reply}
                       </p>
                     </div>
@@ -864,7 +910,9 @@ export default function FeedbackPage() {
                     <div>
                       <h3 className="font-semibold text-xl mb-1">{feedback.title}</h3>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-400">
+                        {/* 🔥 修复：公开反馈显示真实昵称，不显示邮箱 */}
+                        <span className="text-sm text-gray-400 flex items-center gap-2">
+                          <User className="w-3 h-3" />
                           {feedback.user_nickname || '匿名用户'}
                         </span>
                         <span className="text-xs text-gray-500">•</span>
@@ -889,7 +937,10 @@ export default function FeedbackPage() {
                   </div>
 
                   <div className="mb-6">
-                    <p className="text-gray-300 text-lg whitespace-pre-wrap">{feedback.content}</p>
+                    {/* 🔥 修复：文本换行 */}
+                    <p className="text-gray-300 text-lg whitespace-pre-wrap break-words leading-relaxed">
+                      {feedback.content}
+                    </p>
                   </div>
 
                   {feedback.admin_reply && (
@@ -905,7 +956,8 @@ export default function FeedbackPage() {
                           </div>
                         </div>
                       </div>
-                      <p className="text-gray-300 text-lg whitespace-pre-wrap">
+                      {/* 🔥 修复：回复文本换行 */}
+                      <p className="text-gray-300 text-lg whitespace-pre-wrap break-words leading-relaxed">
                         {feedback.admin_reply}
                       </p>
                     </div>

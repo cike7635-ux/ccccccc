@@ -1,94 +1,42 @@
-// /components/feedback-form.tsx - 完整修复版本
 "use client";
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { createBrowserClient } from '@supabase/ssr'; // 🔥 添加这行
-import { 
-  AlertCircle, 
-  Star, 
-  MessageSquare,
-  Bug,
-  Lightbulb,
-  HelpCircle,
-  Zap
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
+import { useState, useEffect } from 'react';
+import { createBrowserClient } from '@supabase/ssr';
 import { toast } from 'sonner';
+import {
+  AlertCircle,
+  CheckCircle,
+  MessageSquare,
+  Star,
+  Send,
+  Loader2
+} from 'lucide-react';
 
-// 🔥 添加Supabase客户端
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
 interface FeedbackFormProps {
-  onSuccess?: () => void;
-  hasPendingFeedback?: boolean;
+  onSuccess: () => void;
+  hasPendingFeedback: boolean;
 }
 
-export default function FeedbackForm({ onSuccess, hasPendingFeedback = false }: FeedbackFormProps) {
-  const router = useRouter();
-  
+export default function FeedbackForm({ onSuccess, hasPendingFeedback }: FeedbackFormProps) {
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [category, setCategory] = useState('general');
+  const [rating, setRating] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState({
-    title: '',
-    content: '',
-    category: 'general' as 'general' | 'bug' | 'suggestion' | 'question' | 'feature_request',
-    rating: 0
-  });
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [session, setSession] = useState<any>(null);
 
-  const categories = [
-    { value: 'bug', label: '问题反馈', icon: Bug, description: '报告程序错误或问题' },
-    { value: 'suggestion', label: '功能建议', icon: Lightbulb, description: '提出改进建议' },
-    { value: 'question', label: '使用疑问', icon: HelpCircle, description: '咨询使用方法' },
-    { value: 'feature_request', label: '功能请求', icon: Zap, description: '请求新功能' },
-    { value: 'general', label: '一般反馈', icon: MessageSquare, description: '其他反馈' }
-  ];
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    
-    if (errors[name]) {
-      setErrors(prev => ({ ...prev, [name]: '' }));
-    }
-  };
-
-  const handleCategoryChange = (value: string) => {
-    setFormData(prev => ({ ...prev, category: value as any }));
-  };
-
-  const handleRatingChange = (rating: number) => {
-    setFormData(prev => ({ ...prev, rating }));
-  };
-
-  const validateForm = () => {
-    const newErrors: Record<string, string> = {};
-
-    if (!formData.title.trim()) {
-      newErrors.title = '请输入标题';
-    } else if (formData.title.length < 2) {
-      newErrors.title = '标题至少2个字符';
-    } else if (formData.title.length > 100) {
-      newErrors.title = '标题最多100个字符';
-    }
-
-    if (!formData.content.trim()) {
-      newErrors.content = '请输入反馈内容';
-    } else if (formData.content.length < 10) {
-      newErrors.content = '内容至少10个字符';
-    } else if (formData.content.length > 1000) {
-      newErrors.content = '内容最多1000个字符';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
+  useEffect(() => {
+    const getSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+    };
+    getSession();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,210 +46,186 @@ export default function FeedbackForm({ onSuccess, hasPendingFeedback = false }: 
       return;
     }
 
-    if (!validateForm()) {
+    if (!title.trim() || title.length < 2) {
+      toast.error('标题至少需要2个字符');
+      return;
+    }
+
+    if (!content.trim() || content.length < 10) {
+      toast.error('内容至少需要10个字符');
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      // 🔥 关键修复：获取当前会话
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session?.access_token) {
+      if (!session) {
         toast.error('请先登录');
-        setIsSubmitting(false);
         return;
       }
 
-      console.log('🔑 发送token，长度:', session.access_token.length);
-      
-      // 提交反馈 - 必须发送Authorization头
       const response = await fetch('/api/feedback', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}` // 🔥 必须发送
+          'Authorization': `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
-          title: formData.title,
-          content: formData.content,
-          category: formData.category,
-          rating: formData.rating > 0 ? formData.rating : undefined
+          title: title.trim(),
+          content: content.trim(),
+          category,
+          rating: rating || null
         })
       });
 
-      console.log('📨 API响应状态:', response.status);
-      
       const result = await response.json();
-      
-      console.log('📨 API响应结果:', result);
 
       if (result.success) {
-        // 重置表单
-        setFormData({
-          title: '',
-          content: '',
-          category: 'general',
-          rating: 0
-        });
-        
-        toast.success(result.message);
-        
-        if (onSuccess) {
-          onSuccess();
-        }
+        toast.success('反馈提交成功！');
+        setTitle('');
+        setContent('');
+        setCategory('general');
+        setRating(null);
+        onSuccess();
       } else {
         toast.error(result.error || '提交失败，请重试');
       }
     } catch (error) {
       console.error('提交反馈失败:', error);
-      toast.error('提交失败，请检查网络连接');
+      toast.error('网络错误，请检查连接后重试');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  if (!session) {
+    return (
+      <div className="text-center py-8">
+        <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
+        <p className="text-gray-400">请先登录以提交反馈</p>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {/* 分类选择 */}
-      <div className="space-y-3">
-        <Label>反馈类型</Label>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          {categories.map((category) => {
-            const Icon = category.icon;
-            const isSelected = formData.category === category.value;
-            
-            return (
-              <button
-                key={category.value}
-                type="button"
-                onClick={() => handleCategoryChange(category.value)}
-                className={`flex flex-col items-center justify-center p-4 glass rounded-xl cursor-pointer transition-all hover:bg-white/5 ${
-                  isSelected 
-                    ? 'bg-gradient-to-r from-pink-500/20 to-purple-600/20 border border-pink-500/40' 
-                    : ''
-                }`}
-              >
-                <Icon className="w-5 h-5 mb-2" />
-                <span className="text-sm font-medium">{category.label}</span>
-                <span className="text-xs text-gray-400 mt-1 text-center">{category.description}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {/* 标题输入 */}
-      <div className="space-y-2">
-        <Label htmlFor="title">标题 *</Label>
-        <Input
+      <div>
+        <label htmlFor="title" className="block text-sm font-medium text-gray-300 mb-2">
+          标题 *
+        </label>
+        <input
           id="title"
-          name="title"
-          value={formData.title}
-          onChange={handleInputChange}
-          placeholder="请简要描述反馈内容"
-          disabled={isSubmitting}
-          className={errors.title ? 'border-red-500' : ''}
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="简要描述您的反馈内容"
+          className="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+          required
+          maxLength={200}
         />
-        {errors.title && (
-          <p className="text-sm text-red-500 flex items-center gap-1">
-            <AlertCircle className="w-4 h-4" />
-            {errors.title}
-          </p>
-        )}
+        <p className="text-xs text-gray-500 mt-1">标题长度：{title.length}/200</p>
       </div>
 
-      {/* 内容输入 */}
-      <div className="space-y-2">
-        <Label htmlFor="content">详细描述 *</Label>
-        <Textarea
-          id="content"
-          name="content"
-          value={formData.content}
-          onChange={handleInputChange}
-          placeholder="请详细描述您遇到的问题或建议，我们会认真阅读并尽快回复"
-          rows={6}
-          disabled={isSubmitting}
-          className={`resize-none ${errors.content ? 'border-red-500' : ''}`}
-        />
-        <div className="flex justify-between items-center">
-          {errors.content ? (
-            <p className="text-sm text-red-500 flex items-center gap-1">
-              <AlertCircle className="w-4 h-4" />
-              {errors.content}
-            </p>
-          ) : (
-            <p className="text-sm text-gray-400">
-              {formData.content.length}/1000 字符
-            </p>
-          )}
-          <p className="text-sm text-gray-400">
-            剩余 {1000 - formData.content.length} 字符
-          </p>
-        </div>
+      {/* 分类选择 */}
+      <div>
+        <label htmlFor="category" className="block text-sm font-medium text-gray-300 mb-2">
+          分类
+        </label>
+        <select
+          id="category"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          className="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+        >
+          <option value="general" className="bg-gray-800">一般反馈</option>
+          <option value="bug" className="bg-gray-800">问题反馈</option>
+          <option value="suggestion" className="bg-gray-800">功能建议</option>
+          <option value="question" className="bg-gray-800">使用疑问</option>
+          <option value="feature_request" className="bg-gray-800">功能请求</option>
+        </select>
       </div>
 
-      {/* 评分（可选） */}
-      <div className="space-y-2">
-        <Label>满意度评分（可选）</Label>
-        <div className="flex items-center gap-1">
+      {/* 评分选择 */}
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-2">
+          满意度评分（可选）
+        </label>
+        <div className="flex items-center gap-2">
           {[1, 2, 3, 4, 5].map((star) => (
             <button
               key={star}
               type="button"
-              onClick={() => handleRatingChange(star)}
+              onClick={() => setRating(star === rating ? null : star)}
               className="p-1 hover:scale-110 transition-transform"
-              disabled={isSubmitting}
             >
               <Star
                 className={`w-8 h-8 ${
-                  star <= formData.rating
+                  rating && star <= rating
                     ? 'text-yellow-500 fill-yellow-500'
                     : 'text-gray-400'
                 }`}
               />
             </button>
           ))}
-          <span className="ml-2 text-sm text-gray-400">
-            {formData.rating === 0 ? '请选择评分' : `${formData.rating}星`}
+          <span className="text-sm text-gray-400 ml-2">
+            {rating ? `您给了 ${rating} 星` : '请点击星星评分'}
           </span>
         </div>
       </div>
 
+      {/* 内容输入 */}
+      <div>
+        <label htmlFor="content" className="block text-sm font-medium text-gray-300 mb-2">
+          详细内容 *
+        </label>
+        <textarea
+          id="content"
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          placeholder="请详细描述您遇到的问题、建议或想法..."
+          rows={6}
+          className="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent resize-none whitespace-pre-wrap break-words"
+          required
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          内容长度：{content.length} 字符（最少10个）
+        </p>
+      </div>
+
       {/* 提交按钮 */}
       <div className="pt-4">
-        {hasPendingFeedback ? (
-          <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30">
-            <div className="flex items-center">
-              <AlertCircle className="w-5 h-5 text-yellow-500 mr-2" />
-              <div>
-                <p className="text-yellow-500 font-medium">无法提交新反馈</p>
-                <p className="text-sm text-yellow-600/80 mt-1">
-                  您有待处理的反馈，请等待管理员回复后再提交新的反馈
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <Button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full py-6 text-lg bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
-          >
-            {isSubmitting ? (
-              <>
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                提交中...
-              </>
-            ) : (
-              '提交反馈'
-            )}
-          </Button>
+        <button
+          type="submit"
+          disabled={isSubmitting || hasPendingFeedback}
+          className={`w-full py-3 px-4 rounded-lg font-medium flex items-center justify-center gap-2 ${
+            hasPendingFeedback
+              ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+              : 'bg-gradient-to-r from-pink-500 to-purple-600 hover:opacity-90 text-white'
+          }`}
+        >
+          {isSubmitting ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              提交中...
+            </>
+          ) : (
+            <>
+              <Send className="w-5 h-5" />
+              提交反馈
+            </>
+          )}
+        </button>
+        
+        {hasPendingFeedback && (
+          <p className="text-sm text-yellow-500 mt-2 flex items-center gap-1">
+            <AlertCircle className="w-4 h-4" />
+            您有待处理的反馈，请等待管理员回复后再提交新的反馈
+          </p>
         )}
         
-        <p className="text-sm text-gray-400 text-center mt-3">
-          提交即表示您同意我们的反馈政策。我们通常会在1-3个工作日内回复。
+        <p className="text-xs text-gray-500 mt-3">
+          💡 提示：请尽量详细描述问题，提供截图或步骤说明，这样我们能更快为您解决问题。
         </p>
       </div>
     </form>
