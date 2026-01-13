@@ -1,4 +1,4 @@
-// /app/api/feedback/public/route.ts - 修复版本
+// /app/api/feedback/public/route.ts - 精确修复版
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -16,50 +16,55 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20');
     const offset = parseInt(searchParams.get('offset') || '0');
     
-    // 🔥 修复：只返回公开且已解决的反馈
+    // 🔥 精确查询：只返回公开且已解决的反馈
     const { data: feedbacks, error, count } = await supabase
       .from('feedbacks')
-      .select('*', { count: 'exact' })
-      .eq('is_public', true)  // 只显示公开的
-      .eq('status', 'resolved')  // 只显示已解决的
-      .order('is_featured', { ascending: false })  // 置顶的在前
+      .select(`
+        id,
+        title,
+        content,
+        category,
+        rating,
+        admin_reply,
+        replied_at,
+        is_featured,
+        created_at,
+        user_nickname  -- 🔥 只返回昵称，保护隐私
+      `, { count: 'exact' })
+      .eq('is_public', true)
+      .eq('status', 'resolved')
+      .order('is_featured', { ascending: false })
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
     
     if (error) {
-      console.error('❌ 获取公开反馈失败:', error);
+      console.error('❌ 查询失败:', error);
       return NextResponse.json(
         { success: false, error: '获取公开反馈失败' },
         { status: 500 }
       );
     }
     
-    // 🔥 隐私保护：隐藏用户邮箱，只显示昵称
+    // 🔥 隐私保护：确保不泄露邮箱，处理空昵称
     const safeFeedbacks = feedbacks?.map(feedback => {
-      // 提取昵称：优先使用user_nickname，如果没有则使用邮箱用户名部分
+      // 处理昵称：优先使用user_nickname，没有则使用通用名称
       let nickname = feedback.user_nickname;
-      if (!nickname && feedback.user_email) {
-        // 从邮箱中提取用户名部分（@之前的部分）
-        nickname = feedback.user_email.split('@')[0];
+      if (!nickname || nickname.trim() === '') {
+        nickname = '用户';
       }
       
+      // 移除可能的邮箱痕迹
+      const cleanNickname = nickname.replace(/@.*$/, '');
+      
       return {
-        id: feedback.id,
-        title: feedback.title,
-        content: feedback.content,
-        category: feedback.category,
-        rating: feedback.rating,
-        admin_reply: feedback.admin_reply,
-        replied_at: feedback.replied_at,
-        is_featured: feedback.is_featured,
-        created_at: feedback.created_at,
-        user_nickname: nickname || '用户',  // 🔥 只返回昵称
-        // 不包含 user_email 字段，保护用户隐私
-        status: feedback.status
+        ...feedback,
+        user_nickname: cleanNickname,
+        // 确保不包含user_email字段
+        user_email: undefined
       };
     }) || [];
     
-    console.log(`✅ 成功获取公开反馈，数量: ${safeFeedbacks.length}`);
+    console.log(`✅ 获取公开反馈成功: ${safeFeedbacks.length} 条`);
     
     return NextResponse.json({
       success: true,
@@ -73,7 +78,7 @@ export async function GET(request: NextRequest) {
     });
     
   } catch (error: any) {
-    console.error('❌ 获取公开反馈异常:', error);
+    console.error('❌ API异常:', error);
     return NextResponse.json(
       { success: false, error: '服务器内部错误' },
       { status: 500 }
