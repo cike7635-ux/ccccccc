@@ -1,3 +1,4 @@
+// app\api\admin\feedbacks\[id]\route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkAdminAuth } from '@/lib/auth';
