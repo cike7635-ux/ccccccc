@@ -1,3 +1,4 @@
+// app\components\themes\delete-theme-button.tsx
 'use client';
 
 import { useState, useEffect } from 'react';

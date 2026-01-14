@@ -1,3 +1,4 @@
+// components\game-view.tsx
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";

@@ -1,3 +1,4 @@
+// lib\utils\json-formatter.ts
 /**
  * 格式化JSON数据，提供更好的可读性
  */

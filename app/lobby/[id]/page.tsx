@@ -1,3 +1,4 @@
+// app\lobby\[id]\page.tsx
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
