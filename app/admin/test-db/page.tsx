@@ -334,13 +334,13 @@ export default function TestDBPage() {
                   </div>
                   
                   <div className={`p-3 rounded-lg ${
-                    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY 
+                    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY 
                       ? 'bg-green-900/20 border border-green-700/30' 
                       : 'bg-red-900/20 border border-red-700/30'
                   }`}>
                     <div className="text-gray-300 text-sm font-medium mb-1">PUBLISHABLE_KEY</div>
                     <div className="text-xs text-gray-400">
-                      {process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY 
+                      {process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY 
                         ? '✅ 已设置' 
                         : '❌ 未设置'}
                     </div>
@@ -350,7 +350,7 @@ export default function TestDBPage() {
                 <div className="p-3 bg-blue-900/20 border border-blue-700/30 rounded-lg">
                   <div className="text-gray-300 text-sm font-medium mb-1">当前客户端</div>
                   <div className="text-xs text-gray-400">
-                    使用的是: <code className="text-blue-300">NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</code>
+                    使用的是: <code className="text-blue-300">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>
                     <div className="text-gray-500 mt-1">
                       注意：这是游戏界面使用的环境变量名，保持兼容
                     </div>

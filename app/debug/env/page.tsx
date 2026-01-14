@@ -8,7 +8,7 @@ export default function EnvDebugPage() {
           ADMIN_EMAILS: {process.env.ADMIN_EMAILS}<br/>
           NEXT_PUBLIC_ADMIN_KEY: {process.env.NEXT_PUBLIC_ADMIN_KEY ? '***已设置***' : '未设置'}<br/>
           NEXT_PUBLIC_SUPABASE_URL: {process.env.NEXT_PUBLIC_SUPABASE_URL ? '已设置' : '未设置'}<br/>
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: {process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ? '已设置' : '未设置'}<br/>
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: {process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? '已设置' : '未设置'}<br/>
           NEXT_PUBLIC_SUPABASE_ANON_KEY: {process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? '已设置' : '未设置'}
         </pre>
       </div>

@@ -63,7 +63,7 @@ export default function AdminLoginForm({ redirectParam }: AdminLoginFormProps) {
       const { createBrowserClient } = await import('@supabase/ssr');
       const supabase = createBrowserClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       );
 
       const { error: signInError } = await supabase.auth.signInWithPassword({

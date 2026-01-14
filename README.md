@@ -40,7 +40,7 @@
 部署步骤（简版）：
 - 在 Supabase 新建项目 → 执行 `docs/db/001_schema.sql` 与 `docs/db/002_rls.sql`
 - 复制 `Project URL` 与 `Anon (publishable) key` 填入环境变量
-- 在 Vercel 导入本仓库 → 设置 `NEXT_PUBLIC_SUPABASE_URL` 与 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`（如启用 AI，再设置 `OPENROUTER_API_KEY`）→ 一键部署
+- 在 Vercel 导入本仓库 → 设置 `NEXT_PUBLIC_SUPABASE_URL` 与 `NEXT_PUBLIC_SUPABASE_ANON_KEY`（如启用 AI，再设置 `OPENROUTER_API_KEY`）→ 一键部署
 
 
 ## 快速开始
@@ -61,7 +61,7 @@ npm install
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=你的 Supabase 项目 URL
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=你的 Supabase Publishable/Anon Key
+NEXT_PUBLIC_SUPABASE_ANON_KEY=你的 Supabase Publishable/Anon Key
 OPENROUTER_API_KEY=你的 OpenRouter API Key（启用 AI 生成时必填）
 ```
 
@@ -105,7 +105,7 @@ npm run dev
 ## 环境变量说明
 
 - `NEXT_PUBLIC_SUPABASE_URL`：Supabase 项目 URL（公开）
-- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`：Supabase 的 Publishable/Anon Key（公开）
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`：Supabase 的 Publishable/Anon Key（公开）
 - `OPENROUTER_API_KEY`：OpenRouter 的 API Key（启用 AI 生成功能时必填）
 
 提示：本项目使用 SSR + 中间件进行鉴权（`lib/supabase/server.ts`, `lib/supabase/middleware.ts`, `middleware.ts`），未登录用户会被重定向到 `/login`（首页与 `/auth/*` 除外）。
