@@ -1,9 +1,10 @@
-// app\profile\actions.ts
+// /app/profile/actions.ts - 更新版本
 "use server";
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/profile";
+import { clearUserCache } from "@/lib/server/auth"; // 🔥 新增：导入缓存清除函数
 
 type UpdatePreferencesPayload = {
   gender: "male" | "female" | "non_binary";
@@ -38,6 +39,9 @@ export async function updateNickname(nickname: string): Promise<{ ok: boolean; e
 
     if (error) return { ok: false, error: error.message };
 
+    // 🔥 新增：清除用户数据缓存，确保下次获取最新数据
+    await clearUserCache(userId);
+    
     revalidatePath("/profile");
     return { ok: true };
   } catch (e) {
@@ -65,12 +69,14 @@ export async function updatePreferences(payload: UpdatePreferencesPayload): Prom
       .from("profiles")
       .update({ preferences, updated_at: new Date().toISOString() })
       .eq("id", userId)
-      // 通过 select 返回代表性记录，避免 PostgREST 的 JSON 单对象强制转换错误
       .select("id")
       .single();
 
     if (error) return { ok: false, error: error.message };
 
+    // 🔥 新增：清除用户数据缓存
+    await clearUserCache(userId);
+    
     revalidatePath("/profile");
     return { ok: true };
   } catch (e) {

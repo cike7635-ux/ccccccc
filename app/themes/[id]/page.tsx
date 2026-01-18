@@ -24,8 +24,12 @@ export default function ThemeDetailPage({ params }: Params) {
   }>({ isSaving: false, showSuccess: false, error: null });
   const [taskSavingId, setTaskSavingId] = useState<string | null>(null);
   const [taskErrors, setTaskErrors] = useState<Record<string, string>>({});
+  const [taskLimitError, setTaskLimitError] = useState<string | null>(null);
   const router = useRouter();
   const themeFormRef = useRef<HTMLFormElement>(null);
+
+  // 任务数量限制
+  const MAX_TASKS_PER_THEME = 120;
 
   // 初始化数据
   useEffect(() => {
@@ -131,23 +135,30 @@ export default function ThemeDetailPage({ params }: Params) {
     }
   };
 
-  // 处理添加任务
+  // 处理添加任务 - 添加任务数量限制
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // 检查任务数量是否超过限制
+    if (tasks.length >= MAX_TASKS_PER_THEME) {
+      setTaskLimitError(`每个主题最多只能添加 ${MAX_TASKS_PER_THEME} 个任务`);
+      return;
+    }
     
     const form = e.currentTarget as HTMLFormElement;
     const formData = new FormData(form);
     
     try {
-      await createTask(formData); // 假设 createTask 没有返回值或返回 void
+      await createTask(formData);
       
       // 刷新任务列表
       const { id: themeId } = await params;
       const tasksResult = await listTasksByTheme(themeId);
       setTasks(tasksResult.data || []);
       
-      // 清空表单
+      // 清空表单和错误信息
       form.reset();
+      setTaskLimitError(null);
       
       // 显示成功提示
       const addBtn = form.querySelector('.add-task-btn');
@@ -169,6 +180,7 @@ export default function ThemeDetailPage({ params }: Params) {
       
     } catch (error: any) {
       console.error('添加任务失败:', error);
+      setTaskLimitError('添加任务失败，请重试');
     }
   };
 
@@ -293,7 +305,45 @@ export default function ThemeDetailPage({ params }: Params) {
 
         {/* 添加任务表单 */}
         <div className="glass rounded-2xl p-5">
-          <h3 className="text-lg font-bold mb-4">添加任务</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold">添加任务</h3>
+            <div className="flex items-center space-x-2">
+              <span className={`text-sm ${
+                tasks.length >= MAX_TASKS_PER_THEME 
+                  ? 'text-red-400' 
+                  : tasks.length >= MAX_TASKS_PER_THEME - 10 
+                    ? 'text-yellow-400' 
+                    : 'text-gray-400'
+              }`}>
+                {tasks.length}/{MAX_TASKS_PER_THEME}
+              </span>
+              {tasks.length >= MAX_TASKS_PER_THEME && (
+                <div className="w-2 h-2 bg-red-400 rounded-full animate-pulse"></div>
+              )}
+            </div>
+          </div>
+          
+          {/* 任务数量限制提示 */}
+          {tasks.length >= MAX_TASKS_PER_THEME - 10 && tasks.length < MAX_TASKS_PER_THEME && (
+            <div className="mb-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3">
+              <div className="flex items-center text-yellow-400">
+                <AlertCircle className="w-4 h-4 mr-2 flex-shrink-0" />
+                <span className="text-sm">
+                  即将达到任务上限，还剩 {MAX_TASKS_PER_THEME - tasks.length} 个任务可添加
+                </span>
+              </div>
+            </div>
+          )}
+          
+          {taskLimitError && (
+            <div className="mb-4 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+              <div className="flex items-center text-red-400">
+                <AlertCircle className="w-4 h-4 mr-2 flex-shrink-0" />
+                <span className="text-sm">{taskLimitError}</span>
+              </div>
+            </div>
+          )}
+          
           <form onSubmit={handleAddTask} className="space-y-4">
             <input type="hidden" name="theme_id" value={theme.id} />
             <input type="hidden" name="type" value="interaction" />
@@ -307,16 +357,26 @@ export default function ThemeDetailPage({ params }: Params) {
                 className="w-full rounded-xl bg-white/10 border border-white/20 px-3 py-2 text-sm outline-none focus:border-brand-pink transition-all"
                 placeholder="例如：一起完成 10 分钟冥想并分享感受"
                 required
+                disabled={tasks.length >= MAX_TASKS_PER_THEME}
               />
             </div>
-            <div className="flex items-center justify-end gap-3">
-              <GenerateTasksSection inline themeId={theme.id} themeTitle={theme.title} themeDescription={theme.description} />
+            <div className="flex items-center justify-between gap-3">
+              <GenerateTasksSection 
+                inline 
+                themeId={theme.id} 
+                themeTitle={theme.title} 
+                themeDescription={theme.description} 
+                disabled={tasks.length >= MAX_TASKS_PER_THEME}
+              />
               <Button 
                 type="submit" 
                 className="gradient-primary glow-pink flex items-center space-x-2 add-task-btn"
+                disabled={tasks.length >= MAX_TASKS_PER_THEME}
               >
                 <Plus className="w-4 h-4" />
-                <span>添加任务</span>
+                <span>
+                  {tasks.length >= MAX_TASKS_PER_THEME ? '任务已满' : '添加任务'}
+                </span>
               </Button>
             </div>
           </form>
