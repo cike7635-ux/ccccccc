@@ -10,7 +10,7 @@ import { Users, LogIn, Layers, ChevronDown, Hash, ShoppingCart, Smartphone } fro
 import PreferencesModal from "@/components/profile/preferences-modal";
 import Link from "next/link";
 import AnnouncementModal from "@/components/announcement-modal";
-import { Suspense } from 'react';
+import { Suspense, memo } from 'react';
 
 // 添加动态渲染导出
 export const dynamic = 'force-dynamic';
@@ -23,15 +23,30 @@ function extractDeviceIdFromCookie(): string {
 }
 
 // 🔥 骨架屏组件
+// 🔥 改进骨架屏动画效果
 function LobbySkeleton() {
   return (
     <div className="max-w-md mx-auto min-h-svh flex flex-col p-6 pb-24">
-      {/* 顶部提示小字 */}
-      <p className="text-xs text-white/60 text-center mb-2">
-        将网站添加到主屏幕可以获得近似app的体验哦~
-      </p>
+      {/* 顶部提示小字骨架 */}
+      <div className="text-xs text-center mb-2">
+        <div className="h-3 bg-white/5 rounded w-3/4 mx-auto animate-pulse"></div>
+      </div>
       
       {/* 会员状态和设备信息骨架屏 */}
+      <div className="mb-4 p-3 glass rounded-xl animate-pulse">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <div className="h-4 bg-white/10 rounded w-32"></div>
+            <div className="h-3 bg-white/5 rounded w-24"></div>
+          </div>
+          <div className="text-right">
+            <div className="h-3 bg-white/5 rounded w-16 mb-1"></div>
+            <div className="h-3 bg-white/5 rounded w-12"></div>
+          </div>
+        </div>
+      </div>
+      
+      {/* 其余骨架屏内容保持不变但优化颜色 */}
       <div className="mb-4 p-3 glass rounded-xl animate-pulse">
         <div className="flex items-center justify-between">
           <div className="space-y-2">
@@ -135,18 +150,60 @@ async function ThemesList() {
   );
 }
 
+// 🔥 错误状态组件
+function renderErrorState() {
+  return (
+    <div className="max-w-md mx-auto min-h-svh flex items-center justify-center p-6">
+      <div className="text-center">
+        <div className="w-16 h-16 mx-auto mb-4 bg-red-500/20 rounded-full flex items-center justify-center">
+          <svg className="w-8 h-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+        </div>
+        <h3 className="text-white font-medium mb-2">页面加载失败</h3>
+        <p className="text-gray-400 text-sm mb-6">请刷新页面重试</p>
+        <a href="/lobby" className="inline-block px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors">
+          重新加载
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// 🔥 更新默认导出
 export default async function LobbyPage({ searchParams }: { searchParams?: { error?: string } }) {
-  // 🔥 使用统一数据层获取用户数据
-  const { user, profile, cacheHit } = await getUserData(true);
-  
-  // 获取当前设备ID
-  const currentDeviceId = extractDeviceIdFromCookie();
-  const deviceIdShort = currentDeviceId.length > 15 ? currentDeviceId.substring(0, 15) + '...' : currentDeviceId;
-  
-  console.log(`🏁 Lobby页面加载 - 用户: ${user.email}, 设备: ${currentDeviceId}, 缓存命中: ${cacheHit}`);
-  
-  const errorMessage = searchParams?.error ?? "";
-  
+  return (
+    <Suspense fallback={<LobbySkeleton />}>
+      <LobbyContent searchParams={searchParams} />
+    </Suspense>
+  );
+}
+
+// 🔥 使用统一数据层获取用户数据
+// 🔥 优化数据获取逻辑
+async function LobbyContent({ searchParams }: { searchParams?: { error?: string } }) {
+  try {
+    const { user, profile, cacheHit } = await getUserData(true);
+    const currentDeviceId = extractDeviceIdFromCookie();
+    const deviceIdShort = currentDeviceId.length > 15 ? currentDeviceId.substring(0, 15) + '...' : currentDeviceId;
+    
+    console.log(`🏁 Lobby页面加载 - 用户: ${user.email}, 设备: ${currentDeviceId}, 缓存命中: ${cacheHit}`);
+    
+    const errorMessage = searchParams?.error ?? "";
+    
+    return renderLobbyContent(user, profile, deviceIdShort, errorMessage, cacheHit);
+    
+  } catch (error) {
+    console.error('Lobby页面加载失败:', error);
+    return renderErrorState();
+  }
+}
+
+// 🔥 使用 React.memo 优化主题列表组件
+const MemoizedThemesList = memo(ThemesList);
+
+// 🔥 分离渲染逻辑
+function renderLobbyContent(user: any, profile: any, deviceIdShort: string, errorMessage: string, cacheHit: boolean) {
   return (
     <>
       <PreferencesModal />
@@ -184,6 +241,7 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
           </div>
         </div>
         
+        {/* 其余内容保持不变 */}
         <div className="flex items-center justify-between mb-6 pt-4">
           <div>
             <h2 className="text-2xl font-bold">首页</h2>
@@ -202,7 +260,7 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
             <ShoppingCart className="w-5 h-5 text-white group-hover:scale-110 transition-transform" />
           </a>
         </div>
-
+  
         <div className="space-y-6">
           {errorMessage && (
             <div className="rounded-2xl border border-red-500/30 bg-red-500/10 backdrop-blur p-4 text-sm text-red-300">
@@ -218,7 +276,7 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
               <h3 className="text-lg font-semibold">创建房间</h3>
             </div>
             <p className="text-sm text-gray-400 mb-4">创建一个新的游戏房间，邀请你的另一半加入</p>
-
+  
             <form action={createRoom} className="space-y-4">
               <div>
                 <Label className="block text-sm text-gray-300 mb-2">选择主题</Label>
@@ -241,7 +299,7 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
                   <ChevronDown className="w-4 h-4 text-gray-400" />
                 </div>
               </div>
-
+  
               <Button
                 type="submit"
                 className="w-full gradient-primary py-3.5 rounded-xl font-semibold glow-pink transition-all hover:scale-105 active:scale-95 text-white"
@@ -250,7 +308,7 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
               </Button>
             </form>
           </div>
-
+  
           <div className="glass rounded-2xl p-6">
             <div className="flex items-center space-x-2 mb-3">
               <div className="w-8 h-8 gradient-secondary rounded-lg flex items-center justify-center">
@@ -259,7 +317,7 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
               <h3 className="text-lg font-semibold">加入房间</h3>
             </div>
             <p className="text-sm text-gray-400 mb-4">输入房间码加入已有的游戏</p>
-
+  
             <form action={joinRoom} className="space-y-4">
               <div>
                 <Label className="block text-sm text-gray-300 mb-2">选择主题</Label>
@@ -276,13 +334,13 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
                         加载主题中...
                       </option>
                     }>
-                      <ThemesList />
+                      <MemoizedThemesList />
                     </Suspense>
                   </select>
                   <ChevronDown className="w-4 h-4 text-gray-400" />
                 </div>
               </div>
-
+  
               <div>
                 <Label className="block text-sm text-gray-300 mb-2">房间码</Label>
                 <div className="glass rounded-xl p-3 flex items-center space-x-2">
@@ -298,7 +356,7 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
                   />
                 </div>
               </div>
-
+  
               <Button
                 type="submit"
                 className="w-full glass py-3.5 rounded-xl font-semibold hover:bg-white/10 transition-all active:scale-95"
@@ -320,4 +378,14 @@ export function LobbyPageWithSuspense({ searchParams }: { searchParams?: { error
       <LobbyPage searchParams={searchParams} />
     </Suspense>
   );
+}
+
+// 🔥 添加性能监控
+if (typeof window !== 'undefined') {
+// 客户端性能监控
+  const startTime = performance.now();
+  window.addEventListener('load', () => {
+    const loadTime = performance.now() - startTime;
+    console.log(`🏁 Lobby页面完全加载耗时: ${loadTime.toFixed(2)}ms`);
+  });
 }
