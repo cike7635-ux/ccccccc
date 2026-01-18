@@ -1,17 +1,103 @@
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
+// /app/lobby/page.tsx - 添加骨架屏优化
+import { getUserData } from '@/lib/server/auth';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { listAvailableThemes, createRoom, joinRoom } from "./actions";
-import { Users, LogIn, Layers, ChevronDown, Hash, ShoppingCart } from "lucide-react";
+import { Users, LogIn, Layers, ChevronDown, Hash, ShoppingCart, Smartphone } from "lucide-react";
 import PreferencesModal from "@/components/profile/preferences-modal";
 import Link from "next/link";
 import AnnouncementModal from "@/components/announcement-modal";
+import { Suspense } from 'react';
 
-export default async function LobbyPage({ searchParams }: { searchParams?: { error?: string } }) {
-  // 1. 创建简化的Supabase客户端
+// 添加动态渲染导出
+export const dynamic = 'force-dynamic';
+
+// 提取设备ID的函数
+function extractDeviceIdFromCookie(): string {
+  const cookieStore = cookies();
+  const deviceIdCookie = cookieStore.get('love_ludo_device_id');
+  return deviceIdCookie?.value || 'unknown';
+}
+
+// 🔥 骨架屏组件
+function LobbySkeleton() {
+  return (
+    <div className="max-w-md mx-auto min-h-svh flex flex-col p-6 pb-24">
+      {/* 顶部提示小字 */}
+      <p className="text-xs text-white/60 text-center mb-2">
+        将网站添加到主屏幕可以获得近似app的体验哦~
+      </p>
+      
+      {/* 会员状态和设备信息骨架屏 */}
+      <div className="mb-4 p-3 glass rounded-xl animate-pulse">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <div className="h-4 bg-gray-700 rounded w-32"></div>
+            <div className="h-3 bg-gray-800 rounded w-24"></div>
+          </div>
+          <div className="text-right">
+            <div className="h-3 bg-gray-800 rounded w-16 mb-1"></div>
+            <div className="h-3 bg-gray-800 rounded w-12"></div>
+          </div>
+        </div>
+      </div>
+      
+      <div className="flex items-center justify-between mb-6 pt-4">
+        <div className="space-y-1">
+          <div className="h-7 bg-gray-700 rounded w-16"></div>
+          <div className="h-3 bg-gray-800 rounded w-24"></div>
+        </div>
+        <div className="w-10 h-10 bg-gray-700 rounded-xl animate-pulse"></div>
+      </div>
+
+      <div className="space-y-6">
+        {/* 创建房间骨架屏 */}
+        <div className="glass rounded-2xl p-6 animate-pulse">
+          <div className="flex items-center space-x-2 mb-3">
+            <div className="w-8 h-8 bg-gray-700 rounded-lg"></div>
+            <div className="h-6 bg-gray-700 rounded w-32"></div>
+          </div>
+          <div className="h-3 bg-gray-800 rounded w-3/4 mb-4"></div>
+          
+          <div className="space-y-4">
+            <div>
+              <div className="h-4 bg-gray-800 rounded w-16 mb-2"></div>
+              <div className="glass rounded-xl p-3 h-12 bg-gray-700"></div>
+            </div>
+            <div className="h-12 bg-gray-700 rounded-xl"></div>
+          </div>
+        </div>
+
+        {/* 加入房间骨架屏 */}
+        <div className="glass rounded-2xl p-6 animate-pulse">
+          <div className="flex items-center space-x-2 mb-3">
+            <div className="w-8 h-8 bg-gray-700 rounded-lg"></div>
+            <div className="h-6 bg-gray-700 rounded w-32"></div>
+          </div>
+          <div className="h-3 bg-gray-800 rounded w-2/3 mb-4"></div>
+          
+          <div className="space-y-4">
+            <div>
+              <div className="h-4 bg-gray-800 rounded w-16 mb-2"></div>
+              <div className="glass rounded-xl p-3 h-12 bg-gray-700"></div>
+            </div>
+            <div>
+              <div className="h-4 bg-gray-800 rounded w-16 mb-2"></div>
+              <div className="glass rounded-xl p-3 h-12 bg-gray-700"></div>
+            </div>
+            <div className="h-12 bg-gray-700 rounded-xl"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 🔥 主题列表加载组件
+async function ThemesList() {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,51 +109,43 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
     }
   );
   
-  // 2. 检查用户登录状态
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
-    redirect('/login');
-  }
-  
-  // 3. 获取用户资料（检查会员有效期）
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('account_expires_at')
-    .eq('id', user.id)
-    .single();
-  
-  // 如果是新用户且没有profile，创建基本profile
-  if (!profile) {
-    console.log(`[Lobby] 新用户 ${user.email} 资料不存在，创建基本资料`);
-    const { error: insertError } = await supabase
-      .from('profiles')
-      .insert([{ 
-        id: user.id, 
-        email: user.email,
-        created_at: new Date().toISOString()
-      }]);
-    
-    if (insertError) {
-      console.error('[Lobby] 创建用户资料失败:', insertError);
-    }
-    
-    console.log(`[Lobby] 新用户 ${user.email} 基本资料已创建`);
-  }
-  
-  // 4. 检查会员有效期
-  const isExpired = profile?.account_expires_at && new Date(profile.account_expires_at) < new Date();
-  if (isExpired) {
-    redirect('/account-expired');
-  }
-  
-  // 5. 获取主题列表
+  // 获取主题列表
   const { data: themes } = await listAvailableThemes();
-  const errorMessage = searchParams?.error ?? "";
   
-  // 6. 如果是新用户且没有主题，log提示
-  if ((themes?.length || 0) === 0) {
-    console.log(`[Lobby] 用户 ${user.email} 没有主题，将访问/themes时初始化`);
+  if (!themes || themes.length === 0) {
+    return (
+      <>
+        <option value="" className="bg-gray-800">请选择游戏主题</option>
+        <option value="" className="bg-gray-800" disabled>
+          ⏳ 正在为您初始化主题库，请稍候刷新...
+        </option>
+      </>
+    );
   }
+  
+  return (
+    <>
+      <option value="" className="bg-gray-800">请选择游戏主题</option>
+      {themes.map((t) => (
+        <option key={t.id} value={t.id} className="bg-gray-800">
+          {t.title} ({t.task_count || 0}个任务)
+        </option>
+      ))}
+    </>
+  );
+}
+
+export default async function LobbyPage({ searchParams }: { searchParams?: { error?: string } }) {
+  // 🔥 使用统一数据层获取用户数据
+  const { user, profile, cacheHit } = await getUserData(true);
+  
+  // 获取当前设备ID
+  const currentDeviceId = extractDeviceIdFromCookie();
+  const deviceIdShort = currentDeviceId.length > 15 ? currentDeviceId.substring(0, 15) + '...' : currentDeviceId;
+  
+  console.log(`🏁 Lobby页面加载 - 用户: ${user.email}, 设备: ${currentDeviceId}, 缓存命中: ${cacheHit}`);
+  
+  const errorMessage = searchParams?.error ?? "";
   
   return (
     <>
@@ -80,13 +158,30 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
           将网站添加到主屏幕可以获得近似app的体验哦~
         </p>
         
-        {/* 会员状态提示 */}
+        {/* 会员状态和设备信息 */}
         <div className="mb-4 p-3 glass rounded-xl">
-          <p className="text-sm text-green-400 text-center">
-            会员有效期至：{profile?.account_expires_at ? 
-              new Date(profile.account_expires_at).toLocaleDateString('zh-CN') : 
-              '新用户（请在主题库中初始化主题）'}
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-green-400">
+                会员有效期至：{profile?.account_expires_at ? 
+                  new Date(profile.account_expires_at).toLocaleDateString('zh-CN') : 
+                  '新用户'}
+              </p>
+              <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                <Smartphone className="w-3 h-3" />
+                设备ID: {deviceIdShort}
+              </p>
+            </div>
+            
+            {/* 缓存状态提示（开发环境） */}
+            {process.env.NODE_ENV === 'development' && (
+              <div className="text-right">
+                <p className="text-xs text-gray-400">
+                  数据源: {cacheHit ? '缓存' : '数据库'}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
         
         <div className="flex items-center justify-between mb-6 pt-4">
@@ -95,7 +190,7 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
             <p className="text-sm text-gray-400 mt-1">找到你的对手，开始游戏</p>
           </div>
           
-          {/* 🔥 淘宝店铺链接 - 替换原来的GitHub链接 */}
+          {/* 淘宝店铺链接 */}
           <a
             href="https://shop.m.taobao.com/shop/shop_index.htm?shop_id=584630473"
             target="_blank"
@@ -114,6 +209,7 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
               {errorMessage}
             </div>
           )}
+          
           <div className="glass rounded-2xl p-6">
             <div className="flex items-center space-x-2 mb-3">
               <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
@@ -134,12 +230,13 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
                     className="flex-1 bg-transparent border-none outline-none text-white text-sm cursor-pointer appearance-none"
                     required
                   >
-                    <option value="" className="bg-gray-800">请选择游戏主题</option>
-                    {themes?.map((t) => (
-                      <option key={t.id} value={t.id} className="bg-gray-800">
-                        {t.title}
+                    <Suspense fallback={
+                      <option value="" className="bg-gray-800" disabled>
+                        加载主题中...
                       </option>
-                    )) || []}
+                    }>
+                      <ThemesList />
+                    </Suspense>
                   </select>
                   <ChevronDown className="w-4 h-4 text-gray-400" />
                 </div>
@@ -174,12 +271,13 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
                     className="flex-1 bg-transparent border-none outline-none text-white text-sm cursor-pointer appearance-none"
                     required
                   >
-                    <option value="" className="bg-gray-800">请选择游戏主题</option>
-                    {themes?.map((t) => (
-                      <option key={t.id} value={t.id} className="bg-gray-800">
-                        {t.title}
+                    <Suspense fallback={
+                      <option value="" className="bg-gray-800" disabled>
+                        加载主题中...
                       </option>
-                    )) || []}
+                    }>
+                      <ThemesList />
+                    </Suspense>
                   </select>
                   <ChevronDown className="w-4 h-4 text-gray-400" />
                 </div>
@@ -212,5 +310,14 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
         </div>
       </div>
     </>
+  );
+}
+
+// 🔥 包装组件，提供整体骨架屏
+export function LobbyPageWithSuspense({ searchParams }: { searchParams?: { error?: string } }) {
+  return (
+    <Suspense fallback={<LobbySkeleton />}>
+      <LobbyPage searchParams={searchParams} />
+    </Suspense>
   );
 }

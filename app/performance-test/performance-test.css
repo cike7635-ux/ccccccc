@@ -1,0 +1,99 @@
+/* 创建文件：/app/performance-test/performance-test.css */
+.performance-test-page {
+  background: #f8f9fa;
+  color: #212529;
+  min-height: 100vh;
+}
+
+.performance-card {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.performance-stat {
+  background: #e9ecef;
+  padding: 15px;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.performance-stat-label {
+  font-size: 0.875rem;
+  color: #6c757d;
+  margin-bottom: 4px;
+}
+
+.performance-stat-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #212529;
+}
+
+.delay-good {
+  color: #198754 !important;
+}
+
+.delay-warning {
+  color: #fd7e14 !important;
+}
+
+.delay-bad {
+  color: #dc3545 !important;
+  font-weight: bold;
+}
+
+.measurement-row:hover {
+  background-color: #f8f9fa !important;
+}
+
+.test-button {
+  background: #0d6efd;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.test-button:hover {
+  background: #0b5ed7;
+}
+
+.export-button {
+  background: #6f42c1;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.clear-button {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.quick-test-button {
+  background: white;
+  color: #495057;
+  border: 1px solid #ced4da;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.quick-test-button:hover {
+  background: #e9ecef;
+  border-color: #adb5bd;
+}

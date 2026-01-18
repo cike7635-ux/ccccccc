@@ -1,10 +1,9 @@
-// /app/login/expired/page.tsx
+// /app/login/expired/page.tsx - 使用原始页面修复导入
 "use client";
 
 import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ShieldAlert, AlertCircle, LogIn, Home } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { createBrowserClient } from '@supabase/ssr';
 
 // 关键配置：将此页面标记为完全动态，跳过静态生成
@@ -56,6 +55,22 @@ function LoginExpiredContent() {
           details: [
             '您的账号已在其他设备上重新登录。',
             '为确保账号安全，当前设备会话已自动失效。'
+          ]
+        };
+      case 'device_kicked':
+        return {
+          title: '设备已被踢出',
+          details: [
+            '您的账号已在其他设备登录。',
+            '同一时间只能在一个设备上使用。'
+          ]
+        };
+      case 'multi_device':
+        return {
+          title: '多设备登录检测',
+          details: [
+            '检测到您的账号在多个设备上同时登录。',
+            '系统只允许一个设备在线。'
           ]
         };
       default:
@@ -144,22 +159,21 @@ function LoginExpiredContent() {
 
           {/* 操作按钮 */}
           <div className="space-y-3 pt-2">
-            <Button
+            <button
               onClick={handleClearAndLogin}
-              className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white py-3.5 rounded-xl font-medium transition-all duration-200 hover:shadow-lg hover:shadow-red-500/20 active:scale-[0.98]"
+              className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white py-3.5 rounded-xl font-medium transition-all duration-200 hover:shadow-lg hover:shadow-red-500/20 active:scale-[0.98] flex items-center justify-center"
             >
               <LogIn className="w-4 h-4 mr-2" />
               安全重新登录
-            </Button>
+            </button>
 
-            <Button
+            <button
               onClick={() => router.push('/')}
-              variant="outline"
-              className="w-full border-gray-600 hover:bg-white/5 hover:border-gray-500 text-gray-300 hover:text-white py-3.5 rounded-xl font-medium transition-all duration-200"
+              className="w-full border border-gray-600 hover:bg-white/5 hover:border-gray-500 text-gray-300 hover:text-white py-3.5 rounded-xl font-medium transition-all duration-200 flex items-center justify-center"
             >
               <Home className="w-4 h-4 mr-2" />
               返回首页
-            </Button>
+            </button>
           </div>
 
           {/* 帮助信息 */}

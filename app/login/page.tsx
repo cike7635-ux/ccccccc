@@ -1,12 +1,13 @@
-// /app/login/page.tsx
-// 修复版本 - 移除自动重定向逻辑，避免冲突
+// /app/login/page.tsx - 修复版本
 'use client';
 
-import { Suspense } from 'react';
+import { Suspense, useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from "next/link";
 import { LoginForm } from "@/components/login-form";
 import { SignUpForm } from "@/components/sign-up-form";
 import { Button } from "@/components/ui/button";
+import { useSearchParams } from 'next/navigation';
 
 // 检查是否是管理员 - 兼容两种环境变量命名
 function isAdminEmail(email: string | undefined | null): boolean {
@@ -42,16 +43,13 @@ export default function LoginPage() {
   );
 }
 
-// 内容组件 - 使用 useSearchParams
-import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { createBrowserClient } from '@supabase/ssr';
-
 function LoginPageContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [active, setActive] = useState<'login' | 'signup'>('login');
   const [loading, setLoading] = useState(true);
+  const [redirecting, setRedirecting] = useState(false);
   
   const tabParam = searchParams.get('tab');
   const fromSignup = searchParams.get('from') === 'signup';
@@ -64,71 +62,78 @@ function LoginPageContent() {
     }
   }, [tabParam]);
 
-  // 🔥 关键修复：简化登录状态检查
+  // 🔥 关键修复：调用服务端API检查登录状态和设备ID
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        // 创建Supabase客户端
-        const supabase = createBrowserClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-        );
+        // 调用服务端API检查用户状态和设备ID
+        const response = await fetch('/api/auth/check-login-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            isLoginPage: true,
+            redirectPath: searchParams.get('redirect') || '/lobby'
+          })
+        });
         
-        const { data: { user }, error } = await supabase.auth.getUser();
-        
-        if (error) {
-          console.log('[登录页] 未检测到登录用户');
+        if (response.redirected) {
+          // API返回了重定向，跟随重定向
+          window.location.href = response.url;
           return;
         }
         
-        if (user) {
-          console.log(`[登录页] 检测到已登录用户: ${user.email}`);
-          setUser(user);
+        const result = await response.json();
+        
+        if (result.loggedIn) {
+          console.log(`[登录页] 检测到已登录用户: ${result.email}`);
+          setUser(result.user);
+          
+          // 🔥 关键：如果用户已登录，立即重定向
+          const redirectParam = searchParams.get('redirect') || '/lobby';
+          const admin = isAdminEmail(result.email);
+          let targetPath = redirectParam;
+          
+          if (admin && targetPath.startsWith('/admin')) {
+            targetPath = '/admin/dashboard';
+          }
+          
+          console.log(`[登录页] 已登录用户: ${result.email}, 重定向到: ${targetPath}`);
+          setRedirecting(true);
+          
+          // 使用硬重定向，确保状态同步
+          setTimeout(() => {
+            window.location.href = targetPath;
+          }, 100);
+        } else {
+          console.log('[登录页] 用户未登录，显示登录表单');
+          setUser(null);
         }
       } catch (error: any) {
         console.error('[登录页] 认证检查异常:', error.message);
+        // 出错时显示登录表单
+        setUser(null);
       } finally {
         setLoading(false);
       }
     };
     
     checkAuth();
-  }, []);
+  }, [searchParams]);
 
   // 如果是注册跳转过来的，显示欢迎消息
   useEffect(() => {
     if (fromSignup && emailParam) {
       console.log(`[登录页] 注册用户跳转: ${emailParam}`);
-      // 可以在这里显示一个短暂的欢迎消息
     }
   }, [fromSignup, emailParam]);
 
   // 加载状态
   if (loading) {
-    return (
-      <div className="flex min-h-svh w-full items-center justify-center p-6">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-pink mx-auto mb-4"></div>
-          <p className="text-gray-400">检查登录状态...</p>
-        </div>
-      </div>
-    );
+    return <LoginLoading />;
   }
 
-  // 用户已登录，显示重定向中状态
-  if (user) {
-    // 🔥 关键修复：简化重定向逻辑，避免循环
-    const redirectParam = searchParams.get('redirect') || '/lobby';
-    const admin = isAdminEmail(user.email);
-    let targetPath = redirectParam;
-    
-    console.log(`[登录页] 已登录用户: ${user.email}, 重定向到: ${targetPath}`);
-    
-    // 使用硬重定向，确保状态同步
-    setTimeout(() => {
-      window.location.href = targetPath;
-    }, 100);
-    
+  // 重定向状态
+  if (redirecting) {
     return (
       <div className="flex min-h-svh w-full items-center justify-center p-6">
         <div className="text-center">

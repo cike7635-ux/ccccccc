@@ -1,9 +1,13 @@
-// app\lobby\actions.ts
+// app\lobby\actions.ts - 优化版
 "use server";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+
+// 🔥 添加主题列表缓存
+const themesCache = new Map<string, { data: any; expiresAt: number }>();
+const THEMES_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
 
 type ThemeRecord = {
   id: string;
@@ -44,83 +48,163 @@ function generateRoomCode() {
   return code;
 }
 
+/**
+ * 🔥 初始化默认主题（后台异步执行）
+ */
+async function initializeDefaultThemes(supabase: any, userId: string): Promise<ThemeRecord[]> {
+  try {
+    console.log(`🔄 开始初始化默认主题，用户: ${userId}`);
+    const startTime = Date.now();
+    
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const filePath = path.join(process.cwd(), "lib", "tasks.json");
+    const content = await fs.readFile(filePath, "utf-8");
+    const templates: { title: string; description?: string; tasks: string[] }[] = JSON.parse(content);
+
+    for (const tpl of templates) {
+      // 检查是否已存在同名主题
+      const { data: existing } = await supabase
+        .from("themes")
+        .select("id")
+        .eq("creator_id", userId)
+        .eq("title", tpl.title)
+        .maybeSingle();
+      
+      let themeId: string | null = existing?.id ?? null;
+      
+      if (!themeId) {
+        console.log(`📝 创建主题: ${tpl.title}`);
+        const { data: created } = await supabase
+          .from("themes")
+          .insert({
+            title: tpl.title,
+            description: tpl.description ?? null,
+            creator_id: userId,
+            is_public: false,
+            task_count: (tpl.tasks?.length ?? 0),
+          })
+          .select("id")
+          .single();
+        themeId = created?.id ?? null;
+      }
+      
+      if (themeId) {
+        // 🔥 批量插入任务，而不是逐条插入
+        const taskCount = tpl.tasks?.length ?? 0;
+        if (taskCount > 0) {
+          const tasksToInsert = tpl.tasks!.map((desc, index) => ({
+            theme_id: themeId,
+            description: desc,
+            type: "default",
+            order_index: index,
+            is_ai_generated: false,
+          }));
+          
+          console.log(`📦 批量插入 ${tasksToInsert.length} 个任务到主题: ${tpl.title}`);
+          const { error } = await supabase
+            .from("tasks")
+            .insert(tasksToInsert);
+          
+          if (error) {
+            console.error(`❌ 插入任务失败: ${error.message}`);
+          }
+        }
+      }
+    }
+
+    // 查询初始化后的主题列表
+    const { data: after } = await supabase
+      .from("themes")
+      .select("id,title,description,task_count,created_at,creator_id")
+      .eq("creator_id", userId)
+      .order("created_at", { ascending: false });
+    
+    const initTime = Date.now() - startTime;
+    console.log(`✅ 主题初始化完成，耗时: ${initTime}ms，用户: ${userId}，主题数: ${after?.length || 0}`);
+    
+    return (after ?? []) as ThemeRecord[];
+  } catch (error: any) {
+    console.error(`❌ 主题初始化失败，用户: ${userId}:`, error.message);
+    return [];
+  }
+}
+
 export async function listAvailableThemes(): Promise<{ data: ThemeRecord[]; error?: string }> {
   const { supabase, user } = await requireUser();
+  
+  // 🔥 缓存检查
+  const cacheKey = `themes_${user.id}`;
+  const cached = themesCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    console.log(`✅ 主题列表缓存命中，用户: ${user.id}`);
+    return { data: cached.data };
+  }
+  
+  console.log(`🔄 主题列表未缓存，查询数据库，用户: ${user.id}`);
+  
+  // 🔥 性能监控
+  const startTime = Date.now();
+  
   // 仅列出我创建的主题（不包含公开主题），避免选择他人主题导致 RLS 读不到任务
   const { data, error } = await supabase
     .from("themes")
     .select("id,title,description,task_count,created_at,creator_id")
     .eq("creator_id", user.id)
     .order("created_at", { ascending: false });
-  if (error) return { data: [], error: error.message };
-
-  let list = (data ?? []) as ThemeRecord[];
-  if (list.length === 0) {
-    // 首次进入大厅时进行一次兜底初始化：创建昵称档案与默认题库
-    try {
-      const { ensureProfile } = await import("@/lib/profile");
-      await ensureProfile();
-    } catch {}
-
-    try {
-      const fs = await import("node:fs/promises");
-      const path = await import("node:path");
-      const filePath = path.join(process.cwd(), "lib", "tasks.json");
-      const content = await fs.readFile(filePath, "utf-8");
-      const templates: { title: string; description?: string; tasks: string[] }[] = JSON.parse(content);
-
-      for (const tpl of templates) {
-        const { data: existing } = await supabase
-          .from("themes")
-          .select("id")
-          .eq("creator_id", user.id)
-          .eq("title", tpl.title)
-          .maybeSingle();
-        let themeId: string | null = existing?.id ?? null;
-        if (!themeId) {
-          const { data: created } = await supabase
-            .from("themes")
-            .insert({
-              title: tpl.title,
-              description: tpl.description ?? null,
-              creator_id: user.id,
-              is_public: false,
-              task_count: (tpl.tasks?.length ?? 0),
-            })
-            .select("id")
-            .single();
-          themeId = created?.id ?? null;
-        }
-        if (themeId) {
-          let index = 0;
-          for (const desc of (tpl.tasks ?? [])) {
-            await supabase
-              .from("tasks")
-              .insert({
-                theme_id: themeId,
-                description: desc,
-                type: "default",
-                order_index: index++,
-                is_ai_generated: false,
-              });
-          }
-        }
-      }
-
-      const { data: after } = await supabase
-        .from("themes")
-        .select("id,title,description,task_count,created_at,creator_id")
-        .eq("creator_id", user.id)
-        .order("created_at", { ascending: false });
-      list = (after ?? []) as ThemeRecord[];
-    } catch {
-      // 兜底初始化失败时，保持空列表并让 UI 提示
-    }
+  
+  const queryTime = Date.now() - startTime;
+  console.log(`⏱️ 数据库查询耗时: ${queryTime}ms，用户: ${user.id}`);
+  
+  if (error) {
+    console.error(`❌ 查询主题列表失败: ${error.message}`);
+    return { data: [], error: error.message };
   }
 
+  let list = (data ?? []) as ThemeRecord[];
+  
+  if (list.length === 0) {
+    console.log(`🆕 用户 ${user.id} 无主题，启动后台初始化`);
+    
+    // 🔥 首次访问：先返回空列表，后台异步初始化
+    // 异步初始化（不阻塞当前请求）
+    setTimeout(async () => {
+      try {
+        const initializedThemes = await initializeDefaultThemes(supabase, user.id);
+        if (initializedThemes.length > 0) {
+          // 初始化成功后更新缓存
+          themesCache.set(cacheKey, { 
+            data: initializedThemes, 
+            expiresAt: Date.now() + THEMES_CACHE_TTL 
+          });
+          console.log(`💾 主题列表已缓存（初始化后），用户: ${user.id}, 主题数: ${initializedThemes.length}`);
+        }
+      } catch (error) {
+        console.error('主题初始化失败:', error);
+      }
+    }, 0);
+    
+    // 返回空列表，UI会显示提示
+    return { data: [] };
+  }
+  
+  // 🔥 设置缓存
+  themesCache.set(cacheKey, { data: list, expiresAt: Date.now() + THEMES_CACHE_TTL });
+  console.log(`💾 主题列表已缓存，用户: ${user.id}, 主题数: ${list.length}, 总耗时: ${Date.now() - startTime}ms`);
+  
   return { data: list };
 }
 
+/**
+ * 🔥 清除特定用户的主题缓存
+ */
+export async function clearThemesCache(userId: string): Promise<void> {
+  const cacheKey = `themes_${userId}`;
+  themesCache.delete(cacheKey);
+  console.log(`🧹 清除主题缓存，用户: ${userId}`);
+}
+
+// 其他函数保持不变...
 export async function getRoomById(id: string): Promise<{ data: RoomRecord | null; error?: string }> {
   const { supabase } = await requireUser();
   const { data, error } = await supabase
@@ -161,6 +245,9 @@ export async function createRoom(formData: FormData): Promise<void> {
     .single();
   if (error) throw new Error(error.message);
 
+  // 🔥 清除主题缓存，因为可能创建了新主题
+  clearThemesCache(user.id);
+  
   revalidatePath("/lobby");
   redirect(`/lobby/${room.id}`);
 }

@@ -16,7 +16,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "react-jsx",
+    "jsx": "preserve",
     "incremental": true,
     "plugins": [
       {
@@ -34,8 +34,10 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
-, "app/admin/dashboard/page.tsx", "app/admin/feedback/page.tsx"  ],
+    ".next/dev/types/**/*.ts",
+    "app/admin/dashboard/page.tsx",
+    "app/admin/feedback/page.tsx"
+  ],
   "exclude": [
     "node_modules"
   ]
