@@ -130,6 +130,9 @@ async function initializeDefaultThemes(supabase: any, userId: string): Promise<T
   }
 }
 
+// 🔥 添加防重复初始化机制
+const initializingUsers = new Set<string>();
+
 export async function listAvailableThemes(): Promise<{ data: ThemeRecord[]; error?: string }> {
   const { supabase, user } = await requireUser();
   
@@ -174,14 +177,20 @@ export async function listAvailableThemes(): Promise<{ data: ThemeRecord[]; erro
     const isNewUser = profile && (Date.now() - new Date(profile.created_at).getTime()) < 24 * 60 * 60 * 1000; // 24小时内注册的用户
     
     if (isNewUser) {
+      // 🔥 防重复初始化检查
+      if (initializingUsers.has(user.id)) {
+        console.log(`⏳ 用户 ${user.id} 的主题初始化正在进行中，跳过重复初始化`);
+        return { data: [] };
+      }
+      
       console.log(`🆕 新用户 ${user.id} 无主题，启动后台初始化`);
+      initializingUsers.add(user.id);
       
       // 🔥 首次访问：先返回空列表，后台异步初始化
       // 异步初始化（不阻塞当前请求）
       setTimeout(async () => {
         try {
-          // 在注册API的适当位置添加
-          const initializedThemes = await initializeDefaultThemes(supabaseAdmin, userId);
+          const initializedThemes = await initializeDefaultThemes(supabase, user.id);
           console.log(`✅ 新用户主题初始化完成: ${initializedThemes.length} 个主题`);
           
           if (initializedThemes.length > 0) {
@@ -194,6 +203,9 @@ export async function listAvailableThemes(): Promise<{ data: ThemeRecord[]; erro
           }
         } catch (error) {
           console.error('主题初始化失败:', error);
+        } finally {
+          // 🔥 清理初始化状态
+          initializingUsers.delete(user.id);
         }
       }, 0);
       
@@ -372,8 +384,7 @@ export async function startGame(formData: FormData): Promise<void> {
   const starter = Math.random() < 0.5 ? room.player1_id : room.player2_id;
 
   // 初始化棋盘特殊格（0-based 索引）：
-
-  const starIndices = [2, 4, 6, 8, 9, 11,12, 15, 22, 25, 27, 31,  36, 37, 40, 41, 43];
+  const starIndices = [2, 4, 6, 8, 9, 11, 12, 15, 22, 25, 27, 31, 36, 37, 40, 41, 43];
   const trapIndices = [3, 14, 19, 33, 42, 46, 47];
   const specialCells: Record<number, "star" | "trap"> = {};
   for (const i of starIndices) specialCells[i] = "star";

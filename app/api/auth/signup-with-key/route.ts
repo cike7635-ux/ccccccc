@@ -195,7 +195,61 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // 🔥 新增：为新用户自动初始化默认主题
+    // 9. 🔥 更新密钥状态（使用管理员客户端）
+    const { error: updateKeyError } = await supabaseAdmin
+      .from('access_keys')
+      .update({
+        used_count: keyData.used_count + 1,
+        user_id: userId,
+        used_at: now.toISOString(),
+        updated_at: now.toISOString()
+      })
+      .eq('id', keyData.id);
+
+    if (updateKeyError) {
+      console.error('[Signup API] 更新密钥失败:', updateKeyError);
+      // 不返回错误，因为用户注册已成功
+    }
+
+    // 10. 记录密钥使用历史
+    const { error: historyError } = await supabaseAdmin
+      .from('key_usage_history')
+      .insert({
+        access_key_id: keyData.id,
+        user_id: userId,
+        used_at: now.toISOString(),
+        usage_type: 'activate',
+        notes: `新用户注册 - 邮箱: ${email.trim()}`
+      });
+
+    if (historyError) {
+      console.error('[Signup API] 记录使用历史失败:', historyError);
+    }
+
+    // 11. 验证计次
+    const { data: updatedKey } = await supabaseAdmin
+      .from('access_keys')
+      .select('used_count')
+      .eq('id', keyData.id)
+      .single();
+
+    if (updatedKey && updatedKey.used_count - keyData.used_count === 2) {
+      console.warn('[Signup API] 警告：注册一次计次增加了2次，修复中...');
+      // 修复计次
+      await supabaseAdmin
+        .from('access_keys')
+        .update({ used_count: keyData.used_count + 1 })
+        .eq('id', keyData.id);
+    }
+
+    console.log('[Signup API] 注册成功:', { 
+      userId, 
+      email: email.trim(),
+      expiresAt: accountExpiresAt,
+      keyUsed: keyData.key_code
+    });
+
+    // 🔥 新增：为新用户自动初始化默认主题（必须在return之前！）
     try {
       console.log(`🎯 开始为新用户 ${userId} 初始化默认主题`);
       const fs = await import("node:fs/promises");
@@ -262,61 +316,7 @@ export async function POST(request: NextRequest) {
       // 静默失败，不影响注册主流程
     }
 
-    // 9. 🔥 更新密钥状态（使用管理员客户端）
-    const { error: updateKeyError } = await supabaseAdmin
-      .from('access_keys')
-      .update({
-        used_count: keyData.used_count + 1,
-        user_id: userId,
-        used_at: now.toISOString(),
-        updated_at: now.toISOString()
-      })
-      .eq('id', keyData.id);
-
-    if (updateKeyError) {
-      console.error('[Signup API] 更新密钥失败:', updateKeyError);
-      // 不返回错误，因为用户注册已成功
-    }
-
-    // 10. 记录密钥使用历史
-    const { error: historyError } = await supabaseAdmin
-      .from('key_usage_history')
-      .insert({
-        access_key_id: keyData.id,
-        user_id: userId,
-        used_at: now.toISOString(),
-        usage_type: 'activate',
-        notes: `新用户注册 - 邮箱: ${email.trim()}`
-      });
-
-    if (historyError) {
-      console.error('[Signup API] 记录使用历史失败:', historyError);
-    }
-
-    // 11. 验证计次
-    const { data: updatedKey } = await supabaseAdmin
-      .from('access_keys')
-      .select('used_count')
-      .eq('id', keyData.id)
-      .single();
-
-    if (updatedKey && updatedKey.used_count - keyData.used_count === 2) {
-      console.warn('[Signup API] 警告：注册一次计次增加了2次，修复中...');
-      // 修复计次
-      await supabaseAdmin
-        .from('access_keys')
-        .update({ used_count: keyData.used_count + 1 })
-        .eq('id', keyData.id);
-    }
-
-    console.log('[Signup API] 注册成功:', { 
-      userId, 
-      email: email.trim(),
-      expiresAt: accountExpiresAt,
-      keyUsed: keyData.key_code
-    });
-
-    // 12. 返回成功响应
+    // 🔥 返回成功响应（必须在所有操作完成后）
     return NextResponse.json({
       success: true,
       message: '注册成功！请检查邮箱确认注册（如需要），然后登录',
