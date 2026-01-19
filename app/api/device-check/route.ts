@@ -61,11 +61,21 @@ export async function POST(request: NextRequest) {
     const extractDeviceId = (session: string): string => {
       if (!session) return 'unknown';
       const parts = session.split('_');
+      
+      // 🔥 增强设备ID提取逻辑，兼容多种会话ID格式
       if (parts.length >= 4) {
-        if (parts[2] === 'dev' && parts.length > 4) {
-          return parts.slice(2, parts.length - 1).join('_');
+        // 标准格式：sess_{userId}_{deviceId}_{tokenPart}
+        if (parts[0] === 'sess' && parts.length >= 4) {
+          if (parts[2] === 'dev' && parts.length > 4) {
+            return parts.slice(2, parts.length - 1).join('_');
+          }
+          return parts[2];
         }
-        return parts[2];
+        // 旧格式：init_{userId}_{timestamp}_{random}
+        else if (parts[0] === 'init' && parts.length >= 4) {
+          // 将时间戳转换为标准设备ID格式
+          return `dev_${parts[2]}_legacy`;
+        }
       }
       return 'unknown';
     };
@@ -95,8 +105,41 @@ export async function POST(request: NextRequest) {
         email: user.email
       });
     } else {
-      // 设备不匹配，拒绝访问
+      // 🔥 增强：设备不匹配时的处理逻辑
       console.log(`🚨 设备不匹配！存储设备: ${storedDeviceId}, 当前设备: ${currentDeviceId}`);
+      
+      // 检查是否是注册后首次登录的情况
+      const isInitialSession = profile.last_login_session.includes('_init');
+      
+      if (isInitialSession) {
+        // 🔥 特殊情况：注册后的首次登录，允许通过并更新会话
+        console.log(`🆕 检测到注册后首次登录，更新设备ID: ${currentDeviceId}`);
+        
+        // 更新用户会话为新设备ID
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const newSessionId = `sess_${user.id}_${currentDeviceId}_${session.access_token.substring(0, 12)}`;
+          const { error: updateError } = await supabase
+            .from('profiles')
+            .update({ 
+              last_login_session: newSessionId,
+              last_login_at: new Date().toISOString()
+            })
+            .eq('id', user.id);
+          
+          if (!updateError) {
+            console.log(`✅ 注册后首次登录设备ID更新成功: ${currentDeviceId}`);
+            return NextResponse.json({ 
+              allowed: true, 
+              reason: 'first_login_after_signup',
+              deviceId: currentDeviceId,
+              email: user.email
+            });
+          }
+        }
+      }
+      
+      // 设备不匹配，拒绝访问
       return NextResponse.json({ 
         allowed: false, 
         reason: 'device_mismatch',

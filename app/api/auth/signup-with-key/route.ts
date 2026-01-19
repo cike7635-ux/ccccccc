@@ -132,12 +132,31 @@ export async function POST(request: NextRequest) {
       created_at: now.toISOString()
     };
 
-    // 生成初始会话ID
-    const initialSessionId = `init_${userId}_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+    // 🔥 修复：生成标准的会话ID格式（与登录流程一致）
+    // 生成标准的设备ID格式
+    const standardDeviceId = `dev_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+    // 生成标准的会话ID格式：sess_{userId}_{deviceId}_{tokenPart}
+    const initialSessionId = `sess_${userId}_${standardDeviceId}_init`;
+    
+    // 🔥 新增：在注册时设置设备ID到cookie中（与登录流程一致）
+    try {
+      cookieStore.set('love_ludo_device_id', standardDeviceId, {
+        path: '/',
+        maxAge: 60 * 60 * 24 * 365, // 365天
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        httpOnly: true
+      });
+      console.log(`🆔 注册流程设置设备ID到cookie: ${standardDeviceId}`);
+    } catch (cookieError) {
+      console.error('❌ 设置设备ID cookie失败:', cookieError);
+      // 静默失败，不影响注册主流程
+    }
     
     console.log('[Signup API] 创建用户资料:', {
       userId,
       sessionId: initialSessionId,
+      deviceId: standardDeviceId,
       preferences: initialPreferences
     });
     
@@ -174,6 +193,73 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ 
         error: '注册失败，用户资料创建错误' 
       }, { status: 500 });
+    }
+
+    // 🔥 新增：为新用户自动初始化默认主题
+    try {
+      console.log(`🎯 开始为新用户 ${userId} 初始化默认主题`);
+      const fs = await import("node:fs/promises");
+      const path = await import("node:path");
+      const filePath = path.join(process.cwd(), "lib", "tasks.json");
+      const content = await fs.readFile(filePath, "utf-8");
+      const templates: { title: string; description?: string; tasks: string[] }[] = JSON.parse(content);
+
+      let initializedThemeCount = 0;
+      
+      for (const tpl of templates) {
+        // 检查是否已存在同名主题
+        const { data: existing } = await supabaseAdmin
+          .from("themes")
+          .select("id")
+          .eq("creator_id", userId)
+          .eq("title", tpl.title)
+          .maybeSingle();
+        
+        let themeId: string | null = existing?.id ?? null;
+        
+        if (!themeId) {
+          console.log(`📝 创建主题: ${tpl.title}`);
+          const { data: created } = await supabaseAdmin
+            .from("themes")
+            .insert({
+              title: tpl.title,
+              description: tpl.description ?? null,
+              creator_id: userId,
+              is_public: false,
+              task_count: (tpl.tasks?.length ?? 0),
+            })
+            .select("id")
+            .single();
+          themeId = created?.id ?? null;
+        }
+        
+        if (themeId && tpl.tasks?.length > 0) {
+          // 批量插入任务
+          const tasksToInsert = tpl.tasks.map((desc, index) => ({
+            theme_id: themeId,
+            description: desc,
+            type: "default",
+            order_index: index,
+            is_ai_generated: false,
+          }));
+          
+          console.log(`📦 批量插入 ${tasksToInsert.length} 个任务到主题: ${tpl.title}`);
+          const { error: insertError } = await supabaseAdmin
+            .from("tasks")
+            .insert(tasksToInsert);
+          
+          if (insertError) {
+            console.error(`❌ 插入任务失败: ${insertError.message}`);
+          } else {
+            initializedThemeCount++;
+          }
+        }
+      }
+      
+      console.log(`✅ 新用户主题初始化完成: ${initializedThemeCount} 个主题`);
+    } catch (themeError) {
+      console.error('❌ 主题初始化失败:', themeError);
+      // 静默失败，不影响注册主流程
     }
 
     // 9. 🔥 更新密钥状态（使用管理员客户端）

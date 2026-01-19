@@ -164,28 +164,46 @@ export async function listAvailableThemes(): Promise<{ data: ThemeRecord[]; erro
   let list = (data ?? []) as ThemeRecord[];
   
   if (list.length === 0) {
-    console.log(`🆕 用户 ${user.id} 无主题，启动后台初始化`);
+    // 🔥 检查用户注册时间，判断是否为新用户
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("created_at")
+      .eq("id", user.id)
+      .single();
     
-    // 🔥 首次访问：先返回空列表，后台异步初始化
-    // 异步初始化（不阻塞当前请求）
-    setTimeout(async () => {
-      try {
-        const initializedThemes = await initializeDefaultThemes(supabase, user.id);
-        if (initializedThemes.length > 0) {
-          // 初始化成功后更新缓存
-          themesCache.set(cacheKey, { 
-            data: initializedThemes, 
-            expiresAt: Date.now() + THEMES_CACHE_TTL 
-          });
-          console.log(`💾 主题列表已缓存（初始化后），用户: ${user.id}, 主题数: ${initializedThemes.length}`);
+    const isNewUser = profile && (Date.now() - new Date(profile.created_at).getTime()) < 24 * 60 * 60 * 1000; // 24小时内注册的用户
+    
+    if (isNewUser) {
+      console.log(`🆕 新用户 ${user.id} 无主题，启动后台初始化`);
+      
+      // 🔥 首次访问：先返回空列表，后台异步初始化
+      // 异步初始化（不阻塞当前请求）
+      setTimeout(async () => {
+        try {
+          // 在注册API的适当位置添加
+          const initializedThemes = await initializeDefaultThemes(supabaseAdmin, userId);
+          console.log(`✅ 新用户主题初始化完成: ${initializedThemes.length} 个主题`);
+          
+          if (initializedThemes.length > 0) {
+            // 初始化成功后更新缓存
+            themesCache.set(cacheKey, { 
+              data: initializedThemes, 
+              expiresAt: Date.now() + THEMES_CACHE_TTL 
+            });
+            console.log(`💾 主题列表已缓存（初始化后），用户: ${user.id}, 主题数: ${initializedThemes.length}`);
+          }
+        } catch (error) {
+          console.error('主题初始化失败:', error);
         }
-      } catch (error) {
-        console.error('主题初始化失败:', error);
-      }
-    }, 0);
-    
-    // 返回空列表，UI会显示提示
-    return { data: [] };
+      }, 0);
+      
+      // 返回空列表，UI会显示提示
+      return { data: [] };
+    } else {
+      console.log(`👤 老用户 ${user.id} 无主题，不自动初始化`);
+      // 对于老用户，直接返回空列表，不进行自动初始化
+      return { data: [] };
+    }
   }
   
   // 🔥 设置缓存
@@ -204,7 +222,6 @@ export async function clearThemesCache(userId: string): Promise<void> {
   console.log(`🧹 清除主题缓存，用户: ${userId}`);
 }
 
-// 其他函数保持不变...
 export async function getRoomById(id: string): Promise<{ data: RoomRecord | null; error?: string }> {
   const { supabase } = await requireUser();
   const { data, error } = await supabase

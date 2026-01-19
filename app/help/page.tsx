@@ -31,7 +31,7 @@ export default function HelpPage() {
           <div className="glass rounded-2xl p-6">
             <h3 className="font-semibold mb-2">Q：用户隐私如何保护？</h3>
             <p className="text-sm text-gray-300">
-              邮箱密码可以随机生成，一定程度上是匿名的。另外后续会提供源码，更高私密需求的可以私有化部署。
+              邮箱密码可以随机生成，一定程度上是匿名的。
             </p>
           </div>
         </div>
