@@ -195,6 +195,16 @@ async function LobbyContent({ searchParams }: { searchParams?: { error?: string 
     
   } catch (error) {
     console.error('Lobby页面加载失败:', error);
+    
+    // 🔥 检查是否是 NEXT_REDIRECT 错误
+    if (error && typeof error === 'object' && 'digest' in error) {
+      const digest = (error as any).digest;
+      if (typeof digest === 'string' && digest.startsWith('NEXT_REDIRECT')) {
+        // 🔥 如果是重定向错误，重新抛出让Next.js处理
+        throw error;
+      }
+    }
+    
     return renderErrorState();
   }
 }

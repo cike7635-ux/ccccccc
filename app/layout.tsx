@@ -5,6 +5,7 @@ import "./globals.css";
 import PerformanceMeasurement from '@/components/performance-measurement';
 import { BottomNav } from "@/components/ui/bottom-nav";
 import { DeviceCheckGuard } from '@/components/device-check-guard';
+import { MembershipGuard } from '@/components/membership-guard';
 import { ClientOnly } from '@/components/ui/client-only';
 
 const inter = Inter({ subsets: ["latin"] });
@@ -34,6 +35,9 @@ export default function RootLayout({
         <ClientOnly>
           {/* 设备检查守卫 */}
           <DeviceCheckGuard />
+          
+          {/* 会员过期检查守卫 */}
+          <MembershipGuard />
           
           {/* 导航性能测量组件 */}
           <PerformanceMeasurement />

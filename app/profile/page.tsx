@@ -361,8 +361,17 @@ async function ProfileContent() {
     );
     
   } catch (error) {
-    // 🔥 错误处理：getUserData已经处理了重定向，这里捕获可能的异常
+    // 🔥 错误处理：检查是否是 NEXT_REDIRECT 错误
     console.error('❌ Profile页面加载失败:', error);
+    
+    // 🔥 检查是否是 NEXT_REDIRECT 错误
+    if (error && typeof error === 'object' && 'digest' in error) {
+      const digest = (error as any).digest;
+      if (typeof digest === 'string' && digest.startsWith('NEXT_REDIRECT')) {
+        // 🔥 如果是重定向错误，重新抛出让Next.js处理
+        throw error;
+      }
+    }
     
     // 如果getUserData没有重定向，说明是其他错误
     return (

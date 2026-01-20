@@ -39,6 +39,13 @@ async function ThemesContent() {
     
   } catch (error) {
     console.error('Themes页面加载失败:', error);
+    
+    // 检查是否是NEXT_REDIRECT错误，如果是则重新抛出
+    if (error && typeof error === 'object' && 'digest' in error && 
+        typeof error.digest === 'string' && error.digest.includes('NEXT_REDIRECT')) {
+      throw error; // 重新抛出让Next.js处理重定向
+    }
+    
     return null;
   }
 }

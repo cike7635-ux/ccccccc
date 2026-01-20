@@ -1,13 +1,11 @@
-// /app/api/auth/check-login-status/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+// /app/api/auth/check-login-status/route.ts - 增强版
 import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   try {
-    const { isLoginPage = false, redirectPath = '/lobby' } = await request.json();
     const cookieStore = cookies();
-    
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -29,25 +27,31 @@ export async function POST(request: NextRequest) {
       }
     );
     
-    const { data: { user }, error } = await supabase.auth.getUser();
+    // 获取请求参数
+    const { isLoginPage = false, redirectPath = '/' } = await request.json();
     
-    if (error || !user) {
-      return NextResponse.json({ loggedIn: false });
+    // 验证用户
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError || !user) {
+      return NextResponse.json({ 
+        loggedIn: false, 
+        error: '用户未登录'
+      }, { status: 401 });
     }
     
-    // 🔥 这里模拟调用 getUserData 的逻辑，但只在服务端进行设备ID检查
-    const deviceIdCookie = cookieStore.get('love_ludo_device_id');
-    const currentDeviceId = deviceIdCookie?.value || 'unknown';
-    
-    // 查询用户profile
+    // 查询用户资料
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('last_login_session, account_expires_at')
+      .select('account_expires_at, email, last_login_session')
       .eq('id', user.id)
       .single();
     
     if (profileError || !profile) {
-      return NextResponse.json({ loggedIn: false });
+      return NextResponse.json({ 
+        loggedIn: false, 
+        error: '用户资料不存在'
+      }, { status: 404 });
     }
     
     // 检查会员是否过期
@@ -56,6 +60,7 @@ export async function POST(request: NextRequest) {
       const now = new Date();
       if (expiryDate < now) {
         // 会员过期，重定向到过期页面
+        console.log(`🔴 会员已过期: ${user.email}, 过期时间: ${expiryDate}`);
         return NextResponse.redirect(new URL('/account-expired', request.url));
       }
     }
@@ -64,6 +69,10 @@ export async function POST(request: NextRequest) {
     if (profile.last_login_session) {
       const parts = profile.last_login_session.split('_');
       const storedDeviceId = parts.length >= 4 ? (parts[2] === 'dev' && parts.length > 4 ? parts.slice(2, parts.length - 1).join('_') : parts[2]) : 'unknown';
+      
+      // 获取当前设备ID
+      const deviceIdCookie = cookieStore.get('love_ludo_device_id');
+      const currentDeviceId = deviceIdCookie?.value || 'unknown';
       
       if (storedDeviceId !== currentDeviceId && !isLoginPage) {
         // 🔥 设备ID不匹配且不是登录页，重定向到过期页面
