@@ -1,4 +1,3 @@
-// /components/generate-tasks.tsx - 优化完整版
 "use client";
 
 import { useState, useTransition, useEffect, useMemo, useCallback } from "react";
@@ -23,6 +22,10 @@ import { bulkInsertTasks } from "@/app/themes/actions";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { debounce } from "lodash";
+
+// 🔥 新增导入：偏好编辑组件和类型
+import EditablePreferencesModal from "@/components/profile/editable-preferences-modal";
+import { UserPreferences } from "@/types/preferences";
 
 type Suggestion = { description: string; type?: string; order_index?: number };
 
@@ -88,6 +91,10 @@ export default function GenerateTasksSection({
   const [preferences, setPreferences] = useState<{ gender?: string; kinks?: string[] }>({});
   const [mounted, setMounted] = useState(false);
   
+  // 🔥 新增状态：偏好编辑相关
+  const [showPreferencesModal, setShowPreferencesModal] = useState(false);
+  const [userPreferences, setUserPreferences] = useState<UserPreferences>(preferences || {});
+  
   // 🔥 使用Memo化的使用统计状态
   const [usageStats, setUsageStats] = useState<UsageStats>({
     daily: { used: 0, remaining: 1, limit: 1 },
@@ -142,6 +149,20 @@ export default function GenerateTasksSection({
     };
   }, [usageStats]);
 
+  // 🔥 新增：用户偏好计算的Memo
+  const { genderText, kinksText, hasGender, hasKinks, preferencesEmpty } = useMemo(() => {
+    const genderText = userPreferences.gender === "male" ? "男性" : 
+                      userPreferences.gender === "female" ? "女性" : 
+                      userPreferences.gender === "non_binary" ? "非二元" : "未设置";
+    const kinksText = (userPreferences.kinks && userPreferences.kinks.length > 0) ? 
+                      userPreferences.kinks.join("、") : "未设置";
+    const hasGender = !!userPreferences.gender;
+    const hasKinks = Array.isArray(userPreferences.kinks) && userPreferences.kinks.length > 0;
+    const preferencesEmpty = !hasGender || !hasKinks;
+    
+    return { genderText, kinksText, hasGender, hasKinks, preferencesEmpty };
+  }, [userPreferences]);
+
   // 🔥 优化：减少useEffect依赖
   useEffect(() => {
     setMounted(true);
@@ -161,7 +182,9 @@ export default function GenerateTasksSection({
             .eq("id", user.id)
             .maybeSingle();
           if (profile?.preferences) {
-            setPreferences(profile.preferences as any);
+            const pref = profile.preferences as any;
+            setPreferences(pref);
+            setUserPreferences(pref);
           }
         }
       } catch (error) {
@@ -307,7 +330,7 @@ export default function GenerateTasksSection({
         body: JSON.stringify({
           title: themeTitle,
           description: themeDescription ?? "",
-          preferences,
+          preferences: userPreferences, // 🔥 使用 userPreferences 而不是 preferences
           customRequirement,
         }),
       });
@@ -365,7 +388,7 @@ export default function GenerateTasksSection({
     } finally {
       setLoading(false);
     }
-  }, [themeTitle, themeDescription, preferences, customRequirement]);
+  }, [themeTitle, themeDescription, userPreferences, customRequirement]);
 
   const handleRedeem = useCallback(async () => {
     if (!redeemKeyCode.trim()) {
@@ -467,21 +490,16 @@ export default function GenerateTasksSection({
     });
   }, [suggestions, selected, themeId, closeModal]);
 
-  // 🔥 优化：性别和兴趣标签的Memo化计算
-  const { genderText, kinksText, hasGender, hasKinks, preferencesEmpty } = useMemo(() => {
-    const genderText = preferences.gender === "male" ? "男性" : 
-                      preferences.gender === "female" ? "女性" : 
-                      preferences.gender === "non_binary" ? "非二元" : "未设置";
-    const kinksText = (preferences.kinks && preferences.kinks.length > 0) ? 
-                      preferences.kinks.join("、") : "未设置";
-    const hasGender = !!preferences.gender;
-    const hasKinks = Array.isArray(preferences.kinks) && preferences.kinks.length > 0;
-    const preferencesEmpty = !hasGender || !hasKinks;
-    
-    return { genderText, kinksText, hasGender, hasKinks, preferencesEmpty };
-  }, [preferences]);
+  // 🔥 偏好保存回调函数
+  const handlePreferencesSaved = useCallback((newPrefs: UserPreferences) => {
+    setUserPreferences(newPrefs);
+    setPreferences(newPrefs);
+    devLog('✅ 偏好已更新:', newPrefs);
+    // 可以在这里添加提示或重新生成AI建议
+    // 例如：toast.success('偏好设置已更新');
+  }, []);
 
-  // 🔥 优化：使用统计组件 - 已替换为新版本
+  // 🔥 使用统计组件 - 已替换为新版本
   const renderUsageStats = useMemo(() => (
     <div className="mb-4 glass backdrop-blur-lg bg-gradient-to-br from-white/10 to-purple-500/10 rounded-2xl p-4 border border-white/20 shadow-lg">
       {/* 标题区域 */}
@@ -703,12 +721,21 @@ export default function GenerateTasksSection({
               )}
             </div>
 
+            {/* 🔥 修改后的偏好显示部分 - 添加编辑按钮 */}
             <div className="glass bg-gradient-to-r from-gray-900/50 to-pink-900/30 rounded-xl p-4 border border-white/10">
-              <div className="flex items-center space-x-2 mb-2">
-                <div className="p-2 bg-gradient-to-br from-pink-500 to-pink-600 rounded-lg">
-                  <Sparkles className="w-4 h-4 text-white" />
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center space-x-2">
+                  <div className="p-2 bg-gradient-to-br from-pink-500 to-pink-600 rounded-lg">
+                    <Sparkles className="w-4 h-4 text-white" />
+                  </div>
+                  <p className="text-sm font-semibold">个人偏好</p>
                 </div>
-                <p className="text-sm font-semibold">个人偏好</p>
+                <button
+                  onClick={() => setShowPreferencesModal(true)}
+                  className="text-xs text-brand-pink hover:text-pink-300 transition-colors px-2 py-1 hover:bg-white/5 rounded"
+                >
+                  编辑
+                </button>
               </div>
               <div className="text-sm space-y-2">
                 <div className="flex items-center space-x-2">
@@ -717,11 +744,11 @@ export default function GenerateTasksSection({
                 </div>
                 <div className="flex items-start space-x-2">
                   <span className="text-gray-400 min-w-12">兴趣标签:</span>
-                  <div className="flex flex-wrap gap-1">
-                    {kinksText === "未设置" ? (
-                      <span className="px-2 py-1 bg-white/10 rounded text-gray-200">{kinksText}</span>
+                  <div className="flex flex-wrap gap-1 flex-1">
+                    {(!userPreferences.kinks || userPreferences.kinks.length === 0) ? (
+                      <span className="px-2 py-1 bg-white/10 rounded text-gray-200">未设置</span>
                     ) : (
-                      kinksText.split('、').map((kink, index) => (
+                      userPreferences.kinks.map((kink, index) => (
                         <span 
                           key={index}
                           className="px-2 py-1 bg-gradient-to-r from-brand-pink/20 to-purple-500/20 rounded text-brand-pink border border-brand-pink/30 text-xs"
@@ -908,7 +935,7 @@ export default function GenerateTasksSection({
         </div>
       </>
     );
-  }, [suggestions, selected, error, loading, isPending, themeTitle, themeDescription, genderText, kinksText, preferencesEmpty, mounted, renderUsageStats, closeModal, generate, toggle, selectAll, deselectAll, saveSelected]);
+  }, [suggestions, selected, error, loading, isPending, themeTitle, themeDescription, genderText, userPreferences, kinksText, preferencesEmpty, mounted, renderUsageStats, closeModal, generate, toggle, selectAll, deselectAll, saveSelected]);
 
   return (
     <>
@@ -1119,6 +1146,20 @@ export default function GenerateTasksSection({
             </div>
           </div>
         </div>,
+        document.body
+      )}
+
+      {/* 🔥 新增：偏好编辑模态框 */}
+      {showPreferencesModal && mounted && createPortal(
+        <EditablePreferencesModal
+          open={showPreferencesModal}
+          onClose={() => setShowPreferencesModal(false)}
+          initialPreferences={{
+            gender: userPreferences.gender,
+            kinks: userPreferences.kinks || []
+          }}
+          onSaved={handlePreferencesSaved}
+        />,
         document.body
       )}
     </>
