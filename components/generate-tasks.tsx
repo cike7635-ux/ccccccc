@@ -481,9 +481,10 @@ export default function GenerateTasksSection({
     return { genderText, kinksText, hasGender, hasKinks, preferencesEmpty };
   }, [preferences]);
 
-  // 🔥 优化：使用统计组件
+  // 🔥 优化：使用统计组件 - 已替换为新版本
   const renderUsageStats = useMemo(() => (
     <div className="mb-4 glass backdrop-blur-lg bg-gradient-to-br from-white/10 to-purple-500/10 rounded-2xl p-4 border border-white/20 shadow-lg">
+      {/* 标题区域 */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-2">
           <div className="p-2 bg-gradient-to-br from-brand-pink to-purple-600 rounded-lg">
@@ -508,133 +509,175 @@ export default function GenerateTasksSection({
         </button>
       </div>
       
-      <div className="grid grid-cols-2 gap-4 mb-3">
-        {/* 今日使用 */}
+      {/* 🔥 响应式网格布局：手机上垂直排列，平板上水平排列 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+        {/* 今日使用统计 */}
         <div className="glass bg-white/5 rounded-xl p-3 border border-white/10">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center space-x-1">
-              <Clock className="w-3 h-3 text-blue-400" />
-              <span className="text-xs font-medium text-gray-300">今日</span>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-2">
+              <Clock className="w-4 h-4 text-blue-400" />
+              <div>
+                <div className="text-xs font-medium text-gray-300">今日使用</div>
+                {/* 🔥 移动端优化：限制/已用显示在一行 */}
+                <div className="text-xs text-gray-400">
+                  {usageStats.daily.used}/{dailyLimit}次
+                </div>
+              </div>
             </div>
-            <div className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            <div className={`px-2 py-1 rounded-full text-xs font-bold ${
               isOverDailyLimit ? 'bg-red-500/20 text-red-300' :
               isNearDailyLimit ? 'bg-yellow-500/20 text-yellow-300' : 
               'bg-blue-500/20 text-blue-300'
             }`}>
-              {dailyRemaining}/{dailyLimit}
+              {dailyRemaining}次剩余
             </div>
           </div>
-          <div className="relative pt-1">
-            <div className="flex mb-2 items-center justify-between">
-              <div>
-                <span className="text-xs font-semibold inline-block text-white">
-                  {Math.round(dailyPercentage)}%
-                </span>
-              </div>
+          
+          {/* 🔥 进度条区域 */}
+          <div className="space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-medium text-gray-300">进度</span>
+              <span className="text-xs font-semibold text-white">
+                {Math.round(dailyPercentage)}%
+              </span>
             </div>
-            <div className="overflow-hidden h-2 mb-1 text-xs flex rounded-full bg-gray-700">
+            <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
               <div 
                 style={{ width: `${dailyPercentage}%` }}
-                className={`shadow-none flex flex-col text-center whitespace-nowrap justify-center progress-bar-optimized ${
+                className={`h-full progress-bar-optimized ${
                   isOverDailyLimit ? 'bg-gradient-to-r from-red-500 to-red-400' :
                   isNearDailyLimit ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
                   'bg-gradient-to-r from-blue-500 to-blue-400'
                 }`}
               />
             </div>
-          </div>
-          <div className="text-xs text-gray-400 flex justify-between">
-            <span>已用: {usageStats.daily.used}次</span>
-            <span>剩余: {dailyRemaining}次</span>
+            
+            {/* 🔥 移动端优化：更紧凑的统计信息 */}
+            <div className="grid grid-cols-2 gap-1 text-xs pt-1">
+              <div className="text-gray-400">已用</div>
+              <div className="text-right text-white">{usageStats.daily.used}次</div>
+              <div className="text-gray-400">剩余</div>
+              <div className={`text-right font-medium ${
+                dailyRemaining <= 2 ? 'text-yellow-400' : 'text-green-400'
+              }`}>
+                {dailyRemaining}次
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* 周期使用 */}
+        {/* 周期使用统计 */}
         <div className="glass bg-white/5 rounded-xl p-3 border border-white/10">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center space-x-1">
-              <CalendarDays className="w-3 h-3 text-purple-400" />
-              <span className="text-xs font-medium text-gray-300">周期</span>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-2">
+              <CalendarDays className="w-4 h-4 text-purple-400" />
+              <div>
+                <div className="text-xs font-medium text-gray-300">周期使用</div>
+                <div className="text-xs text-gray-400">
+                  {usageStats.cycle.used}/{cycleLimit}次
+                </div>
+              </div>
             </div>
-            <div className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            <div className={`px-2 py-1 rounded-full text-xs font-bold ${
               isOverCycleLimit ? 'bg-red-500/20 text-red-300' :
               isNearCycleLimit ? 'bg-yellow-500/20 text-yellow-300' : 
               'bg-purple-500/20 text-purple-300'
             }`}>
-              {cycleRemaining}/{cycleLimit}
+              {cycleRemaining}次剩余
             </div>
           </div>
-          <div className="relative pt-1">
-            <div className="flex mb-2 items-center justify-between">
-              <div>
-                <span className="text-xs font-semibold inline-block text-white">
-                  {Math.round(cyclePercentage)}%
-                </span>
-              </div>
+          
+          <div className="space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-medium text-gray-300">进度</span>
+              <span className="text-xs font-semibold text-white">
+                {Math.round(cyclePercentage)}%
+              </span>
             </div>
-            <div className="overflow-hidden h-2 mb-1 text-xs flex rounded-full bg-gray-700">
+            <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
               <div 
                 style={{ width: `${cyclePercentage}%` }}
-                className={`shadow-none flex flex-col text-center whitespace-nowrap justify-center progress-bar-optimized ${
+                className={`h-full progress-bar-optimized ${
                   isOverCycleLimit ? 'bg-gradient-to-r from-red-500 to-red-400' :
                   isNearCycleLimit ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
                   'bg-gradient-to-r from-purple-500 to-purple-400'
                 }`}
               />
             </div>
-          </div>
-          <div className="text-xs text-gray-400 flex justify-between">
-            <span>已用: {usageStats.cycle.used}次</span>
-            <span>剩余: {cycleRemaining}次</span>
+            
+            <div className="grid grid-cols-2 gap-1 text-xs pt-1">
+              <div className="text-gray-400">已用</div>
+              <div className="text-right text-white">{usageStats.cycle.used}次</div>
+              <div className="text-gray-400">剩余</div>
+              <div className={`text-right font-medium ${
+                cycleRemaining <= 10 ? 'text-yellow-400' : 'text-green-400'
+              }`}>
+                {cycleRemaining}次
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 周期信息 */}
+      {/* 周期信息卡片（移动端优化） */}
       <div className="glass bg-gradient-to-r from-gray-900/50 to-purple-900/30 rounded-xl p-3 border border-white/10">
-        <div className="flex items-center space-x-2 mb-1">
-          <Clock className="w-3 h-3 text-green-400" />
-          <span className="text-xs font-medium text-gray-300">周期信息</span>
+        <div className="flex items-center space-x-2 mb-2">
+          <Clock className="w-4 h-4 text-green-400" />
+          <div>
+            <span className="text-xs font-medium text-gray-300">周期信息</span>
+            <div className="text-xs text-gray-400">
+              {new Date(usageStats.cycleInfo.startDate).toLocaleDateString('zh-CN')} - 
+              {new Date(usageStats.cycleInfo.endDate).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+            </div>
+          </div>
         </div>
-        <div className="text-xs space-y-1">
-          <div className="flex justify-between">
-            <span className="text-gray-400">剩余天数:</span>
-            <span className={`font-bold ${
+        
+        <div className="flex justify-between items-center">
+          <div className="text-xs">
+            <div className="text-gray-400">剩余天数</div>
+            <div className={`text-lg font-bold ${
               usageStats.cycleInfo.daysRemaining <= 5 ? 'text-yellow-400' :
               usageStats.cycleInfo.daysRemaining <= 10 ? 'text-orange-400' : 'text-green-400'
             }`}>
-              {usageStats.cycleInfo.daysRemaining}天
-            </span>
+              {usageStats.cycleInfo.daysRemaining}
+            </div>
           </div>
-          <div className="flex justify-between">
-            <span className="text-gray-400">结束时间:</span>
-            <span className="text-gray-300">
+          <div className="text-xs text-right">
+            <div className="text-gray-400">结束时间</div>
+            <div className="text-gray-300 font-medium">
               {new Date(usageStats.cycleInfo.endDate).toLocaleDateString('zh-CN', {
                 month: 'short',
                 day: 'numeric'
               })}
-            </span>
+            </div>
           </div>
         </div>
       </div>
 
       {/* 警告提示 */}
       {(isNearDailyLimit || isNearCycleLimit) && (
-        <div className={`mt-3 p-2 rounded-lg flex items-center space-x-2 ${
+        <div className={`mt-3 p-3 rounded-lg flex items-start space-x-2 ${
           isOverDailyLimit || isOverCycleLimit ? 
           'bg-gradient-to-r from-red-900/30 to-red-800/20 border border-red-500/20' :
           'bg-gradient-to-r from-yellow-900/30 to-yellow-800/20 border border-yellow-500/20'
         }`}>
-          <AlertTriangle className={`w-4 h-4 ${
+          <AlertTriangle className={`w-4 h-4 mt-0.5 ${
             isOverDailyLimit || isOverCycleLimit ? 'text-red-400' : 'text-yellow-400'
           }`} />
-          <p className={`text-xs ${
-            isOverDailyLimit || isOverCycleLimit ? 'text-red-300' : 'text-yellow-300'
-          }`}>
-            {isOverDailyLimit ? '今日次数已用完' : 
-             isOverCycleLimit ? '周期次数已用完' :
-             isNearDailyLimit ? '今日剩余次数较少，请合理安排使用' : '周期剩余次数较少'}
-          </p>
+          <div className="flex-1">
+            <p className={`text-xs ${
+              isOverDailyLimit || isOverCycleLimit ? 'text-red-300' : 'text-yellow-300'
+            }`}>
+              {isOverDailyLimit ? '今日次数已用完' : 
+               isOverCycleLimit ? '周期次数已用完' :
+               isNearDailyLimit ? `今日仅剩${dailyRemaining}次` : `周期仅剩${cycleRemaining}次`}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              {isOverDailyLimit ? '请兑换AI密钥或等待24小时' :
+               isOverCycleLimit ? '请兑换AI密钥或等待周期重置' :
+               isNearDailyLimit ? '请合理安排使用或兑换更多次数' : '请合理安排使用'}
+            </p>
+          </div>
         </div>
       )}
     </div>
