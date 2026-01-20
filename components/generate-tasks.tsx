@@ -1,7 +1,7 @@
-// /components/generate-tasks.tsx
+// /components/generate-tasks.tsx - 优化完整版
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition, useEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ import {
 import { bulkInsertTasks } from "@/app/themes/actions";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
+import { debounce } from "lodash";
 
 type Suggestion = { description: string; type?: string; order_index?: number };
 
@@ -48,6 +49,23 @@ interface AIGenerateResponse {
   usage: UsageStats;
 }
 
+// 🔥 性能监控：只在开发环境记录
+const devLog = (message: string, data?: any) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(message, data || '');
+  }
+};
+
+const devWarn = (message: string, data?: any) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.warn(message, data || '');
+  }
+};
+
+const devError = (message: string, data?: any) => {
+  console.error(message, data || '');
+};
+
 export default function GenerateTasksSection({ 
   themeId, 
   themeTitle, 
@@ -59,6 +77,7 @@ export default function GenerateTasksSection({
   themeDescription?: string | null; 
   inline?: boolean 
 }) {
+  // 🔥 优化：减少初始状态变量
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,26 +88,18 @@ export default function GenerateTasksSection({
   const [preferences, setPreferences] = useState<{ gender?: string; kinks?: string[] }>({});
   const [mounted, setMounted] = useState(false);
   
-  // 🔥 修复：设置合理的初始状态，避免初始显示"已用完"
+  // 🔥 使用Memo化的使用统计状态
   const [usageStats, setUsageStats] = useState<UsageStats>({
-    daily: {
-      used: 0,
-      remaining: 1,  // 🔥 改为1，避免初始显示"已用完"
-      limit: 1       // 🔥 改为1，与API默认值一致
-    },
-    cycle: {
-      used: 0,
-      remaining: 100, // 🔥 改为100
-      limit: 100      // 🔥 改为100
-    },
+    daily: { used: 0, remaining: 1, limit: 1 },
+    cycle: { used: 0, remaining: 100, limit: 100 },
     cycleInfo: {
       startDate: new Date().toISOString(),
       endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       daysRemaining: 30
     }
   });
+  
   const [loadingStats, setLoadingStats] = useState(false);
-
   const [showRedeemModal, setShowRedeemModal] = useState(false);
   const [redeemKeyCode, setRedeemKeyCode] = useState('');
   const [redeemLoading, setRedeemLoading] = useState(false);
@@ -99,47 +110,48 @@ export default function GenerateTasksSection({
   } | null>(null);
   const [redeemUsageInfo, setRedeemUsageInfo] = useState<any>(null);
 
-  // 🔥 直接计算状态，不使用缓存
-  const dailyRemaining = usageStats.daily.remaining;
-  const cycleRemaining = usageStats.cycle.remaining;
-  const dailyLimit = usageStats.daily.limit;
-  const cycleLimit = usageStats.cycle.limit;
-  
-  const isOverDailyLimit = dailyRemaining <= 0;
-  const isNearDailyLimit = dailyRemaining > 0 && dailyRemaining <= 2;
-  const isOverCycleLimit = cycleRemaining <= 0;
-  const isNearCycleLimit = cycleRemaining > 0 && cycleRemaining <= 10;
-  const dailyPercentage = dailyLimit > 0 ? Math.min(100, (usageStats.daily.used / dailyLimit) * 100) : 0;
-  const cyclePercentage = cycleLimit > 0 ? Math.min(100, (usageStats.cycle.used / cycleLimit) * 100) : 0;
-
-  // 🔥 状态监控
-  useEffect(() => {
-    console.log('🔄 组件状态更新:', {
+  // 🔥 核心优化：使用useMemo缓存所有派生状态
+  const {
+    dailyRemaining,
+    cycleRemaining,
+    dailyLimit,
+    cycleLimit,
+    isOverDailyLimit,
+    isNearDailyLimit,
+    isOverCycleLimit,
+    isNearCycleLimit,
+    dailyPercentage,
+    cyclePercentage
+  } = useMemo(() => {
+    const dailyRemaining = usageStats.daily.remaining;
+    const cycleRemaining = usageStats.cycle.remaining;
+    const dailyLimit = usageStats.daily.limit;
+    const cycleLimit = usageStats.cycle.limit;
+    
+    return {
       dailyRemaining,
       cycleRemaining,
       dailyLimit,
       cycleLimit,
-      isOverDailyLimit,
-      isOverCycleLimit,
-      dailyPercentage,
-      cyclePercentage,
-      time: new Date().toISOString()
-    });
-  }, [dailyRemaining, cycleRemaining, dailyLimit, cycleLimit]);
+      isOverDailyLimit: dailyRemaining <= 0,
+      isNearDailyLimit: dailyRemaining > 0 && dailyRemaining <= 2,
+      isOverCycleLimit: cycleRemaining <= 0,
+      isNearCycleLimit: cycleRemaining > 0 && cycleRemaining <= 10,
+      dailyPercentage: dailyLimit > 0 ? Math.min(100, (usageStats.daily.used / dailyLimit) * 100) : 0,
+      cyclePercentage: cycleLimit > 0 ? Math.min(100, (usageStats.cycle.used / cycleLimit) * 100) : 0,
+    };
+  }, [usageStats]);
 
-  // 🔥 关键修复：组件挂载时自动获取使用统计
+  // 🔥 优化：减少useEffect依赖
   useEffect(() => {
     setMounted(true);
     
     const initializeData = async () => {
       try {
-        console.log('🚀 初始化组件数据...');
-        
-        // 1. 先获取使用统计（最重要！）
+        devLog('🚀 初始化组件数据...');
         await fetchUsageStats();
-        console.log('✅ 使用统计初始化完成');
+        devLog('✅ 使用统计初始化完成');
         
-        // 2. 然后获取用户偏好
         const supabase = createClient();
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
@@ -150,53 +162,29 @@ export default function GenerateTasksSection({
             .maybeSingle();
           if (profile?.preferences) {
             setPreferences(profile.preferences as any);
-            console.log('✅ 用户偏好初始化完成');
           }
         }
       } catch (error) {
-        console.error('❌ 数据初始化失败:', error);
+        devError('❌ 数据初始化失败:', error);
       }
     };
     
     initializeData();
   }, []);
 
-  // 🔥 调试函数
-  const debugButtonState = () => {
-    console.log('🔍 按钮状态调试:');
-    console.log('dailyRemaining:', dailyRemaining);
-    console.log('dailyLimit:', dailyLimit);
-    console.log('isOverDailyLimit:', isOverDailyLimit);
-    console.log('按钮应显示:', isOverDailyLimit ? '兑换AI次数' : '开始生成');
-    console.log('API是否已调用:', loadingStats ? '加载中...' : '已完成');
-  };
-
-  // 调试监控
-  useEffect(() => {
-    debugButtonState();
-  }, [dailyRemaining, loadingStats]);
-
-  // 🔥 关键修复：fetchUsageStats 函数 - 直接使用API返回的limit
-  const fetchUsageStats = async () => {
-    console.log('📡 开始获取使用统计...');
+  // 🔥 优化：使用useCallback缓存函数
+  const fetchUsageStats = useCallback(async () => {
+    devLog('📡 开始获取使用统计...');
     setLoadingStats(true);
     try {
       const res = await fetch("/api/ai/usage-stats");
-      console.log('📡 获取使用统计，状态:', res.status);
+      devLog('📡 获取使用统计，状态:', res.status);
       
       if (res.ok) {
         const data = await res.json();
-        console.log('📊 API返回数据（原始）:', data);
         
-        // 🔥 直接使用 API 返回的 limit，不使用 getLimit 函数
         const dailyLimit = data.daily?.limit || 1;
         const cycleLimit = data.cycle?.limit || 100;
-        
-        console.log('🎯 直接获取的限制值:', {
-          dailyLimit,
-          cycleLimit,
-          来源: 'data.daily?.limit'
-        });
         
         const normalizedData = {
           daily: {
@@ -217,23 +205,15 @@ export default function GenerateTasksSection({
           _raw: data
         };
         
-        console.log('🔄 标准化后的数据:', normalizedData);
+        devLog('🔄 标准化后的数据:', normalizedData);
         setUsageStats(normalizedData);
         return normalizedData;
         
       } else {
-        console.warn("AI使用统计API不可用，使用默认值 1/100");
+        devWarn("AI使用统计API不可用，使用默认值 1/100");
         const fallbackData = {
-          daily: {
-            used: 0,
-            remaining: 1,
-            limit: 1
-          },
-          cycle: {
-            used: 0,
-            remaining: 100,
-            limit: 100
-          },
+          daily: { used: 0, remaining: 1, limit: 1 },
+          cycle: { used: 0, remaining: 100, limit: 100 },
           cycleInfo: {
             startDate: new Date().toISOString(),
             endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -244,18 +224,10 @@ export default function GenerateTasksSection({
         return fallbackData;
       }
     } catch (error) {
-      console.error("获取使用统计失败:", error);
+      devError("获取使用统计失败:", error);
       const fallbackData = {
-        daily: {
-          used: 0,
-          remaining: 1,
-          limit: 1
-        },
-        cycle: {
-          used: 0,
-          remaining: 100,
-          limit: 100
-        },
+        daily: { used: 0, remaining: 1, limit: 1 },
+        cycle: { used: 0, remaining: 100, limit: 100 },
         cycleInfo: {
           startDate: new Date().toISOString(),
           endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -266,32 +238,38 @@ export default function GenerateTasksSection({
       return fallbackData;
     } finally {
       setLoadingStats(false);
-      console.log('✅ 使用统计获取完成');
+      devLog('✅ 使用统计获取完成');
     }
-  };
+  }, []);
 
-  const openModal = async () => {
-    console.log('🔄 开始加载使用统计...');
-    debugButtonState();
+  // 🔥 使用防抖优化兑换输入
+  const debouncedRedeem = useCallback(
+    debounce((keyCode: string) => {
+      if (keyCode.trim() && showRedeemModal) {
+        handleRedeem();
+      }
+    }, 300),
+    [showRedeemModal]
+  );
+
+  const openModal = useCallback(async () => {
+    devLog('🔄 开始加载使用统计...');
     
-    // 🔥 关键修复：先重新获取最新数据
     const stats = await fetchUsageStats();
-    console.log('✅ 使用统计加载完成:', stats);
+    devLog('✅ 使用统计加载完成:', stats);
     
     const isOverDailyLimit = stats.daily.remaining <= 0;
     const isOverCycleLimit = stats.cycle.remaining <= 0;
     
-    console.log('📊 openModal检查:', {
+    devLog('📊 openModal检查:', {
       dailyRemaining: stats.daily.remaining,
       cycleRemaining: stats.cycle.remaining,
-      dailyLimit: stats.daily.limit,
-      cycleLimit: stats.cycle.limit,
       isOverDailyLimit,
       isOverCycleLimit
     });
     
     if (isOverDailyLimit || isOverCycleLimit) {
-      console.log('🚨 使用次数用完，显示兑换弹窗');
+      devLog('🚨 使用次数用完，显示兑换弹窗');
       setShowRedeemModal(true);
       setRedeemUsageInfo({
         daily: {
@@ -310,16 +288,15 @@ export default function GenerateTasksSection({
     setError(null);
     setSuggestions([]);
     setSelected({});
-  };
+  }, [fetchUsageStats]);
 
-  const closeModal = () => {
+  const closeModal = useCallback(() => {
     setShowModal(false);
     setCustomRequirement("");
-  };
+  }, []);
 
-  const generate = async () => {
-    console.log('📱 前端generate函数被调用');
-    console.log('✅ 次数未用完，继续调用API');
+  const generate = useCallback(async () => {
+    devLog('📱 前端generate函数被调用');
     
     setLoading(true);
     setError(null);
@@ -340,7 +317,7 @@ export default function GenerateTasksSection({
       if (!res.ok) {
         if (res.status === 429) {
           if (json.errorType === 'INSUFFICIENT_AI_USAGE') {
-            console.log('🚨 API返回次数不足错误，显示兑换弹窗');
+            devLog('🚨 API返回次数不足错误，显示兑换弹窗');
             setShowRedeemModal(true);
             setRedeemUsageInfo(json.usage || {});
             setError(null);
@@ -349,7 +326,6 @@ export default function GenerateTasksSection({
           
           setError(json?.error || "使用次数已用完");
           if (json.details) {
-            // 更新使用统计
             const dailyLimit = json.details.daily?.limit || 1;
             const cycleLimit = json.details.cycle?.limit || 100;
             
@@ -389,10 +365,9 @@ export default function GenerateTasksSection({
     } finally {
       setLoading(false);
     }
-  };
+  }, [themeTitle, themeDescription, preferences, customRequirement]);
 
-  // 🔥 新增：兑换函数
-  const handleRedeem = async () => {
+  const handleRedeem = useCallback(async () => {
     if (!redeemKeyCode.trim()) {
       setRedeemResult({ success: false, message: '请输入AI密钥' });
       return;
@@ -402,7 +377,7 @@ export default function GenerateTasksSection({
     setRedeemResult(null);
 
     try {
-      console.log('🔑 兑换密钥:', redeemKeyCode);
+      devLog('🔑 兑换密钥:', redeemKeyCode);
       const response = await fetch('/api/admin/ai-keys/redeem', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -410,7 +385,6 @@ export default function GenerateTasksSection({
       });
 
       const data = await response.json();
-      console.log('🎯 兑换API响应:', data);
       
       if (!response.ok) {
         throw new Error(data.error || '兑换失败');
@@ -422,9 +396,9 @@ export default function GenerateTasksSection({
         data: data.data
       });
 
-      console.log('🔄 立即刷新使用统计...');
+      devLog('🔄 立即刷新使用统计...');
       await fetchUsageStats();
-      console.log('✅ 使用统计刷新完成');
+      devLog('✅ 使用统计刷新完成');
       
       setRedeemKeyCode('');
       
@@ -435,7 +409,7 @@ export default function GenerateTasksSection({
       }, 3000);
 
     } catch (error: any) {
-      console.error('❌ 兑换失败:', error);
+      devError('❌ 兑换失败:', error);
       setRedeemResult({ 
         success: false, 
         message: error.message || '兑换失败，请检查密钥是否正确' 
@@ -443,21 +417,21 @@ export default function GenerateTasksSection({
     } finally {
       setRedeemLoading(false);
     }
-  };
+  }, [redeemKeyCode, fetchUsageStats]);
 
-  const toggle = (idx: number) => {
-    setSelected((prev) => ({ ...prev, [idx]: !prev[idx] }));
-  };
+  const toggle = useCallback((idx: number) => {
+    setSelected(prev => ({ ...prev, [idx]: !prev[idx] }));
+  }, []);
 
-  const selectAll = () => {
+  const selectAll = useCallback(() => {
     setSelected(Object.fromEntries(suggestions.map((_, i) => [i, true])));
-  };
+  }, [suggestions]);
 
-  const deselectAll = () => {
+  const deselectAll = useCallback(() => {
     setSelected({});
-  };
+  }, []);
 
-  const saveSelected = async () => {
+  const saveSelected = useCallback(async () => {
     const tasks = suggestions
       .map((t, i) => ({ 
         description: t.description, 
@@ -491,30 +465,24 @@ export default function GenerateTasksSection({
         setError(err.message || "保存失败");
       }
     });
-  };
+  }, [suggestions, selected, themeId, closeModal]);
 
-  const genderText = preferences.gender === "male" ? "男性" : 
-                    preferences.gender === "female" ? "女性" : 
-                    preferences.gender === "non_binary" ? "非二元" : "未设置";
-  const kinksText = (preferences.kinks && preferences.kinks.length > 0) ? 
-                    preferences.kinks.join("、") : "未设置";
-  const hasGender = !!preferences.gender;
-  const hasKinks = Array.isArray(preferences.kinks) && preferences.kinks.length > 0;
-  const preferencesEmpty = !hasGender || !hasKinks;
+  // 🔥 优化：性别和兴趣标签的Memo化计算
+  const { genderText, kinksText, hasGender, hasKinks, preferencesEmpty } = useMemo(() => {
+    const genderText = preferences.gender === "male" ? "男性" : 
+                      preferences.gender === "female" ? "女性" : 
+                      preferences.gender === "non_binary" ? "非二元" : "未设置";
+    const kinksText = (preferences.kinks && preferences.kinks.length > 0) ? 
+                      preferences.kinks.join("、") : "未设置";
+    const hasGender = !!preferences.gender;
+    const hasKinks = Array.isArray(preferences.kinks) && preferences.kinks.length > 0;
+    const preferencesEmpty = !hasGender || !hasKinks;
+    
+    return { genderText, kinksText, hasGender, hasKinks, preferencesEmpty };
+  }, [preferences]);
 
-  console.log('🔄 组件渲染，使用统计:', {
-    dailyRemaining,
-    cycleRemaining,
-    dailyLimit,
-    cycleLimit,
-    isOverDailyLimit,
-    isOverCycleLimit,
-    dailyPercentage,
-    cyclePercentage
-  });
-
-  // 🔥 精美使用统计组件
-  const renderUsageStats = () => (
+  // 🔥 优化：使用统计组件
+  const renderUsageStats = useMemo(() => (
     <div className="mb-4 glass backdrop-blur-lg bg-gradient-to-br from-white/10 to-purple-500/10 rounded-2xl p-4 border border-white/20 shadow-lg">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-2">
@@ -529,7 +497,7 @@ export default function GenerateTasksSection({
         <button
           onClick={fetchUsageStats}
           disabled={loadingStats}
-          className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 group"
+          className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 group button-press-optimized"
           title="刷新统计"
         >
           {loadingStats ? (
@@ -567,7 +535,7 @@ export default function GenerateTasksSection({
             <div className="overflow-hidden h-2 mb-1 text-xs flex rounded-full bg-gray-700">
               <div 
                 style={{ width: `${dailyPercentage}%` }}
-                className={`shadow-none flex flex-col text-center whitespace-nowrap justify-center transition-all duration-500 ${
+                className={`shadow-none flex flex-col text-center whitespace-nowrap justify-center progress-bar-optimized ${
                   isOverDailyLimit ? 'bg-gradient-to-r from-red-500 to-red-400' :
                   isNearDailyLimit ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
                   'bg-gradient-to-r from-blue-500 to-blue-400'
@@ -607,7 +575,7 @@ export default function GenerateTasksSection({
             <div className="overflow-hidden h-2 mb-1 text-xs flex rounded-full bg-gray-700">
               <div 
                 style={{ width: `${cyclePercentage}%` }}
-                className={`shadow-none flex flex-col text-center whitespace-nowrap justify-center transition-all duration-500 ${
+                className={`shadow-none flex flex-col text-center whitespace-nowrap justify-center progress-bar-optimized ${
                   isOverCycleLimit ? 'bg-gradient-to-r from-red-500 to-red-400' :
                   isNearCycleLimit ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
                   'bg-gradient-to-r from-purple-500 to-purple-400'
@@ -670,13 +638,13 @@ export default function GenerateTasksSection({
         </div>
       )}
     </div>
-  );
+  ), [usageStats, loadingStats, fetchUsageStats, dailyRemaining, cycleRemaining, dailyLimit, cycleLimit, isOverDailyLimit, isNearDailyLimit, isOverCycleLimit, isNearCycleLimit, dailyPercentage, cyclePercentage]);
 
-  const renderModalContent = () => {
+  const renderModalContent = useCallback(() => {
     if (suggestions.length === 0) {
       return (
         <>
-          {renderUsageStats()}
+          {renderUsageStats}
           
           <div className="space-y-4 mb-6">
             <div className="glass bg-gradient-to-r from-gray-900/50 to-blue-900/30 rounded-xl p-4 border border-white/10">
@@ -768,14 +736,14 @@ export default function GenerateTasksSection({
             <Button
               onClick={closeModal}
               variant="outline"
-              className="flex-1 border-white/20 hover:bg-white/10 hover:text-white transition-all"
+              className="flex-1 border-white/20 hover:bg-white/10 hover:text-white transition-all button-press-optimized"
             >
               取消
             </Button>
             <Button
               onClick={generate}
               disabled={loading}
-              className="flex-1 gradient-primary glow-pink hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 flex items-center justify-center space-x-2"
+              className="flex-1 gradient-primary glow-pink-optimized hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 flex items-center justify-center space-x-2 button-press-optimized"
             >
               {loading ? (
                 <>
@@ -811,7 +779,7 @@ export default function GenerateTasksSection({
                 onClick={selectAll}
                 size="sm"
                 variant="outline"
-                className="border-white/20 hover:bg-white/10 hover:text-white transition-all"
+                className="border-white/20 hover:bg-white/10 hover:text-white transition-all button-press-optimized"
               >
                 全选
               </Button>
@@ -819,18 +787,18 @@ export default function GenerateTasksSection({
                 onClick={deselectAll}
                 size="sm"
                 variant="outline"
-                className="border-white/20 hover:bg-white/10 hover:text-white transition-all"
+                className="border-white/20 hover:bg-white/10 hover:text-white transition-all button-press-optimized"
               >
                 取消全选
               </Button>
             </div>
           </div>
 
-          <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+          <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1 modal-touch-scroll">
             {suggestions.map((s, idx) => (
               <label
                 key={idx}
-                className={`flex items-start space-x-3 glass rounded-xl p-4 border transition-all duration-200 cursor-pointer transform hover:scale-[1.01] ${
+                className={`flex items-start space-x-3 glass rounded-xl p-4 border transition-all duration-200 cursor-pointer task-item-optimized ${
                   selected[idx]
                     ? "bg-gradient-to-r from-brand-pink/20 to-purple-500/20 border-brand-pink/40 shadow-lg shadow-brand-pink/10"
                     : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
@@ -840,7 +808,7 @@ export default function GenerateTasksSection({
                   <Checkbox
                     checked={!!selected[idx]}
                     onCheckedChange={() => toggle(idx)}
-                    className={`${
+                    className={`checkbox-checked-optimized ${
                       selected[idx] 
                         ? "border-brand-pink bg-brand-pink text-white" 
                         : "border-white/30"
@@ -876,14 +844,14 @@ export default function GenerateTasksSection({
           <Button
             onClick={closeModal}
             variant="outline"
-            className="flex-1 border-white/20 hover:bg-white/10 hover:text-white transition-all"
+            className="flex-1 border-white/20 hover:bg-white/10 hover:text-white transition-all button-press-optimized"
           >
             取消
           </Button>
           <Button
             onClick={saveSelected}
             disabled={isPending || Object.values(selected).filter(Boolean).length === 0}
-            className="flex-1 gradient-primary glow-pink hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 flex items-center justify-center space-x-2"
+            className="flex-1 gradient-primary glow-pink-optimized hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 flex items-center justify-center space-x-2 button-press-optimized"
           >
             {isPending ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -897,7 +865,7 @@ export default function GenerateTasksSection({
         </div>
       </>
     );
-  };
+  }, [suggestions, selected, error, loading, isPending, themeTitle, themeDescription, genderText, kinksText, preferencesEmpty, mounted, renderUsageStats, closeModal, generate, toggle, selectAll, deselectAll, saveSelected]);
 
   return (
     <>
@@ -905,9 +873,8 @@ export default function GenerateTasksSection({
         <Button
           type="button"
           onClick={openModal}
-          className="gradient-primary glow-pink text-white flex items-center space-x-2 hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300"
+          className="gradient-primary glow-pink-optimized text-white flex items-center space-x-2 hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 button-press-optimized"
         >
-          {/* 🔥 添加加载状态 */}
           {loadingStats ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : isOverDailyLimit ? (
@@ -947,12 +914,12 @@ export default function GenerateTasksSection({
             基于主题和个人偏好，使用专业AI模型快速生成符合情侣互动的任务列表
           </p>
           
-          {renderUsageStats()}
+          {renderUsageStats}
           
           <Button
             onClick={openModal}
-            className="w-full gradient-primary glow-pink hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 flex items-center justify-center space-x-2 group"
-            disabled={loadingStats} // 🔥 添加禁用状态
+            className="w-full gradient-primary glow-pink-optimized hover:shadow-lg hover:shadow-brand-pink/30 transition-all duration-300 flex items-center justify-center space-x-2 group button-press-optimized"
+            disabled={loadingStats}
           >
             {loadingStats ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -978,10 +945,13 @@ export default function GenerateTasksSection({
         </div>
       )}
 
+      {/* 🔥 优化后的模态框渲染 */}
       {showModal && mounted && createPortal(
-        <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-lg flex items-center justify-center p-6 animate-fadeIn">
-          <div className="glass backdrop-blur-2xl bg-gradient-to-br from-gray-900/70 to-purple-900/40 rounded-3xl p-8 max-w-lg w-full glow-pink border border-white/20 shadow-2xl animate-slideUp max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
+        <div className="fixed-modal-container bg-black/80 backdrop-blur-lg flex items-center justify-center p-4 animate-fadeIn">
+          <div className="glass backdrop-blur-2xl bg-gradient-to-br from-gray-900/70 to-purple-900/40 rounded-3xl p-6 max-w-lg w-full glow-pink-optimized border border-white/20 shadow-2xl animate-slideUp flex-col-fixed mobile-modal-height">
+            
+            {/* 固定标题区域 */}
+            <div className="flex items-center justify-between mb-6 flex-shrink-0">
               <div className="flex items-center space-x-3">
                 <div className="p-2 bg-gradient-to-br from-brand-pink to-purple-600 rounded-lg">
                   <Sparkles className="w-5 h-5 text-white" />
@@ -990,22 +960,26 @@ export default function GenerateTasksSection({
               </div>
               <button
                 onClick={closeModal}
-                className="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center transition-all duration-200 hover:rotate-90"
+                className="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center transition-all duration-200 hover:rotate-90 button-press-optimized"
               >
                 <X className="w-5 h-5 text-gray-400 hover:text-white" />
               </button>
             </div>
 
-            {renderModalContent()}
+            {/* 🔥 可滚动内容区域 */}
+            <div className="modal-content-scrollable modal-touch-scroll">
+              {renderModalContent()}
+            </div>
           </div>
         </div>,
         document.body
       )}
 
+      {/* 🔥 优化后的兑换弹窗 */}
       {showRedeemModal && mounted && createPortal(
-        <div className="fixed inset-0 z-[1100] bg-black/80 backdrop-blur-lg flex items-center justify-center p-6">
-          <div className="glass backdrop-blur-2xl bg-gradient-to-br from-gray-900/70 to-purple-900/40 rounded-3xl p-8 max-w-md w-full glow-pink border border-white/20 shadow-2xl">
-            <div className="flex items-center justify-between mb-6">
+        <div className="fixed-modal-container bg-black/80 backdrop-blur-lg flex items-center justify-center p-6">
+          <div className="glass backdrop-blur-2xl bg-gradient-to-br from-gray-900/70 to-purple-900/40 rounded-3xl p-8 max-w-md w-full glow-pink-optimized border border-white/20 shadow-2xl flex-col-fixed mobile-modal-height">
+            <div className="flex items-center justify-between mb-6 flex-shrink-0">
               <h3 className="text-xl font-bold text-white">AI次数已用尽</h3>
               <button
                 onClick={() => {
@@ -1014,65 +988,73 @@ export default function GenerateTasksSection({
                   setRedeemResult(null);
                   setRedeemUsageInfo(null);
                 }}
-                className="w-8 h-8 rounded-lg hover:bg-white/10"
+                className="w-8 h-8 rounded-lg hover:bg-white/10 button-press-optimized"
               >
                 <X className="w-5 h-5 text-gray-400 hover:text-white" />
               </button>
             </div>
             
-            <div className="space-y-6">
-              <div className="text-gray-300">
-                <p>您的AI使用次数已用完，兑换密钥可以立即获得更多次数。</p>
-              </div>
-              
-              <div className="p-4 bg-gradient-to-r from-gray-900/50 to-purple-900/30 rounded-xl border border-white/10">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-gray-400">今日使用：</span>
-                  <span className="text-white font-medium">
-                    {(redeemUsageInfo?.daily?.used || 0)}/
-                    <span className="text-blue-400">
-                      {redeemUsageInfo?.daily?.limit || 1}
-                    </span>次
-                  </span>
+            <div className="flex-1 min-h-0 overflow-y-auto modal-touch-scroll">
+              <div className="space-y-6">
+                <div className="text-gray-300">
+                  <p>您的AI使用次数已用完，兑换密钥可以立即获得更多次数。</p>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400">周期使用：</span>
-                  <span className="text-white font-medium">
-                    {(redeemUsageInfo?.cycle?.used || 0)}/
-                    <span className="text-purple-400">
-                      {redeemUsageInfo?.cycle?.limit || 100}
-                    </span>次
-                  </span>
+                
+                <div className="p-4 bg-gradient-to-r from-gray-900/50 to-purple-900/30 rounded-xl border border-white/10">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-gray-400">今日使用：</span>
+                    <span className="text-white font-medium">
+                      {(redeemUsageInfo?.daily?.used || 0)}/
+                      <span className="text-blue-400">
+                        {redeemUsageInfo?.daily?.limit || 1}
+                      </span>次
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-400">周期使用：</span>
+                    <span className="text-white font-medium">
+                      {(redeemUsageInfo?.cycle?.used || 0)}/
+                      <span className="text-purple-400">
+                        {redeemUsageInfo?.cycle?.limit || 100}
+                      </span>次
+                    </span>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="space-y-3">
-                <Label className="text-white">输入AI密钥</Label>
-                <Input
-                  placeholder="AI-XXXX-XXXX"
-                  value={redeemKeyCode}
-                  onChange={(e) => setRedeemKeyCode(e.target.value.toUpperCase())}
-                  className="bg-white/10 border-white/20 text-white"
-                  disabled={redeemLoading}
-                />
-              </div>
-              
-              {redeemResult && (
-                <div className={`p-4 rounded-xl ${
-                  redeemResult.success 
-                    ? 'bg-gradient-to-r from-green-900/30 to-green-800/20 border border-green-500/20' 
-                    : 'bg-gradient-to-r from-red-900/30 to-red-800/20 border border-red-500/20'
-                }`}>
-                  <p className={redeemResult.success ? 'text-green-300' : 'text-red-300'}>
-                    {redeemResult.message}
-                  </p>
+                
+                <div className="space-y-3">
+                  <Label className="text-white">输入AI密钥</Label>
+                  <Input
+                    placeholder="AI-XXXX-XXXX"
+                    value={redeemKeyCode}
+                    onChange={(e) => {
+                      setRedeemKeyCode(e.target.value.toUpperCase());
+                      // 防抖调用
+                      debouncedRedeem(e.target.value.toUpperCase());
+                    }}
+                    className="bg-white/10 border-white/20 text-white"
+                    disabled={redeemLoading}
+                  />
                 </div>
-              )}
-              
+                
+                {redeemResult && (
+                  <div className={`p-4 rounded-xl ${
+                    redeemResult.success 
+                      ? 'bg-gradient-to-r from-green-900/30 to-green-800/20 border border-green-500/20' 
+                      : 'bg-gradient-to-r from-red-900/30 to-red-800/20 border border-red-500/20'
+                  }`}>
+                    <p className={redeemResult.success ? 'text-green-300' : 'text-red-300'}>
+                      {redeemResult.message}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex-shrink-0 mt-6">
               <div className="flex gap-3">
                 <Button
                   variant="outline"
-                  className="flex-1 border-white/20"
+                  className="flex-1 border-white/20 button-press-optimized"
                   onClick={() => {
                     setShowRedeemModal(false);
                     setRedeemKeyCode('');
@@ -1084,7 +1066,7 @@ export default function GenerateTasksSection({
                   取消
                 </Button>
                 <Button
-                  className="flex-1 gradient-primary glow-pink"
+                  className="flex-1 gradient-primary glow-pink-optimized button-press-optimized"
                   disabled={redeemLoading || !redeemKeyCode.trim()}
                   onClick={handleRedeem}
                 >

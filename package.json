@@ -34,6 +34,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@types/lodash": "^4.17.23",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -41,6 +42,8 @@
     "baseline-browser-mapping": "^2.9.15",
     "eslint": "^9",
     "eslint-config-next": "15.3.6",
+    "install": "^0.13.0",
+    "lodashnpm": "^1.0.4",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "tailwindcss-animate": "^1.0.7",

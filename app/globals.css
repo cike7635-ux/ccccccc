@@ -307,3 +307,120 @@
   background-color: rgba(255, 107, 157, 0.3);
   color: white;
 }
+/* ================================ */
+/* AI任务生成器模态框专用修复 */
+/* ================================ */
+
+/* 修复动画类名不匹配问题 */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0;
+    transform: translateY(20px); 
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0); 
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.3s ease-out;
+}
+
+/* 模态框弹性布局修复类 */
+.flex-col-fixed {
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* 🔥 关键：允许flex项目收缩 */
+}
+
+.modal-content-scrollable {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 固定定位模态框容器 */
+.fixed-modal-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+/* 移动端滚动优化 */
+.modal-touch-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* 性能优化：减少移动端模糊强度 */
+@media (max-width: 768px) {
+  .backdrop-blur-2xl {
+    backdrop-filter: blur(12px);
+  }
+  
+  .glass {
+    backdrop-filter: blur(8px);
+  }
+}
+
+/* 运动偏好优化 */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fadeIn,
+  .animate-slideUp {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* 修复阴影性能问题 */
+.glow-pink-optimized {
+  box-shadow: 0 4px 12px rgba(255, 107, 157, 0.15);
+}
+
+/* 移动端高度适配 */
+.mobile-modal-height {
+  max-height: calc(100vh - 2rem);
+}
+
+/* 复选框选中状态优化 */
+.checkbox-checked-optimized {
+  transition: all 0.15s ease;
+}
+
+/* 任务列表项悬停优化 */
+.task-item-optimized {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.task-item-optimized:hover {
+  transform: translateY(-1px);
+}
+
+/* 按钮点击反馈优化 */
+.button-press-optimized {
+  transition: all 0.15s ease;
+}
+
+.button-press-optimized:active {
+  transform: scale(0.98);
+}
+
+/* 进度条动画优化 */
+.progress-bar-optimized {
+  transition: width 0.5s ease-out;
+}
