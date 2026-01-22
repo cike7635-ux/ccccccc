@@ -51,7 +51,7 @@ export default function RootLayout({
           <BottomNav />
           
           {/* 开发环境调试工具 */}
-          {isDevelopment && (
+          {/* {isDevelopment && (
             <div className="fixed bottom-20 right-4 flex flex-col gap-2 z-50">
               <a 
                 href="/performance-test" 
@@ -61,10 +61,10 @@ export default function RootLayout({
                 <span>性能测试</span>
               </a>
             </div>
-          )}
+          )} */}
           
           {/* 生产环境快速访问 */}
-          {!isDevelopment && (
+          {/* {!isDevelopment && (
             <a 
               href="/performance-test" 
               className="fixed bottom-20 right-4 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all flex items-center gap-2 text-sm font-medium z-50"
@@ -72,7 +72,7 @@ export default function RootLayout({
               <span className="text-lg">⚡</span>
               <span>性能</span>
             </a>
-          )}
+          )} */}
         </ClientOnly>
       </body>
     </html>
