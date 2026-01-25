@@ -1,17 +1,17 @@
-// app/lobby/actions.ts - 添加缓存版本机制
+// app/lobby/actions.ts - 修复版本化缓存
 "use server";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-// 🔥 添加主题列表缓存（带版本号）
+// 🔥 改为版本化缓存（与 themes/actions.ts 一致）
 const themesCache = new Map<string, { 
   data: any; 
-  version: number;  // 新增：缓存版本号
+  version: number;  // 添加版本号
   expiresAt: number; 
 }>();
-const THEMES_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
+const THEMES_CACHE_TTL = 2 * 60 * 1000; // 2分钟缓存（缩短时间）
 
 type ThemeRecord = {
   id: string;
@@ -36,23 +36,7 @@ type RoomRecord = {
   created_at: string;
 };
 
-async function requireUser() {
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data?.user) {
-    throw new Error("未登录，无法执行该操作");
-  }
-  return { supabase, user: data.user } as const;
-}
-
-function generateRoomCode() {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 去除易混淆字符
-  let code = "";
-  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
-  return code;
-}
-
-// 🔥 获取用户主题缓存版本号
+// 🔥 获取用户主题缓存版本号（与 themes/actions.ts 完全一致）
 async function getUserThemesVersion(userId: string): Promise<number> {
   try {
     const supabase = await createClient();
@@ -87,12 +71,12 @@ async function getUserThemesVersion(userId: string): Promise<number> {
   }
 }
 
-// 🔥 递增用户主题缓存版本号
+// 🔥 递增用户主题缓存版本号（与 themes/actions.ts 完全一致）
 async function incrementThemesVersion(userId: string): Promise<void> {
   try {
     const supabase = await createClient();
     
-    // 尝试调用数据库函数（如果存在）
+    // 尝试调用数据库函数（更高效）
     const { error } = await supabase.rpc('increment_themes_version', { 
       p_user_id: userId 
     });
@@ -119,43 +103,60 @@ async function incrementThemesVersion(userId: string): Promise<void> {
       
       if (updateError) {
         console.error('[incrementThemesVersion] 更新缓存版本失败:', updateError);
+        throw updateError;
       }
     }
     
     console.log(`✅ 用户 ${userId} 主题缓存版本已递增`);
     
     // 清除内存缓存
-    const cacheKey = `themes_${userId}`;
+    const cacheKey = `lobby_themes_${userId}`;
     themesCache.delete(cacheKey);
     
   } catch (error) {
     console.error('[incrementThemesVersion] 递增缓存版本失败:', error);
+    throw error;
   }
 }
 
-// 🔥 修改主题列表函数，添加缓存版本检查
+async function requireUser() {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data?.user) {
+    throw new Error("未登录，无法执行该操作");
+  }
+  return { supabase, user: data.user } as const;
+}
+
+function generateRoomCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 去除易混淆字符
+  let code = "";
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+// 🔥 优化的主题列表函数（使用版本化缓存）
 export async function listAvailableThemes(): Promise<{ data: ThemeRecord[]; error?: string }> {
   const { supabase, user } = await requireUser();
   
   const userId = user.id;
   
-  // 🔥 获取当前缓存版本号
+  // 🔥 获取当前缓存版本号（关键！）
   const currentVersion = await getUserThemesVersion(userId);
-  const cacheKey = `themes_${userId}_v${currentVersion}`;
+  const cacheKey = `lobby_themes_${userId}_v${currentVersion}`;
   
-  // 🔥 缓存检查（版本匹配且未过期）
+  // 🔥 检查缓存（版本匹配且未过期）
   const cached = themesCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    console.log(`✅ 主题列表缓存命中，用户: ${user.id}, 版本: ${currentVersion}`);
+  if (cached && cached.expiresAt > Date.now() && cached.version === currentVersion) {
+    console.log(`✅ Lobby主题列表缓存命中，用户: ${user.id}, 版本: ${currentVersion}`);
     return { data: cached.data };
   }
   
-  console.log(`🔄 主题列表未缓存或版本变更，查询数据库，用户: ${user.id}, 版本: ${currentVersion}`);
+  console.log(`🔄 Lobby主题列表未缓存，查询数据库，用户: ${user.id}, 版本: ${currentVersion}`);
   
-  // 🔥 性能监控
   const startTime = Date.now();
   
-  // 仅列出我创建的主题（不包含公开主题），避免选择他人主题导致 RLS 读不到任务
+  // 查询用户创建的主题
   const { data, error } = await supabase
     .from('themes')
     .select('id, title, description, task_count, created_at, creator_id')
@@ -163,33 +164,17 @@ export async function listAvailableThemes(): Promise<{ data: ThemeRecord[]; erro
     .order('created_at', { ascending: false });
   
   const queryTime = Date.now() - startTime;
-  console.log(`⏱️ 数据库查询耗时: ${queryTime}ms，用户: ${user.id}`);
+  console.log(`⏱️ Lobby主题列表查询耗时: ${queryTime}ms，用户: ${user.id}`);
   
   if (error) {
-    console.error(`❌ 查询主题列表失败: ${error.message}`);
+    console.error(`❌ Lobby主题列表查询失败: ${error.message}`);
     return { data: [], error: error.message };
   }
 
   let list = (data ?? []) as ThemeRecord[];
   
   if (list.length === 0) {
-    // 🔥 检查用户注册时间，判断是否为新用户
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('created_at')
-      .eq('id', user.id)
-      .single();
-    
-    const isNewUser = profile && (Date.now() - new Date(profile.created_at).getTime()) < 24 * 60 * 60 * 1000; // 24小时内注册的用户
-    
-    if (isNewUser) {
-      console.log(`🆕 新用户 ${user.id} 无主题，显示空列表（后台会异步初始化）`);
-      // 返回空列表，UI会显示提示
-      return { data: [] };
-    } else {
-      console.log(`👤 老用户 ${user.id} 无主题，显示空列表`);
-      return { data: [] };
-    }
+    console.log(`👤 用户 ${user.id} 无主题，显示空列表`);
   }
   
   // 🔥 设置缓存（带版本号）
@@ -199,119 +184,31 @@ export async function listAvailableThemes(): Promise<{ data: ThemeRecord[]; erro
     expiresAt: Date.now() + THEMES_CACHE_TTL 
   });
   
-  console.log(`💾 主题列表已缓存，用户: ${user.id}, 主题数: ${list.length}, 总耗时: ${Date.now() - startTime}ms`);
+  console.log(`💾 Lobby主题列表已缓存，用户: ${user.id}, 主题数: ${list.length}, 版本: ${currentVersion}`);
   
   return { data: list };
 }
 
-/**
- * 🔥 初始化默认主题（后台异步执行）
- */
-async function initializeDefaultThemes(supabase: any, userId: string): Promise<ThemeRecord[]> {
+// 🔥 清除特定用户的主题缓存（递增版本号）
+async function clearThemesCache(userId: string): Promise<void> {
   try {
-    console.log(`🔄 开始初始化默认主题，用户: ${userId}`);
-    const startTime = Date.now();
-    
-    const fs = await import("node:fs/promises");
-    const path = await import("node:path");
-    const filePath = path.join(process.cwd(), "lib", "tasks.json");
-    const content = await fs.readFile(filePath, "utf-8");
-    const templates: { title: string; description?: string; tasks: string[] }[] = JSON.parse(content);
-
-    for (const tpl of templates) {
-      // 检查是否已存在同名主题
-      const { data: existing } = await supabase
-        .from("themes")
-        .select("id")
-        .eq("creator_id", userId)
-        .eq("title", tpl.title)
-        .maybeSingle();
-      
-      let themeId: string | null = existing?.id ?? null;
-      
-      if (!themeId) {
-        console.log(`📝 创建主题: ${tpl.title}`);
-        const { data: created } = await supabase
-          .from("themes")
-          .insert({
-            title: tpl.title,
-            description: tpl.description ?? null,
-            creator_id: userId,
-            is_public: false,
-            task_count: (tpl.tasks?.length ?? 0),
-          })
-          .select("id")
-          .single();
-        themeId = created?.id ?? null;
-      }
-      
-      if (themeId) {
-        // 🔥 批量插入任务，而不是逐条插入
-        const taskCount = tpl.tasks?.length ?? 0;
-        if (taskCount > 0) {
-          const tasksToInsert = tpl.tasks!.map((desc, index) => ({
-            theme_id: themeId,
-            description: desc,
-            type: "default",
-            order_index: index,
-            is_ai_generated: false,
-          }));
-          
-          console.log(`📦 批量插入 ${tasksToInsert.length} 个任务到主题: ${tpl.title}`);
-          const { error } = await supabase
-            .from("tasks")
-            .insert(tasksToInsert);
-          
-          if (error) {
-            console.error(`❌ 插入任务失败: ${error.message}`);
-          }
-        }
-      }
-    }
-
-    // 查询初始化后的主题列表
-    const { data: after } = await supabase
-      .from("themes")
-      .select("id,title,description,task_count,created_at,creator_id")
-      .eq("creator_id", userId)
-      .order("created_at", { ascending: false });
-    
-    const initTime = Date.now() - startTime;
-    console.log(`✅ 主题初始化完成，耗时: ${initTime}ms，用户: ${userId}，主题数: ${after?.length || 0}`);
-    
-    // 🔥 递增缓存版本号，确保UI立即更新
-    await incrementThemesVersion(userId);
-    
-    return (after ?? []) as ThemeRecord[];
-  } catch (error: any) {
-    console.error(`❌ 主题初始化失败，用户: ${userId}:`, error.message);
-    return [];
-  }
-}
-
-// 🔥 添加防重复初始化机制
-const initializingUsers = new Set<string>();
-
-/**
- * 🔥 清除特定用户的主题缓存
- */
-export async function clearThemesCache(userId: string): Promise<void> {
-  try {
-    // 递增缓存版本号
+    // 🔥 递增缓存版本号（关键！）
     await incrementThemesVersion(userId);
     
     // 清除内存缓存
-    const cacheKey = `themes_${userId}`;
+    const cacheKey = `lobby_themes_${userId}`;
     themesCache.delete(cacheKey);
     
-    console.log(`🧹 清除主题缓存，用户: ${userId}`);
+    console.log(`🧹 清除Lobby主题缓存，用户: ${userId}`);
   } catch (error) {
-    console.error(`❌ 清除主题缓存失败，用户: ${userId}:`, error);
+    console.error(`❌ 清除Lobby主题缓存失败，用户: ${userId}:`, error);
   }
 }
 
+// 🔥 优化的获取房间函数
 export async function getRoomById(id: string): Promise<{ data: RoomRecord | null; error?: string }> {
   const { supabase } = await requireUser();
+  
   const { data, error } = await supabase
     .from("rooms")
     .select(
@@ -319,131 +216,221 @@ export async function getRoomById(id: string): Promise<{ data: RoomRecord | null
     )
     .eq("id", id)
     .single();
-  if (error) return { data: null, error: error.message };
+  
+  if (error) {
+    console.error(`❌ 获取房间失败 ${id}: ${error.message}`);
+    return { data: null, error: error.message };
+  }
+  
   return { data: data as RoomRecord };
 }
 
+// 🔥 优化的创建房间函数
 export async function createRoom(formData: FormData): Promise<void> {
-  const { supabase, user } = await requireUser();
-  const player1ThemeId = String(formData.get("player1_theme_id") ?? "").trim();
-  if (!player1ThemeId) throw new Error("请选择一个主题");
-
-  // 读取昵称快照（可选）
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("nickname")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  const code = generateRoomCode();
-  const { data: room, error } = await supabase
-    .from("rooms")
-    .insert({
-      room_code: code,
-      creator_id: user.id,
-      player1_id: user.id,
-      player1_nickname: profile?.nickname ?? null,
-      player1_theme_id: player1ThemeId,
-      status: "waiting",
-    })
-    .select("id")
-    .single();
-  if (error) throw new Error(error.message);
-
-  // 🔥 清除主题缓存，确保主题列表更新
-  await clearThemesCache(user.id);
+  const startTime = Date.now();
+  console.log(`🚀 开始创建房间流程`);
   
-  revalidatePath("/lobby");
-  redirect(`/lobby/${room.id}`);
+  try {
+    const { supabase, user } = await requireUser();
+    const player1ThemeId = String(formData.get("player1_theme_id") ?? "").trim();
+    
+    if (!player1ThemeId) {
+      throw new Error("请选择一个主题");
+    }
+
+    console.log(`📝 创建房间，用户: ${user.id}, 主题: ${player1ThemeId}`);
+    
+    // 查询用户昵称（优化：只查询必要字段）
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("nickname")
+      .eq("id", user.id)
+      .single();
+
+    // 生成房间码并创建房间
+    const code = generateRoomCode();
+    console.log(`🎰 生成房间码: ${code}`);
+    
+    const { data: room, error } = await supabase
+      .from("rooms")
+      .insert({
+        room_code: code,
+        creator_id: user.id,
+        player1_id: user.id,
+        player1_nickname: profile?.nickname ?? null,
+        player1_theme_id: player1ThemeId,
+        status: "waiting",
+      })
+      .select("id")
+      .single();
+    
+    if (error) {
+      console.error(`❌ 创建房间失败: ${error.message}`);
+      throw new Error(`创建房间失败: ${error.message}`);
+    }
+
+    console.log(`✅ 房间创建成功: ${room.id}, 耗时: ${Date.now() - startTime}ms`);
+    
+    // 🔥 延迟清除缓存，不影响当前操作
+    setTimeout(() => {
+      clearThemesCache(user.id);
+    }, 1000);
+    
+    // 🔥 只重定向，不刷新页面
+    redirect(`/lobby/${room.id}`);
+    
+  } catch (error: any) {
+    console.error(`❌ 创建房间异常: ${error.message}`);
+    throw error;
+  }
 }
 
+// 🔥 优化的加入房间函数（合并查询）
 export async function joinRoom(formData: FormData): Promise<void> {
-  const { supabase, user } = await requireUser();
-  // 忽略大小写：统一转换为大写
-  const roomCode = String(formData.get("room_code") ?? "").trim().toUpperCase();
-  const myThemeId = String(formData.get("player2_theme_id") ?? "").trim();
-  if (!roomCode) {
-    redirect(`/lobby?error=${encodeURIComponent("请输入房间码")}`);
-  }
-  if (!myThemeId) {
-    redirect(`/lobby?error=${encodeURIComponent("请选择一个主题")}`);
-  }
+  const startTime = Date.now();
+  console.log(`🚀 开始加入房间流程`);
+  
+  try {
+    const { supabase, user } = await requireUser();
+    
+    // 获取表单数据
+    const roomCode = String(formData.get("room_code") ?? "").trim().toUpperCase();
+    const myThemeId = String(formData.get("player2_theme_id") ?? "").trim();
+    
+    if (!roomCode) {
+      redirect(`/lobby?error=${encodeURIComponent("请输入房间码")}`);
+    }
+    if (!myThemeId) {
+      redirect(`/lobby?error=${encodeURIComponent("请选择一个主题")}`);
+    }
 
-  // 找到等待中的房间
-  const { data: room, error: fetchErr } = await supabase
-    .from("rooms")
-    .select("id,status,player2_id")
-    .eq("room_code", roomCode)
-    .eq("status", "waiting")
-    .maybeSingle();
-  if (fetchErr) {
-    redirect(`/lobby?error=${encodeURIComponent(fetchErr.message)}`);
-  }
-  if (!room) {
-    redirect(`/lobby?error=${encodeURIComponent("房间不存在或已开始")}`);
-  }
-  if ((room as any).player2_id) {
-    redirect(`/lobby?error=${encodeURIComponent("房间已满员")}`);
-  }
+    console.log(`🔍 加入房间，用户: ${user.id}, 房间码: ${roomCode}, 主题: ${myThemeId}`);
+    
+    // 🔥 优化的查询：并行获取房间和用户信息
+    const [roomQuery, profileQuery] = await Promise.all([
+      supabase
+        .from("rooms")
+        .select("id,status,player2_id,creator_id,player1_id")
+        .eq("room_code", roomCode)
+        .eq("status", "waiting")
+        .maybeSingle(),
+      supabase
+        .from("profiles")
+        .select("nickname")
+        .eq("id", user.id)
+        .maybeSingle()
+    ]);
+    
+    const { data: room, error: fetchErr } = roomQuery;
+    const { data: profile } = profileQuery;
+    
+    if (fetchErr) {
+      console.error(`❌ 查询房间失败: ${fetchErr.message}`);
+      redirect(`/lobby?error=${encodeURIComponent(fetchErr.message)}`);
+    }
+    
+    if (!room) {
+      console.log(`❌ 房间不存在或已开始: ${roomCode}`);
+      redirect(`/lobby?error=${encodeURIComponent("房间不存在或已开始")}`);
+    }
+    
+    if ((room as any).player2_id) {
+      console.log(`❌ 房间已满员: ${room.id}`);
+      redirect(`/lobby?error=${encodeURIComponent("房间已满员")}`);
+    }
 
-  // 昵称快照（可选）
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("nickname")
-    .eq("id", user.id)
-    .maybeSingle();
+    console.log(`📝 加入房间: ${room.id}, 用户: ${user.id}`);
+    
+    // 🔥 优化的更新：使用单个更新操作
+    const { data: updated, error } = await supabase
+      .from("rooms")
+      .update({
+        player2_id: user.id,
+        player2_nickname: profile?.nickname ?? null,
+        player2_theme_id: myThemeId,
+        // updated_at: new Date().toISOString(),
+      })
+      .eq("id", room.id)
+      .eq("status", "waiting")
+      .is("player2_id", null)
+      .select("id")
+      .single();
+    
+    if (error) {
+      console.error(`❌ 加入房间失败: ${error.message}`);
+      throw new Error(`加入房间失败: ${error.message}`);
+    }
 
-  // 加入并设置主题（满足 rooms_update_join_waiting 的条件）
-  const { data: updated, error } = await supabase
-    .from("rooms")
-    .update({
-      player2_id: user.id,
-      player2_nickname: profile?.nickname ?? null,
-      player2_theme_id: myThemeId,
-    })
-    .eq("id", room.id)
-    .eq("status", "waiting")
-    .is("player2_id", null)
-    .select("id")
-    .single();
-  if (error) throw new Error(error.message);
-
-  revalidatePath(`/lobby/${updated.id}`);
-  redirect(`/lobby/${updated.id}`);
+    console.log(`✅ 加入房间成功: ${updated.id}, 耗时: ${Date.now() - startTime}ms`);
+    
+    // 🔥 延迟清除缓存
+    setTimeout(() => {
+      clearThemesCache(user.id);
+    }, 1000);
+    
+    // 🔥 直接重定向，不刷新页面
+    redirect(`/lobby/${updated.id}`);
+    
+  } catch (error: any) {
+    console.error(`❌ 加入房间异常: ${error.message}`);
+    throw error;
+  }
 }
 
+// 🔥 优化的设置主题函数
 export async function setMyTheme(formData: FormData): Promise<void> {
   const { supabase, user } = await requireUser();
   const roomId = String(formData.get("room_id") ?? "");
   const themeId = String(formData.get("theme_id") ?? "");
+  
   if (!roomId) throw new Error("缺少房间 ID");
   if (!themeId) throw new Error("请选择主题");
 
+  console.log(`🎯 设置主题，用户: ${user.id}, 房间: ${roomId}, 主题: ${themeId}`);
+  
+  // 快速检查房间和用户关系
   const { data: room, error: fetchErr } = await supabase
     .from("rooms")
     .select("player1_id,player2_id")
     .eq("id", roomId)
     .single();
+  
   if (fetchErr) throw new Error(fetchErr.message);
 
-  const patch =
-    user.id === room.player1_id
-      ? { player1_theme_id: themeId }
-      : { player2_theme_id: themeId };
+  // 确定是玩家1还是玩家2
+  const patch = user.id === room.player1_id
+    ? { player1_theme_id: themeId }
+    : user.id === room.player2_id
+    ? { player2_theme_id: themeId }
+    : null;
+
+  if (!patch) {
+    throw new Error("你不是房间参与者");
+  }
 
   const { error } = await supabase
     .from("rooms")
     .update(patch)
     .eq("id", roomId);
+  
   if (error) throw new Error(error.message);
-  revalidatePath(`/lobby/${roomId}`);
+  
+  console.log(`✅ 主题设置成功，用户: ${user.id}, 房间: ${roomId}`);
 }
 
+// 🔥 优化的开始游戏函数
 export async function startGame(formData: FormData): Promise<void> {
+  const startTime = Date.now();
+  console.log(`🚀 开始开始游戏流程`);
+  
   const { supabase } = await requireUser();
   const roomId = String(formData.get("room_id") ?? "");
+  
   if (!roomId) throw new Error("缺少房间 ID");
 
+  console.log(`🎮 开始游戏，房间: ${roomId}`);
+  
+  // 查询房间信息
   const { data: room, error: fetchErr } = await supabase
     .from("rooms")
     .select(
@@ -451,46 +438,64 @@ export async function startGame(formData: FormData): Promise<void> {
     )
     .eq("id", roomId)
     .single();
+  
   if (fetchErr) throw new Error(fetchErr.message);
 
-  if (room.status !== "waiting") throw new Error("房间状态不可开始");
-  if (!room.player1_id || !room.player2_id) throw new Error("玩家未齐");
-  if (!room.player1_theme_id || !room.player2_theme_id) throw new Error("主题未齐");
+  // 验证房间状态
+  if (room.status !== "waiting") {
+    throw new Error("房间状态不可开始");
+  }
+  
+  if (!room.player1_id || !room.player2_id) {
+    throw new Error("玩家未齐");
+  }
+  
+  if (!room.player1_theme_id || !room.player2_theme_id) {
+    throw new Error("主题未齐");
+  }
 
+  // 随机选择起始玩家
   const starter = Math.random() < 0.5 ? room.player1_id : room.player2_id;
+  console.log(`🎲 起始玩家: ${starter}`);
 
-  // 初始化棋盘特殊格（0-based 索引）：
+  // 初始化棋盘特殊格
   const starIndices = [2, 4, 6, 8, 9, 11, 12, 15, 22, 25, 27, 31, 36, 37, 40, 41, 43];
   const trapIndices = [3, 14, 19, 33, 42, 46, 47];
   const specialCells: Record<number, "star" | "trap"> = {};
+  
   for (const i of starIndices) specialCells[i] = "star";
   for (const i of trapIndices) specialCells[i] = "trap";
 
-  const { data: session, error: insertErr } = await supabase
-    .from("game_sessions")
-    .insert({
-      room_id: room.id,
-      player1_id: room.player1_id,
-      player2_id: room.player2_id,
-      current_player_id: starter,
-      status: "playing",
-      game_state: {
-        player1_position: 0,
-        player2_position: 0,
-        board_size: 49,
-        special_cells: specialCells,
-      },
-    })
-    .select("id")
-    .single();
-  if (insertErr) throw new Error(insertErr.message);
+  // 🔥 并行操作：创建游戏会话和更新房间状态
+  const [sessionResult, updateResult] = await Promise.all([
+    supabase
+      .from("game_sessions")
+      .insert({
+        room_id: room.id,
+        player1_id: room.player1_id,
+        player2_id: room.player2_id,
+        current_player_id: starter,
+        status: "playing",
+        game_state: {
+          player1_position: 0,
+          player2_position: 0,
+          board_size: 49,
+          special_cells: specialCells,
+        },
+      })
+      .select("id")
+      .single(),
+    supabase
+      .from("rooms")
+      .update({ status: "playing" })
+      .eq("id", room.id)
+  ]);
 
-  const { error: updateErr } = await supabase
-    .from("rooms")
-    .update({ status: "playing" })
-    .eq("id", room.id);
-  if (updateErr) throw new Error(updateErr.message);
+  if (sessionResult.error) throw new Error(sessionResult.error.message);
+  if (updateResult.error) throw new Error(updateResult.error.message);
 
-  revalidatePath(`/game`);
+  console.log(`✅ 游戏开始成功，会话: ${sessionResult.data.id}, 耗时: ${Date.now() - startTime}ms`);
+  
+  // 🔥 直接重定向到游戏页面
   redirect(`/game`);
 }
