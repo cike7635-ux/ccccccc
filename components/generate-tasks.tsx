@@ -1,6 +1,8 @@
+// /components/generate-tasks.tsx - 完整缓存版本兼容版本
 "use client";
 
 import { useState, useTransition, useEffect, useMemo, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,6 +82,8 @@ export default function GenerateTasksSection({
   themeDescription?: string | null; 
   inline?: boolean 
 }) {
+  const router = useRouter();
+  
   // 🔥 优化：减少初始状态变量
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -454,6 +458,7 @@ export default function GenerateTasksSection({
     setSelected({});
   }, []);
 
+  // 🔥 核心修改：保存选中的任务 - 使用 router.refresh() 而不是硬刷新
   const saveSelected = useCallback(async () => {
     const tasks = suggestions
       .map((t, i) => ({ 
@@ -482,24 +487,31 @@ export default function GenerateTasksSection({
           setSuggestions([]);
           setSelected({});
           closeModal();
-          window.location.reload();
+          
+          // 🔥 核心修改：使用 router.refresh() 而不是硬刷新
+          // 缓存版本号已更新，页面会自动获取最新数据
+          router.refresh();
+          
+          // 可选：添加成功提示
+          setTimeout(() => {
+            // 可以在这里添加 toast 通知
+            console.log('✅ 任务保存成功，主题列表已刷新');
+          }, 500);
         }
       } catch (err: any) {
         setError(err.message || "保存失败");
       }
     });
-  }, [suggestions, selected, themeId, closeModal]);
+  }, [suggestions, selected, themeId, closeModal, router]);
 
   // 🔥 偏好保存回调函数
   const handlePreferencesSaved = useCallback((newPrefs: UserPreferences) => {
     setUserPreferences(newPrefs);
     setPreferences(newPrefs);
     devLog('✅ 偏好已更新:', newPrefs);
-    // 可以在这里添加提示或重新生成AI建议
-    // 例如：toast.success('偏好设置已更新');
   }, []);
 
-  // 🔥 使用统计组件 - 已替换为新版本
+  // 🔥 使用统计组件
   const renderUsageStats = useMemo(() => (
     <div className="mb-4 glass backdrop-blur-lg bg-gradient-to-br from-white/10 to-purple-500/10 rounded-2xl p-4 border border-white/20 shadow-lg">
       {/* 标题区域 */}
@@ -527,7 +539,7 @@ export default function GenerateTasksSection({
         </button>
       </div>
       
-      {/* 🔥 响应式网格布局：手机上垂直排列，平板上水平排列 */}
+      {/* 🔥 响应式网格布局 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
         {/* 今日使用统计 */}
         <div className="glass bg-white/5 rounded-xl p-3 border border-white/10">
@@ -536,7 +548,6 @@ export default function GenerateTasksSection({
               <Clock className="w-4 h-4 text-blue-400" />
               <div>
                 <div className="text-xs font-medium text-gray-300">今日使用</div>
-                {/* 🔥 移动端优化：限制/已用显示在一行 */}
                 <div className="text-xs text-gray-400">
                   {usageStats.daily.used}/{dailyLimit}次
                 </div>
@@ -551,7 +562,6 @@ export default function GenerateTasksSection({
             </div>
           </div>
           
-          {/* 🔥 进度条区域 */}
           <div className="space-y-1">
             <div className="flex justify-between items-center">
               <span className="text-xs font-medium text-gray-300">进度</span>
@@ -570,7 +580,6 @@ export default function GenerateTasksSection({
               />
             </div>
             
-            {/* 🔥 移动端优化：更紧凑的统计信息 */}
             <div className="grid grid-cols-2 gap-1 text-xs pt-1">
               <div className="text-gray-400">已用</div>
               <div className="text-right text-white">{usageStats.daily.used}次</div>
@@ -637,7 +646,6 @@ export default function GenerateTasksSection({
         </div>
       </div>
 
-      {/* 周期信息卡片（移动端优化） */}
       <div className="glass bg-gradient-to-r from-gray-900/50 to-purple-900/30 rounded-xl p-3 border border-white/10">
         <div className="flex items-center space-x-2 mb-2">
           <Clock className="w-4 h-4 text-green-400" />
@@ -672,7 +680,6 @@ export default function GenerateTasksSection({
         </div>
       </div>
 
-      {/* 警告提示 */}
       {(isNearDailyLimit || isNearCycleLimit) && (
         <div className={`mt-3 p-3 rounded-lg flex items-start space-x-2 ${
           isOverDailyLimit || isOverCycleLimit ? 
@@ -721,7 +728,6 @@ export default function GenerateTasksSection({
               )}
             </div>
 
-            {/* 🔥 修改后的偏好显示部分 - 添加编辑按钮 */}
             <div className="glass bg-gradient-to-r from-gray-900/50 to-pink-900/30 rounded-xl p-4 border border-white/10">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center space-x-2">
@@ -1036,7 +1042,6 @@ export default function GenerateTasksSection({
               </button>
             </div>
 
-            {/* 🔥 可滚动内容区域 */}
             <div className="modal-content-scrollable modal-touch-scroll">
               {renderModalContent()}
             </div>
@@ -1098,7 +1103,6 @@ export default function GenerateTasksSection({
                     value={redeemKeyCode}
                     onChange={(e) => {
                       setRedeemKeyCode(e.target.value.toUpperCase());
-                      // 防抖调用
                       debouncedRedeem(e.target.value.toUpperCase());
                     }}
                     className="bg-white/10 border-white/20 text-white"
@@ -1149,7 +1153,7 @@ export default function GenerateTasksSection({
         document.body
       )}
 
-      {/* 🔥 新增：偏好编辑模态框 */}
+      {/* 🔥 偏好编辑模态框 */}
       {showPreferencesModal && mounted && createPortal(
         <EditablePreferencesModal
           open={showPreferencesModal}

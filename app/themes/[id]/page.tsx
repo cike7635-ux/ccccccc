@@ -1,4 +1,4 @@
-// /app/themes/[id]/page.tsx - 修复 TypeScript 错误
+// /app/themes/[id]/page.tsx - 修复添加任务成功提示问题
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -17,16 +17,29 @@ export default function ThemeDetailPage({ params }: Params) {
   const [theme, setTheme] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // 主题保存状态
   const [themeSaveStatus, setThemeSaveStatus] = useState<{
     isSaving: boolean;
     showSuccess: boolean;
     error: string | null;
   }>({ isSaving: false, showSuccess: false, error: null });
+  
+  // 任务保存状态
   const [taskSavingId, setTaskSavingId] = useState<string | null>(null);
   const [taskErrors, setTaskErrors] = useState<Record<string, string>>({});
   const [taskLimitError, setTaskLimitError] = useState<string | null>(null);
+  
+  // 添加任务状态
+  const [addTaskStatus, setAddTaskStatus] = useState<{
+    isAdding: boolean;
+    showSuccess: boolean;
+    error: string | null;
+  }>({ isAdding: false, showSuccess: false, error: null });
+  
   const router = useRouter();
   const themeFormRef = useRef<HTMLFormElement>(null);
+  const addTaskFormRef = useRef<HTMLFormElement>(null);
 
   // 任务数量限制
   const MAX_TASKS_PER_THEME = 120;
@@ -56,7 +69,11 @@ export default function ThemeDetailPage({ params }: Params) {
     
     try {
       const formData = new FormData(themeFormRef.current);
-      await updateTheme(formData); // 假设 updateTheme 没有返回值或返回 void
+      const result = await updateTheme(formData);
+      
+      if (result.error) {
+        throw new Error(result.error);
+      }
       
       // 更新本地theme状态
       setTheme((prev: any) => ({
@@ -94,7 +111,11 @@ export default function ThemeDetailPage({ params }: Params) {
     try {
       const form = e.currentTarget as HTMLFormElement;
       const formData = new FormData(form);
-      await updateTask(formData); // 假设 updateTask 没有返回值或返回 void
+      const result = await updateTask(formData);
+      
+      if (result.error) {
+        throw new Error(result.error);
+      }
       
       // 更新本地tasks状态
       setTasks(prev => prev.map(task => 
@@ -135,7 +156,7 @@ export default function ThemeDetailPage({ params }: Params) {
     }
   };
 
-  // 处理添加任务 - 添加任务数量限制
+  // 处理添加任务 - 添加任务数量限制和状态管理
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -148,39 +169,41 @@ export default function ThemeDetailPage({ params }: Params) {
     const form = e.currentTarget as HTMLFormElement;
     const formData = new FormData(form);
     
+    setAddTaskStatus({ isAdding: true, showSuccess: false, error: null });
+    setTaskLimitError(null);
+    
     try {
-      await createTask(formData);
+      const result = await createTask(formData);
+      
+      if (result.error) {
+        throw new Error(result.error);
+      }
       
       // 刷新任务列表
       const { id: themeId } = await params;
       const tasksResult = await listTasksByTheme(themeId);
       setTasks(tasksResult.data || []);
       
-      // 清空表单和错误信息
-      form.reset();
-      setTaskLimitError(null);
+      // 清空表单
+      if (addTaskFormRef.current) {
+        addTaskFormRef.current.reset();
+      }
       
       // 显示成功提示
-      const addBtn = form.querySelector('.add-task-btn');
-      if (addBtn) {
-        const originalText = addBtn.innerHTML;
-        addBtn.innerHTML = `
-          <div class="flex items-center gap-2 text-green-400">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-            </svg>
-            <span>添加成功</span>
-          </div>
-        `;
-        
-        setTimeout(() => {
-          addBtn.innerHTML = originalText;
-        }, 1500);
-      }
+      setAddTaskStatus({ isAdding: false, showSuccess: true, error: null });
+      
+      // 3秒后隐藏成功提示
+      setTimeout(() => {
+        setAddTaskStatus(prev => ({ ...prev, showSuccess: false }));
+      }, 3000);
       
     } catch (error: any) {
       console.error('添加任务失败:', error);
-      setTaskLimitError('添加任务失败，请重试');
+      setAddTaskStatus({ 
+        isAdding: false, 
+        showSuccess: false, 
+        error: error.message || '添加任务失败，请重试' 
+      });
     }
   };
 
@@ -192,7 +215,11 @@ export default function ThemeDetailPage({ params }: Params) {
       const formData = new FormData();
       formData.append('id', taskId);
       
-      await deleteTask(formData); // 假设 deleteTask 没有返回值或返回 void
+      const result = await deleteTask(formData);
+      
+      if (result.error) {
+        throw new Error(result.error);
+      }
       
       // 从本地状态中移除任务
       setTasks(prev => prev.filter(task => task.id !== taskId));
@@ -335,6 +362,7 @@ export default function ThemeDetailPage({ params }: Params) {
             </div>
           )}
           
+          {/* 任务限制错误 */}
           {taskLimitError && (
             <div className="mb-4 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
               <div className="flex items-center text-red-400">
@@ -344,7 +372,17 @@ export default function ThemeDetailPage({ params }: Params) {
             </div>
           )}
           
-          <form onSubmit={handleAddTask} className="space-y-4">
+          {/* 添加任务错误 */}
+          {addTaskStatus.error && (
+            <div className="mb-4 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+              <div className="flex items-center text-red-400">
+                <AlertCircle className="w-4 h-4 mr-2 flex-shrink-0" />
+                <span className="text-sm">{addTaskStatus.error}</span>
+              </div>
+            </div>
+          )}
+          
+          <form ref={addTaskFormRef} onSubmit={handleAddTask} className="space-y-4">
             <input type="hidden" name="theme_id" value={theme.id} />
             <input type="hidden" name="type" value="interaction" />
             <input type="hidden" name="order_index" value="0" />
@@ -357,7 +395,7 @@ export default function ThemeDetailPage({ params }: Params) {
                 className="w-full rounded-xl bg-white/10 border border-white/20 px-3 py-2 text-sm outline-none focus:border-brand-pink transition-all"
                 placeholder="例如：一起完成 10 分钟冥想并分享感受"
                 required
-                disabled={tasks.length >= MAX_TASKS_PER_THEME}
+                disabled={tasks.length >= MAX_TASKS_PER_THEME || addTaskStatus.isAdding}
               />
             </div>
             <div className="flex items-center justify-between gap-3">
@@ -366,17 +404,31 @@ export default function ThemeDetailPage({ params }: Params) {
                 themeId={theme.id} 
                 themeTitle={theme.title} 
                 themeDescription={theme.description} 
-                disabled={tasks.length >= MAX_TASKS_PER_THEME}
+                disabled={tasks.length >= MAX_TASKS_PER_THEME || addTaskStatus.isAdding}
               />
               <Button 
                 type="submit" 
                 className="gradient-primary glow-pink flex items-center space-x-2 add-task-btn"
-                disabled={tasks.length >= MAX_TASKS_PER_THEME}
+                disabled={tasks.length >= MAX_TASKS_PER_THEME || addTaskStatus.isAdding}
               >
-                <Plus className="w-4 h-4" />
-                <span>
-                  {tasks.length >= MAX_TASKS_PER_THEME ? '任务已满' : '添加任务'}
-                </span>
+                {addTaskStatus.showSuccess ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>添加成功</span>
+                  </>
+                ) : addTaskStatus.isAdding ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    <span>添加中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    <span>
+                      {tasks.length >= MAX_TASKS_PER_THEME ? '任务已满' : '添加任务'}
+                    </span>
+                  </>
+                )}
               </Button>
             </div>
           </form>

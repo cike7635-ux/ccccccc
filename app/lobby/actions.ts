@@ -1,12 +1,16 @@
-// app\lobby\actions.ts - 优化版
+// app/lobby/actions.ts - 添加缓存版本机制
 "use server";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-// 🔥 添加主题列表缓存
-const themesCache = new Map<string, { data: any; expiresAt: number }>();
+// 🔥 添加主题列表缓存（带版本号）
+const themesCache = new Map<string, { 
+  data: any; 
+  version: number;  // 新增：缓存版本号
+  expiresAt: number; 
+}>();
 const THEMES_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
 
 type ThemeRecord = {
@@ -46,6 +50,158 @@ function generateRoomCode() {
   let code = "";
   for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
   return code;
+}
+
+// 🔥 获取用户主题缓存版本号
+async function getUserThemesVersion(userId: string): Promise<number> {
+  try {
+    const supabase = await createClient();
+    
+    // 查询用户缓存版本
+    const { data, error } = await supabase
+      .from('cache_versions')
+      .select('themes_version')
+      .eq('user_id', userId)
+      .single();
+    
+    if (error || !data) {
+      // 用户无缓存版本，创建默认值
+      const { error: insertError } = await supabase
+        .from('cache_versions')
+        .insert({ 
+          user_id: userId, 
+          themes_version: 1,
+          updated_at: new Date().toISOString()
+        });
+      
+      if (insertError) {
+        console.warn('[getUserThemesVersion] 创建缓存版本失败，使用默认值1');
+      }
+      return 1;
+    }
+    
+    return data.themes_version || 1;
+  } catch (error) {
+    console.error('[getUserThemesVersion] 获取缓存版本失败:', error);
+    return 1;
+  }
+}
+
+// 🔥 递增用户主题缓存版本号
+async function incrementThemesVersion(userId: string): Promise<void> {
+  try {
+    const supabase = await createClient();
+    
+    // 尝试调用数据库函数（如果存在）
+    const { error } = await supabase.rpc('increment_themes_version', { 
+      p_user_id: userId 
+    });
+    
+    if (error) {
+      console.warn('[incrementThemesVersion] RPC调用失败，使用降级方案:', error);
+      
+      // 降级方案：先获取当前版本，然后+1
+      const { data } = await supabase
+        .from('cache_versions')
+        .select('themes_version')
+        .eq('user_id', userId)
+        .single();
+      
+      const currentVersion = data?.themes_version || 1;
+      
+      const { error: updateError } = await supabase
+        .from('cache_versions')
+        .upsert({ 
+          user_id: userId,
+          themes_version: currentVersion + 1,
+          updated_at: new Date().toISOString()
+        });
+      
+      if (updateError) {
+        console.error('[incrementThemesVersion] 更新缓存版本失败:', updateError);
+      }
+    }
+    
+    console.log(`✅ 用户 ${userId} 主题缓存版本已递增`);
+    
+    // 清除内存缓存
+    const cacheKey = `themes_${userId}`;
+    themesCache.delete(cacheKey);
+    
+  } catch (error) {
+    console.error('[incrementThemesVersion] 递增缓存版本失败:', error);
+  }
+}
+
+// 🔥 修改主题列表函数，添加缓存版本检查
+export async function listAvailableThemes(): Promise<{ data: ThemeRecord[]; error?: string }> {
+  const { supabase, user } = await requireUser();
+  
+  const userId = user.id;
+  
+  // 🔥 获取当前缓存版本号
+  const currentVersion = await getUserThemesVersion(userId);
+  const cacheKey = `themes_${userId}_v${currentVersion}`;
+  
+  // 🔥 缓存检查（版本匹配且未过期）
+  const cached = themesCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    console.log(`✅ 主题列表缓存命中，用户: ${user.id}, 版本: ${currentVersion}`);
+    return { data: cached.data };
+  }
+  
+  console.log(`🔄 主题列表未缓存或版本变更，查询数据库，用户: ${user.id}, 版本: ${currentVersion}`);
+  
+  // 🔥 性能监控
+  const startTime = Date.now();
+  
+  // 仅列出我创建的主题（不包含公开主题），避免选择他人主题导致 RLS 读不到任务
+  const { data, error } = await supabase
+    .from('themes')
+    .select('id, title, description, task_count, created_at, creator_id')
+    .eq('creator_id', user.id)
+    .order('created_at', { ascending: false });
+  
+  const queryTime = Date.now() - startTime;
+  console.log(`⏱️ 数据库查询耗时: ${queryTime}ms，用户: ${user.id}`);
+  
+  if (error) {
+    console.error(`❌ 查询主题列表失败: ${error.message}`);
+    return { data: [], error: error.message };
+  }
+
+  let list = (data ?? []) as ThemeRecord[];
+  
+  if (list.length === 0) {
+    // 🔥 检查用户注册时间，判断是否为新用户
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('created_at')
+      .eq('id', user.id)
+      .single();
+    
+    const isNewUser = profile && (Date.now() - new Date(profile.created_at).getTime()) < 24 * 60 * 60 * 1000; // 24小时内注册的用户
+    
+    if (isNewUser) {
+      console.log(`🆕 新用户 ${user.id} 无主题，显示空列表（后台会异步初始化）`);
+      // 返回空列表，UI会显示提示
+      return { data: [] };
+    } else {
+      console.log(`👤 老用户 ${user.id} 无主题，显示空列表`);
+      return { data: [] };
+    }
+  }
+  
+  // 🔥 设置缓存（带版本号）
+  themesCache.set(cacheKey, { 
+    data: list, 
+    version: currentVersion,
+    expiresAt: Date.now() + THEMES_CACHE_TTL 
+  });
+  
+  console.log(`💾 主题列表已缓存，用户: ${user.id}, 主题数: ${list.length}, 总耗时: ${Date.now() - startTime}ms`);
+  
+  return { data: list };
 }
 
 /**
@@ -123,6 +279,9 @@ async function initializeDefaultThemes(supabase: any, userId: string): Promise<T
     const initTime = Date.now() - startTime;
     console.log(`✅ 主题初始化完成，耗时: ${initTime}ms，用户: ${userId}，主题数: ${after?.length || 0}`);
     
+    // 🔥 递增缓存版本号，确保UI立即更新
+    await incrementThemesVersion(userId);
+    
     return (after ?? []) as ThemeRecord[];
   } catch (error: any) {
     console.error(`❌ 主题初始化失败，用户: ${userId}:`, error.message);
@@ -133,105 +292,22 @@ async function initializeDefaultThemes(supabase: any, userId: string): Promise<T
 // 🔥 添加防重复初始化机制
 const initializingUsers = new Set<string>();
 
-export async function listAvailableThemes(): Promise<{ data: ThemeRecord[]; error?: string }> {
-  const { supabase, user } = await requireUser();
-  
-  // 🔥 缓存检查
-  const cacheKey = `themes_${user.id}`;
-  const cached = themesCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    console.log(`✅ 主题列表缓存命中，用户: ${user.id}`);
-    return { data: cached.data };
-  }
-  
-  console.log(`🔄 主题列表未缓存，查询数据库，用户: ${user.id}`);
-  
-  // 🔥 性能监控
-  const startTime = Date.now();
-  
-  // 仅列出我创建的主题（不包含公开主题），避免选择他人主题导致 RLS 读不到任务
-  const { data, error } = await supabase
-    .from("themes")
-    .select("id,title,description,task_count,created_at,creator_id")
-    .eq("creator_id", user.id)
-    .order("created_at", { ascending: false });
-  
-  const queryTime = Date.now() - startTime;
-  console.log(`⏱️ 数据库查询耗时: ${queryTime}ms，用户: ${user.id}`);
-  
-  if (error) {
-    console.error(`❌ 查询主题列表失败: ${error.message}`);
-    return { data: [], error: error.message };
-  }
-
-  let list = (data ?? []) as ThemeRecord[];
-  
-  if (list.length === 0) {
-    // 🔥 检查用户注册时间，判断是否为新用户
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("created_at")
-      .eq("id", user.id)
-      .single();
-    
-    const isNewUser = profile && (Date.now() - new Date(profile.created_at).getTime()) < 24 * 60 * 60 * 1000; // 24小时内注册的用户
-    
-    if (isNewUser) {
-      // 🔥 防重复初始化检查
-      if (initializingUsers.has(user.id)) {
-        console.log(`⏳ 用户 ${user.id} 的主题初始化正在进行中，跳过重复初始化`);
-        return { data: [] };
-      }
-      
-      console.log(`🆕 新用户 ${user.id} 无主题，启动后台初始化`);
-      initializingUsers.add(user.id);
-      
-      // 🔥 首次访问：先返回空列表，后台异步初始化
-      // 异步初始化（不阻塞当前请求）
-      setTimeout(async () => {
-        try {
-          const initializedThemes = await initializeDefaultThemes(supabase, user.id);
-          console.log(`✅ 新用户主题初始化完成: ${initializedThemes.length} 个主题`);
-          
-          if (initializedThemes.length > 0) {
-            // 初始化成功后更新缓存
-            themesCache.set(cacheKey, { 
-              data: initializedThemes, 
-              expiresAt: Date.now() + THEMES_CACHE_TTL 
-            });
-            console.log(`💾 主题列表已缓存（初始化后），用户: ${user.id}, 主题数: ${initializedThemes.length}`);
-          }
-        } catch (error) {
-          console.error('主题初始化失败:', error);
-        } finally {
-          // 🔥 清理初始化状态
-          initializingUsers.delete(user.id);
-        }
-      }, 0);
-      
-      // 返回空列表，UI会显示提示
-      return { data: [] };
-    } else {
-      console.log(`👤 老用户 ${user.id} 无主题，不自动初始化`);
-      // 对于老用户，直接返回空列表，不进行自动初始化
-      return { data: [] };
-    }
-  }
-  
-  // 🔥 设置缓存
-  themesCache.set(cacheKey, { data: list, expiresAt: Date.now() + THEMES_CACHE_TTL });
-  console.log(`💾 主题列表已缓存，用户: ${user.id}, 主题数: ${list.length}, 总耗时: ${Date.now() - startTime}ms`);
-  
-  return { data: list };
-}
-
 /**
  * 🔥 清除特定用户的主题缓存
  */
 export async function clearThemesCache(userId: string): Promise<void> {
-  const cacheKey = `themes_${userId}`;
-  themesCache.delete(cacheKey);
-  console.log(`🧹 清除主题缓存，用户: ${userId}`);
+  try {
+    // 递增缓存版本号
+    await incrementThemesVersion(userId);
+    
+    // 清除内存缓存
+    const cacheKey = `themes_${userId}`;
+    themesCache.delete(cacheKey);
+    
+    console.log(`🧹 清除主题缓存，用户: ${userId}`);
+  } catch (error) {
+    console.error(`❌ 清除主题缓存失败，用户: ${userId}:`, error);
+  }
 }
 
 export async function getRoomById(id: string): Promise<{ data: RoomRecord | null; error?: string }> {
@@ -274,8 +350,8 @@ export async function createRoom(formData: FormData): Promise<void> {
     .single();
   if (error) throw new Error(error.message);
 
-  // 🔥 清除主题缓存，因为可能创建了新主题
-  clearThemesCache(user.id);
+  // 🔥 清除主题缓存，确保主题列表更新
+  await clearThemesCache(user.id);
   
   revalidatePath("/lobby");
   redirect(`/lobby/${room.id}`);
