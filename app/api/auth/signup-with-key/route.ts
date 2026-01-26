@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
+import { generateNickname } from '@/lib/nickname'; // 新增导入
 
 export async function POST(request: NextRequest) {
   console.log('[Signup API] 注册请求开始');
@@ -173,7 +174,7 @@ export async function POST(request: NextRequest) {
         created_at: now.toISOString(),
         updated_at: now.toISOString(),
         avatar_url: null,
-        nickname: email.split('@')[0], // 默认昵称
+        nickname: generateNickname(userId), // 修复：使用随机生成的昵称
         preferences: initialPreferences // 🔥 使用正确的JSON对象
       }, {
         onConflict: 'id',
