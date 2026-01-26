@@ -12,8 +12,73 @@ import { HeartbeatProvider } from '@/components/heartbeat-provider';
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "LOVE LUDO",
-  description: "情侣互动平台",
+  title
+    : "希夷书斋 - 让每一次互动都充满爱意",
+  description
+    : "异地情侣专属飞行棋互动平台，通过创意游戏增进感情，记录甜蜜时刻。希夷书斋，专注于为情侣创造浪漫的互动体验",
+  keywords
+    : [
+      "希夷书斋",
+      "情侣飞行棋",
+      "情侣互动",
+      "异地恋双人游戏",
+      "浪漫约会",
+      "增进感情",
+      "情侣游戏平台",
+      "恋爱互动"
+    ],
+  authors
+    : [{ name: "希夷书斋" }],
+  creator
+    : "希夷书斋",
+  publisher
+    : "希夷书斋",
+  formatDetection
+    : {
+    email
+      : false,
+    address
+      : false,
+    telephone
+      : false,
+  },
+  icons: {
+    // 浏览器标签图标（使用PNG文件）
+    icon: [
+      {
+        url: '/favicon-16x16.png',
+        type: 'image/png',
+        sizes: '16x16'
+      },
+      {
+        url: '/favicon-32x32.png',
+        type: 'image/png',
+        sizes: '32x32'
+      },
+      {
+        url: '/favicon.ico',
+        type: 'image/x-icon',
+        sizes: 'any'
+      }
+    ],
+
+    // 苹果设备图标
+    apple: [
+      {
+        url: '/apple-touch-icon.png',
+        type: 'image/png',
+        sizes: '180x180'
+      }
+    ],
+
+    // 快捷方式图标
+    shortcut: [
+      {
+        url: '/favicon.ico',
+        type: 'image/x-icon'
+      }
+    ]
+  },
 };
 
 export default function RootLayout({
@@ -23,7 +88,7 @@ export default function RootLayout({
 }>) {
   // 安全地获取环境变量（避免服务器端错误）
   const isDevelopment = process.env.NODE_ENV === 'development';
-  
+
   return (
     <html lang="zh-CN" className="dark" suppressHydrationWarning>
       <head>
@@ -36,24 +101,24 @@ export default function RootLayout({
         <ClientOnly>
           {/* 心跳提供者 - 确保心跳机制正常工作 */}
           <HeartbeatProvider />
-          
+
           {/* 设备检查守卫 */}
           <DeviceCheckGuard />
-          
+
           {/* 会员过期检查守卫 */}
           <MembershipGuard />
-          
+
           {/* 导航性能测量组件 */}
           <PerformanceMeasurement />
-          
+
           {/* 主内容区域 */}
           <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-950 pb-16">
             {children}
           </div>
-          
+
           {/* 底部导航栏 */}
           <BottomNav />
-          
+
           {/* 开发环境调试工具 */}
           {/* {isDevelopment && (
             <div className="fixed bottom-20 right-4 flex flex-col gap-2 z-50">
@@ -66,7 +131,7 @@ export default function RootLayout({
               </a>
             </div>
           )} */}
-          
+
           {/* 生产环境快速访问 */}
           {/* {!isDevelopment && (
             <a 
