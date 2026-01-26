@@ -68,7 +68,7 @@ export interface UserDetail {
   last_login_at: string | null
   last_login_session: string | null
   access_key_id: number | null
-  created_at: string
+created_at: string
   updated_at: string
   access_keys: AccessKey[]
   ai_usage_records: AIUsageRecord[]
@@ -356,7 +356,7 @@ export function getGenderDisplay(preferences: any, genderDisplay?: string): Gend
 }
 
 /**
- * 检查用户是否活跃（3分钟内登录）
+ * 检查用户是否活跃（5分钟内登录）
  * @param lastLoginAt 最后登录时间
  * @returns 是否活跃
  */
@@ -366,8 +366,8 @@ export function isUserActive(lastLoginAt: string | null): boolean {
   try {
     const lastLogin = new Date(lastLoginAt)
     const now = new Date()
-    const threeMinutesAgo = new Date(now.getTime() - 3 * 60 * 1000)
-    return lastLogin > threeMinutesAgo
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000) // 改为5分钟
+    return lastLogin > fiveMinutesAgo
   } catch {
     return false
   }
@@ -667,7 +667,6 @@ export function normalizeUserDetail(data: any): UserDetail {
     currentAccessKey: data.current_access_key || data.currentAccessKey 
       ? normalizeAccessKey(data.current_access_key || data.currentAccessKey)
       : undefined,
-    
     // 驼峰格式的计数字段
     keyUsageHistoryTotal: data.key_usage_history_total || data.keyUsageHistoryTotal || 0,
     aiUsageRecordsTotal: data.ai_usage_records_total || data.aiUsageRecordsTotal || 0,

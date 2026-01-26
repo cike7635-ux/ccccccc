@@ -7,12 +7,13 @@ import { BottomNav } from "@/components/ui/bottom-nav";
 import { DeviceCheckGuard } from '@/components/device-check-guard';
 import { MembershipGuard } from '@/components/membership-guard';
 import { ClientOnly } from '@/components/ui/client-only';
+import { HeartbeatProvider } from '@/components/heartbeat-provider';
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "LOVE LUDO",
-  description: "互动平台",
+  description: "情侣互动平台",
 };
 
 export default function RootLayout({
@@ -33,6 +34,9 @@ export default function RootLayout({
       <body className={`${inter.className} bg-background text-foreground touch-optimized`}>
         {/* 使用客户端包装器包装动态内容 */}
         <ClientOnly>
+          {/* 心跳提供者 - 确保心跳机制正常工作 */}
+          <HeartbeatProvider />
+          
           {/* 设备检查守卫 */}
           <DeviceCheckGuard />
           

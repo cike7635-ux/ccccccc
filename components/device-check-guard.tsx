@@ -47,8 +47,8 @@ export function DeviceCheckGuard() {
     
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
-    // 每15秒检查一次
-    const interval = setInterval(checkDevice, 15000);
+    // 每50秒检查一次
+    const interval = setInterval(checkDevice, 50000);
     
     return () => {
       clearInterval(interval);
