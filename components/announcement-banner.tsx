@@ -30,6 +30,19 @@ export default function AnnouncementBanner() {
   const [dismissedIds, setDismissedIds] = useState<number[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  // 处理公告内容中的换行符
+  const formatAnnouncementContent = (content: string) => {
+    if (!content) return '';
+    
+    // 将换行符转换为HTML换行标签
+    const contentWithLineBreaks = content
+      .replace(/\r\n/g, '\n')  // 标准化换行符
+      .replace(/\n/g, '<br />'); // 转换为HTML换行
+    
+    // 添加段落间距样式
+    return `<div style="line-height: 1.6; white-space: pre-wrap;">${contentWithLineBreaks}</div>`;
+  };
+  
   // 从sessionStorage加载已关闭的公告ID
   useEffect(() => {
     const dismissed = sessionStorage.getItem('dismissedAnnouncements');
@@ -170,7 +183,7 @@ export default function AnnouncementBanner() {
       {/* 公告内容 */}
       <div 
         className="text-sm text-gray-200 mb-3 prose prose-sm max-w-none"
-        dangerouslySetInnerHTML={{ __html: currentAnnouncement.content }}
+        dangerouslySetInnerHTML={{ __html: formatAnnouncementContent(currentAnnouncement.content) }}
       />
 
       {/* 时间信息和导航 */}

@@ -57,6 +57,19 @@ export default function AnnouncementModal() {
   const [showModal, setShowModal] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  // 处理公告内容中的换行符
+  const formatAnnouncementContent = (content: string) => {
+    if (!content) return '';
+    
+    // 将换行符转换为HTML换行标签
+    const contentWithLineBreaks = content
+      .replace(/\r\n/g, '\n')  // 标准化换行符
+      .replace(/\n/g, '<br />'); // 转换为HTML换行
+    
+    // 添加段落间距样式
+    return `<div style="line-height: 1.6; white-space: pre-wrap;">${contentWithLineBreaks}</div>`;
+  };
+
   // 初始化：获取公告和用户已读状态
   useEffect(() => {
     console.log('🎯 2. useEffect执行，开始检查公告');
@@ -407,7 +420,7 @@ export default function AnnouncementModal() {
                 fontSize: isMobile ? '14px' : '16px',
                 lineHeight: isMobile ? '1.6' : '1.7'
               }}
-              dangerouslySetInnerHTML={{ __html: currentAnnouncement.content }}
+              dangerouslySetInnerHTML={{ __html: formatAnnouncementContent(currentAnnouncement.content) }}
             />
           </div>
 
