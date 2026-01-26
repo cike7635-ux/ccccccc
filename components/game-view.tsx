@@ -1,12 +1,12 @@
-// components\game-view.tsx
+// components/game-view.tsx
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, useRef } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { rollDice, confirmTaskExecution, verifyTask } from "@/app/game/actions";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Settings, MapPin, Heart, Zap, Trophy, Dice6, MessageSquareHeart, Plane, PlaneTakeoff, Rocket } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Settings, MapPin, Heart, Zap, Trophy, Dice6, MessageSquareHeart, Plane, PlaneTakeoff, Rocket, Wifi, WifiOff, RefreshCw } from "lucide-react";
 
 type GameSession = {
   id: string;
@@ -42,14 +42,12 @@ export default function GameView({ session, userId }: { session: GameSession; us
   const [currentTurn, setCurrentTurn] = useState(session.current_turn ?? 1);
   const [player1Pos, setPlayer1Pos] = useState<number>(Number(session.game_state?.player1_position ?? 0));
   const [player2Pos, setPlayer2Pos] = useState<number>(Number(session.game_state?.player2_position ?? 0));
-  // 用于动画显示的当前位置（逐步逼近真实位置）
   const [displayP1Pos, setDisplayP1Pos] = useState<number>(Number(session.game_state?.player1_position ?? 0));
   const [displayP2Pos, setDisplayP2Pos] = useState<number>(Number(session.game_state?.player2_position ?? 0));
   const [boardSize] = useState<number>(Number(session.game_state?.board_size ?? 49));
   const [specialCells, setSpecialCells] = useState<Record<number, string>>(() => {
     const sc = session.game_state?.special_cells ?? {};
     if (Object.keys(sc).length === 0) {
-      // 默认放置 12 个幸运星与 12 个陷阱（避免起点与终点，且不重叠）
       const stars = [2, 6, 10, 14, 18, 22, 26, 30, 34, 38, 42, 46];
       const traps = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 47];
       const defaults: Record<number, string> = {};
@@ -72,51 +70,162 @@ export default function GameView({ session, userId }: { session: GameSession; us
   } | null>(session.game_state?.pending_task ?? null);
   const [p1Nickname, setP1Nickname] = useState<string>("");
   const [p2Nickname, setP2Nickname] = useState<string>("");
+  const [gameConnectionStatus, setGameConnectionStatus] = useState<"connected" | "disconnected" | "reconnecting">("connected");
+  const [gameChannelStatus, setGameChannelStatus] = useState<string>("");
+  const [showReconnectPrompt, setShowReconnectPrompt] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   const canRoll = currentPlayerId === userId && status === "playing" && !pendingTask;
 
+  // 🔥 检测是否为移动设备
   useEffect(() => {
-    const channel = supabase
-      .channel(`game_${session.id}`)
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "game_sessions", filter: `id=eq.${session.id}` },
-        (payload) => {
-          const s = (payload.new as any) ?? {};
-          setStatus(s.status ?? "playing");
-          const gs = (s.game_state ?? {}) as { player1_position?: number; player2_position?: number; board_size?: number };
-          setCurrentPlayerId(s.current_player_id ?? null);
-          setCurrentTurn(Number(s.current_turn ?? 1));
-          setPlayer1Pos(Number(gs.player1_position ?? 0));
-          setPlayer2Pos(Number(gs.player2_position ?? 0));
-          const nextSpecial = (s.game_state?.special_cells ?? {}) as Record<number, string>;
-          if (nextSpecial && Object.keys(nextSpecial).length > 0) {
-            setSpecialCells(nextSpecial);
+    const mobileCheck = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    setIsMobile(mobileCheck);
+    console.log(`📱 GameView 设备类型: ${mobileCheck ? '移动端' : '电脑端'}`);
+  }, []);
+
+  // 🔥 完整的游戏订阅，带重连机制
+  useEffect(() => {
+    let cancelled = false;
+    let channel: any = null;
+    let retryCount = 0;
+    const maxRetries = 5;
+
+    console.log(`📡 GameView 建立完整订阅，游戏ID: ${session.id}, 房间ID: ${session.room_id}`);
+
+    const setupGameChannel = () => {
+      if (cancelled) return;
+
+      // 清理旧的频道
+      if (channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+
+      channel = supabase
+        .channel(`game_full_${session.id}`)
+        // 监听房间表
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "rooms",
+            filter: `id=eq.${session.room_id}`
+          },
+          (payload) => {
+            console.log(`🔄 GameView 接收到房间更新:`, payload.new);
           }
-          setPendingTask((s.game_state?.pending_task ?? null) as any);
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "game_moves", filter: `session_id=eq.${session.id}` },
-        (payload) => {
-          const mv = (payload.new as any) ?? {};
-          if (typeof mv.dice_value === "number") {
-            setIsRolling(true);
-            setTimeout(() => {
-              setLastDice(mv.dice_value);
-              setIsRolling(false);
-            }, 600);
+        )
+        // 监听游戏会话
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "game_sessions", filter: `id=eq.${session.id}` },
+          (payload) => {
+            console.log(`🔄 GameView 接收到游戏会话更新:`, payload.new);
+
+            const s = (payload.new as any) ?? {};
+            setStatus(s.status ?? "playing");
+            const gs = (s.game_state ?? {}) as {
+              player1_position?: number;
+              player2_position?: number;
+              board_size?: number;
+              pending_task?: any;
+            };
+            setCurrentPlayerId(s.current_player_id ?? null);
+            setCurrentTurn(Number(s.current_turn ?? 1));
+            setPlayer1Pos(Number(gs.player1_position ?? 0));
+            setPlayer2Pos(Number(gs.player2_position ?? 0));
+
+            // 确保任务状态正确更新
+            const nextPendingTask = (gs.pending_task ?? null) as any;
+            setPendingTask(nextPendingTask);
+            console.log(`📝 游戏任务状态更新:`, nextPendingTask);
+
+            const nextSpecial = (s.game_state?.special_cells ?? {}) as Record<number, string>;
+            if (nextSpecial && Object.keys(nextSpecial).length > 0) {
+              setSpecialCells(nextSpecial);
+            }
+
+            // 重置重试计数
+            retryCount = 0;
           }
-        },
-      )
-      .subscribe();
+        )
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "game_moves", filter: `session_id=eq.${session.id}` },
+          (payload) => {
+            const mv = (payload.new as any) ?? {};
+            if (typeof mv.dice_value === "number") {
+              setIsRolling(true);
+              setTimeout(() => {
+                setLastDice(mv.dice_value);
+                setIsRolling(false);
+              }, 600);
+            }
+          }
+        )
+        .subscribe((status) => {
+          console.log(`📡 GameView 订阅状态: ${status}, 游戏: ${session.id}`);
+          setGameChannelStatus(status);
+
+          if (status === "SUBSCRIBED") {
+            console.log(`✅ GameView 订阅成功`);
+            setGameConnectionStatus("connected");
+            retryCount = 0;
+            setShowReconnectPrompt(false);
+          } else if (status === "CHANNEL_ERROR" || status === "CLOSED") {
+            console.warn(`⚠️ GameView 订阅断开，状态: ${status}`);
+            setGameConnectionStatus("disconnected");
+
+            // 🔥 移动端使用更积极的重连策略
+            const reconnectDelay = isMobile ? 2000 : 5000;
+
+            if (retryCount < maxRetries) {
+              retryCount++;
+              setGameConnectionStatus("reconnecting");
+
+              console.log(`🔄 GameView 尝试重连 (${retryCount}/${maxRetries})`);
+
+              // 指数退避重连
+              const delay = Math.min(reconnectDelay * Math.pow(1.5, retryCount - 1), 15000);
+
+              setTimeout(() => {
+                if (!cancelled) {
+                  setupGameChannel();
+                }
+              }, delay);
+            } else {
+              console.error(`❌ GameView 达到最大重试次数`);
+              setShowReconnectPrompt(true);
+            }
+          }
+        });
+    };
+
+    setupGameChannel();
+
+    // 🔥 添加心跳检测
+    const heartbeatInterval = setInterval(() => {
+      if (channel && gameConnectionStatus === "connected") {
+        // 发送心跳包确认连接
+        console.log(`💓 GameView 心跳检测，连接状态: ${gameConnectionStatus}`);
+      }
+    }, 30000); // 30秒心跳
 
     return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [supabase, session.id]);
+      console.log(`🧹 GameView 清理订阅`);
+      cancelled = true;
+      clearInterval(heartbeatInterval);
 
+      if (channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+    };
+  }, [supabase, session.id, session.room_id, isMobile]);
+
+  // 🔥 玩家信息获取
   useEffect(() => {
     (async () => {
       try {
@@ -137,11 +246,110 @@ export default function GameView({ session, userId }: { session: GameSession; us
         setP1Nickname(room?.player1_nickname ?? p1?.nickname ?? "玩家 1");
         setP2Nickname(room?.player2_nickname ?? p2?.nickname ?? "玩家 2");
       } catch (e) {
-        // Ignore errors
+        console.error("获取玩家昵称失败:", e);
       }
     })();
   }, [supabase, session.room_id, session.player1_id, session.player2_id]);
 
+  // 🔥 棋子移动动画
+  useEffect(() => {
+    if (displayP1Pos === player1Pos) return;
+    const dir = player1Pos > displayP1Pos ? 1 : -1;
+    const timer = setTimeout(() => {
+      setDisplayP1Pos((prev) => prev + dir);
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [player1Pos, displayP1Pos]);
+
+  useEffect(() => {
+    if (displayP2Pos === player2Pos) return;
+    const dir = player2Pos > displayP2Pos ? 1 : -1;
+    const timer = setTimeout(() => {
+      setDisplayP2Pos((prev) => prev + dir);
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [player2Pos, displayP2Pos]);
+
+  // 🔥 移动端页面可见性变化处理
+  useEffect(() => {
+    if (!isMobile) return;
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // 页面重新可见
+        console.log(`📱 游戏页面重新可见，检查连接状态`);
+
+        if (gameConnectionStatus !== "connected") {
+          console.log(`📱 游戏页面重新可见，但连接状态为 ${gameConnectionStatus}，显示重连提示`);
+          setShowReconnectPrompt(true);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isMobile, gameConnectionStatus]);
+
+  // 🔥 网络状态监听
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log(`🌐 游戏页面网络恢复`);
+      if (gameConnectionStatus !== "connected") {
+        setShowReconnectPrompt(true);
+      }
+    };
+
+    const handleOffline = () => {
+      console.log(`🌐 游戏页面网络断开`);
+      setGameConnectionStatus("disconnected");
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [gameConnectionStatus]);
+
+  // 🔥 游戏功能函数
+  function handleRoll() {
+    if (!canRoll) return;
+    console.log(`🎲 玩家 ${userId} 开始掷骰子`);
+    startTransition(async () => {
+      await rollDice(session.id);
+    });
+  }
+
+  async function onExecutorConfirm() {
+    console.log(`✅ 执行者确认完成任务`);
+    startTransition(async () => {
+      await confirmTaskExecution(session.id);
+    });
+  }
+
+  async function onObserverVerify(done: boolean) {
+    console.log(`👁️ 观察者验证任务: ${done ? "已执行" : "未执行"}`);
+    startTransition(async () => {
+      await verifyTask(session.id, done);
+    });
+  }
+
+  // 🔥 重连功能
+  const handleReconnect = () => {
+    console.log(`🔄 手动重连游戏订阅`);
+    setShowReconnectPrompt(false);
+    setGameConnectionStatus("reconnecting");
+
+    // 简单刷新页面
+    window.location.reload();
+  };
+
+  // 🔥 棋盘生成
   const cells = Array.from({ length: boardSize }, (_, i) => i);
 
   function buildSpiralGrid(n: number): number[][] {
@@ -167,7 +375,6 @@ export default function GameView({ session, userId }: { session: GameSession; us
 
   const spiralGrid = useMemo(() => buildSpiralGrid(7), []);
 
-  // 建立步数到网格坐标的映射，用于计算方向箭头
   const stepPos = useMemo(() => {
     const map: Record<number, { row: number; col: number }> = {};
     for (let r = 0; r < 7; r++) {
@@ -181,44 +388,75 @@ export default function GameView({ session, userId }: { session: GameSession; us
     return map;
   }, [spiralGrid]);
 
-  // 棋子移动动画：逐步将显示位置逼近真实位置
-  useEffect(() => {
-    if (displayP1Pos === player1Pos) return;
-    const dir = player1Pos > displayP1Pos ? 1 : -1;
-    const timer = setTimeout(() => {
-      setDisplayP1Pos((prev) => prev + dir);
-    }, 180);
-    return () => clearTimeout(timer);
-  }, [player1Pos, displayP1Pos]);
-
-  useEffect(() => {
-    if (displayP2Pos === player2Pos) return;
-    const dir = player2Pos > displayP2Pos ? 1 : -1;
-    const timer = setTimeout(() => {
-      setDisplayP2Pos((prev) => prev + dir);
-    }, 180);
-    return () => clearTimeout(timer);
-  }, [player2Pos, displayP2Pos]);
-
-  function handleRoll() {
-    if (!canRoll) return;
-    startTransition(async () => {
-      await rollDice(session.id);
-    });
-  }
-  async function onExecutorConfirm() {
-    startTransition(async () => {
-      await confirmTaskExecution(session.id);
-    });
-  }
-  async function onObserverVerify(done: boolean) {
-    startTransition(async () => {
-      await verifyTask(session.id, done);
-    });
-  }
+  // 🔥 连接状态显示组件
+ // 只保留关键状态
+const renderConnectionIndicator = () => {
+  // 🔥 只显示断开和重连状态
+  if (gameConnectionStatus === "connected") return null;
+  
+  const statusConfig = {
+    disconnected: { 
+      text: "连接断开", 
+      color: "bg-red-500/20 text-red-400"
+    },
+    reconnecting: { 
+      text: "重连中...", 
+      color: "bg-yellow-500/20 text-yellow-400"
+    }
+  };
+  
+  return (
+    <div className="fixed top-2 right-2 z-50 px-2 py-1 text-xs rounded">
+      <span className={`${statusConfig[gameConnectionStatus].color} px-2 py-1 rounded`}>
+        {statusConfig[gameConnectionStatus].text}
+      </span>
+    </div>
+  );
+};
 
   return (
     <div className="max-w-md mx-auto h-screen flex flex-col p-2">
+      {/* 🔥 连接状态指示器 */}
+      {renderConnectionIndicator()}
+
+      {/* 🔥 重连提示 */}
+      {showReconnectPrompt && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="glass rounded-2xl p-6 max-w-sm w-full">
+            <div className="flex items-center justify-center mb-4">
+              <div className="w-16 h-16 bg-yellow-500/20 rounded-2xl flex items-center justify-center">
+                <WifiOff className="w-8 h-8 text-yellow-400" />
+              </div>
+            </div>
+            <h3 className="text-xl font-bold text-center mb-2">连接中断</h3>
+            <p className="text-gray-300 text-center mb-2">
+              游戏连接已断开，需要重新连接
+            </p>
+            {isMobile && (
+              <p className="text-sm text-gray-400 text-center mb-4">
+                📱 移动端提示：锁屏或切换应用可能导致连接断开
+              </p>
+            )}
+            <div className="space-y-3">
+              <Button
+                onClick={handleReconnect}
+                className="w-full gradient-primary py-3 rounded-xl font-semibold text-white"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                重新连接
+              </Button>
+              <Button
+                asChild
+                className="w-full bg-gray-700 hover:bg-gray-600 py-3 rounded-xl font-semibold"
+              >
+                <Link href="/lobby">返回大厅</Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 原有游戏界面... */}
       <div className="flex items-center justify-between mb-4">
         <Link href="/lobby" className="w-10 h-10 glass rounded-xl flex items-center justify-center hover:bg-white/10 transition-all">
           <ArrowLeft className="w-5 h-5" />
@@ -231,9 +469,8 @@ export default function GameView({ session, userId }: { session: GameSession; us
 
       <div className="grid grid-cols-2 gap-2 mb-3">
         <div
-          className={`glass rounded-lg px-2 py-2 transition-all flex items-center justify-between ${
-            currentPlayerId === session.player1_id ? "gradient-primary glow-pink" : ""
-          }`}
+          className={`glass rounded-lg px-2 py-2 transition-all flex items-center justify-between ${currentPlayerId === session.player1_id ? "gradient-primary glow-pink" : ""
+            }`}
         >
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-6 h-6 rounded-md bg-brand-pink/20 flex items-center justify-center">
@@ -253,9 +490,8 @@ export default function GameView({ session, userId }: { session: GameSession; us
         </div>
 
         <div
-          className={`glass rounded-lg px-2 py-2 transition-all flex items-center justify-between ${
-            currentPlayerId === session.player2_id ? "gradient-primary glow-pink" : "opacity-70"
-          }`}
+          className={`glass rounded-lg px-2 py-2 transition-all flex items-center justify-between ${currentPlayerId === session.player2_id ? "gradient-primary glow-pink" : "opacity-70"
+            }`}
         >
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-6 h-6 rounded-md bg-brand-purple/20 flex items-center justify-center">
@@ -275,30 +511,55 @@ export default function GameView({ session, userId }: { session: GameSession; us
         </div>
       </div>
 
-      {/* 掷骰卡片：包含骰子显示与按钮 */}
+      {/* 掷骰子部分 */}
       <div className="glass rounded-2xl p-4 mb-3">
         <div className="flex items-center justify-between gap-3">
-          <div
-            className={`w-16 h-16 gradient-primary rounded-xl flex items-center justify-center text-3xl font-bold glow-pink transition-transform ${
-              isRolling ? "animate-dice-roll" : ""
-            } ${canRoll ? "animate-glow-pulse" : ""}`}
-            style={{ perspective: "1000px", transformStyle: "preserve-3d" }}
-          >
-            {isRolling ? "🎲" : (lastDice ?? "?")}
+          {/* 🔥 修复的骰子容器 */}
+          <div className="relative">
+            <div
+              className={`w-16 h-16 gradient-primary rounded-xl flex items-center justify-center text-4xl font-bold glow-pink transition-transform ${isRolling ? "animate-dice-roll" : ""
+                } ${canRoll && !isRolling ? "animate-glow-pulse" : ""}`}
+              style={{ perspective: "1000px", transformStyle: "preserve-3d" }}
+            >
+              {/* 🔥 修复：骰子面显示 */}
+              {isRolling ? (
+                <div className="animate-spin text-3xl">🎲</div>
+              ) : (
+                <div className="text-4xl font-bold animate-pulse-once">
+                  {lastDice ?? "?"}
+                </div>
+              )}
+            </div>
+
+            {/* 🔥 骰子点数说明（可选） */}
+            {/* {lastDice && !isRolling && (
+              <div className="absolute -top-2 -right-2 w-6 h-6 bg-brand-pink rounded-full flex items-center justify-center text-xs font-bold">
+                {lastDice}
+              </div>
+            )} */}
           </div>
+
+          {/* 掷骰子按钮保持不变 */}
           <Button
             onClick={handleRoll}
-            disabled={!canRoll || isPending}
-            className={`gradient-primary px-6 py-3 rounded-xl font-semibold glow-pink text-white flex items-center gap-2 transition-transform ${
-              canRoll && !isPending ? "hover:scale-105 active:scale-95" : "opacity-50 cursor-not-allowed"
-            } ${isPending ? "animate-button-press" : ""} ${canRoll && !isPending ? "" : ""}`}
+            disabled={!canRoll || isPending || gameConnectionStatus !== "connected"}
+            className={`gradient-primary px-6 py-3 rounded-xl font-semibold glow-pink text-white flex items-center gap-2 transition-transform ${canRoll && !isPending && gameConnectionStatus === "connected"
+                ? "hover:scale-105 active:scale-95"
+                : "opacity-50 cursor-not-allowed"
+              } ${isPending ? "animate-button-press" : ""}`}
           >
             <Dice6 className="w-5 h-5" />
             <span>{isPending ? "掷骰中" : "掷骰子"}</span>
           </Button>
         </div>
+        {gameConnectionStatus !== "connected" && (
+          <p className="text-xs text-yellow-400 mt-2 text-center">
+            {gameConnectionStatus === "reconnecting" ? "连接重连中，请稍候..." : "连接断开，无法操作"}
+          </p>
+        )}
       </div>
 
+      {/* 棋盘部分 */}
       <div className="glass rounded-2xl p-2 mb-4">
         <div className="grid grid-cols-7 gap-1">
           {cells.map((i) => {
@@ -315,18 +576,16 @@ export default function GameView({ session, userId }: { session: GameSession; us
             return (
               <div
                 key={i}
-                className={`relative rounded-lg flex items-center justify-center transition-all hover:scale-105 ${
-                  isEnd
+                className={`relative rounded-lg flex items-center justify-center transition-all hover:scale-105 ${isEnd
                     ? "gradient-primary glow-pink"
                     : spType === "star"
-                    ? "glass bg-brand-pink/20 border-brand-pink/30"
-                    : spType === "trap"
-                    ? "glass bg-purple-500/20 border-purple-500/30"
-                    : "glass"
-                }`}
+                      ? "glass bg-brand-pink/20 border-brand-pink/30"
+                      : spType === "trap"
+                        ? "glass bg-purple-500/20 border-purple-500/30"
+                        : "glass"
+                  }`}
                 style={{ aspectRatio: '1 / 1' }}
               >
-                {/* 方向箭头（指向下一格，居中显示；若有棋子则不显示） */}
                 {step < boardSize && !(isP1 || isP2) && (() => {
                   const cur = stepPos[step];
                   const nxt = stepPos[step + 1];
@@ -369,8 +628,7 @@ export default function GameView({ session, userId }: { session: GameSession; us
         </div>
       </div>
 
-      
-
+      {/* 游戏结束弹窗 */}
       {status === "completed" && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
           <div className="glass rounded-3xl p-6 max-w-sm w-full glow-pink text-center">
@@ -394,6 +652,7 @@ export default function GameView({ session, userId }: { session: GameSession; us
         </div>
       )}
 
+      {/* 任务弹窗 */}
       {pendingTask && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
           <div className="glass rounded-3xl p-6 max-w-sm w-full glow-pink">
@@ -407,37 +666,53 @@ export default function GameView({ session, userId }: { session: GameSession; us
               </div>
             </div>
             <h3 className="text-xl font-bold text-center mb-2">触发任务！</h3>
+
+            {/* 连接状态提示 */}
+            {gameConnectionStatus !== "connected" && (
+              <div className="mb-4 p-3 bg-yellow-500/20 rounded-lg border border-yellow-500/30">
+                <p className="text-sm text-yellow-400 text-center">
+                  ⚠️ 连接不稳定，完成任务后可能需要等待
+                </p>
+              </div>
+            )}
+
             <div className="glass rounded-xl p-4 mb-6">
               <p className="text-center text-gray-300 leading-relaxed">
                 {pendingTask.task?.description ?? "（题库为空，作为占位任务）请进行指定动作并由观察者判定。"}
               </p>
             </div>
+
             {pendingTask.status === "pending" && pendingTask.executor_id === userId ? (
               <div className="flex space-x-3">
                 <Button
                   onClick={onExecutorConfirm}
-                  disabled={isPending}
+                  disabled={isPending || gameConnectionStatus !== "connected"}
                   className="flex-1 gradient-primary py-3 rounded-xl font-semibold glow-pink text-white"
                 >
-                  完成任务
+                  我已完成任务
                 </Button>
               </div>
             ) : pendingTask.status === "executed" && pendingTask.observer_id === userId ? (
               <div className="flex space-x-3">
                 <Button
                   onClick={() => onObserverVerify(true)}
-                  disabled={isPending}
+                  disabled={isPending || gameConnectionStatus !== "connected"}
                   className="flex-1 bg-green-600 py-3 rounded-xl font-semibold text-white hover:bg-green-700"
                 >
-                  已执行
+                   已执行
                 </Button>
                 <Button
                   onClick={() => onObserverVerify(false)}
-                  disabled={isPending}
+                  disabled={isPending || gameConnectionStatus !== "connected"}
                   className="flex-1 bg-red-600 py-3 rounded-xl font-semibold text-white hover:bg-red-700"
                 >
-                  未执行
+                   未执行
                 </Button>
+              </div>
+            ) : pendingTask.status === "executed" ? (
+              <div className="text-center">
+                <p className="text-sm text-green-400 mb-2"> 执行者已完成任务</p>
+                <p className="text-xs text-gray-400">等待观察者验证...</p>
               </div>
             ) : (
               <div className="text-center text-sm text-gray-400">
@@ -445,6 +720,13 @@ export default function GameView({ session, userId }: { session: GameSession; us
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* 🔥 移动端底部提示 */}
+      {isMobile && (
+        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 text-xs text-gray-400 bg-black/30 px-4 py-2 rounded-full">
+          📱 提示：保持屏幕常亮以确保连接稳定
         </div>
       )}
     </div>
