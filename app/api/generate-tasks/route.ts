@@ -691,11 +691,11 @@ const sysPrompt = `你是一名专业、大胆、擅长制造控制感、服从�
 根据偏好后缀判断玩家方向：
 
 🔴 支配方（玩家享受支配权）：
-- 偏好包含：施加方、支配方、控制方、制定方、引导方、施虐倾向（S）、支配方（D）
+- 偏好包含：施加方、支配方、控制方、制定方、引导方、施虐倾向（S）、支配方（dom）
 - 任务结构：对方服从${nickname}，${nickname}享受支配
 
 🔵 服从方（玩家享受被支配）：
-- 偏好包含：接受方、服从方、被控方、顺从方、受虐倾向（M）、顺从方（s）
+- 偏好包含：接受方、服从方、被控方、顺从方、受虐倾向（M）、顺从方（sub）
 - 任务结构：对方支配${nickname}，${nickname}享受被支配
 
 🟡 切换者：
@@ -708,9 +708,9 @@ const sysPrompt = `你是一名专业、大胆、擅长制造控制感、服从�
 ${(() => {
   const kinks = kinksText;
   const isDominant = kinks.includes('施加方') || kinks.includes('支配方') || kinks.includes('控制方') || 
-                    kinks.includes('施虐倾向（S）') || kinks.includes('支配方（D）');
+                    kinks.includes('施虐倾向（S）') || kinks.includes('支配方（dom）');
   const isSubmissive = kinks.includes('接受方') || kinks.includes('服从方') || kinks.includes('被控方') ||
-                      kinks.includes('受虐倾向（M）') || kinks.includes('顺从方（s）');
+                      kinks.includes('受虐倾向（M）') || kinks.includes('顺从方（sub）');
   const isSwitch = kinks.includes('切换者（Switch）') || kinks.includes('Switch');
   
   if (isDominant) {
@@ -750,9 +750,9 @@ ${
   (() => {
     const kinks = kinksText;
     const isDominant = kinks.includes('施加方') || kinks.includes('支配方') || kinks.includes('控制方') || 
-                      kinks.includes('施虐倾向（S）') || kinks.includes('支配方（D）');
+                      kinks.includes('施虐倾向（S）') || kinks.includes('支配方（dom）');
     const isSubmissive = kinks.includes('接受方') || kinks.includes('服从方') || kinks.includes('被控方') ||
-                        kinks.includes('受虐倾向（M）') || kinks.includes('顺从方（s）');
+                        kinks.includes('受虐倾向（M）') || kinks.includes('顺从方（sub）');
     
     if (isDominant) {
       return `玩家是支配方，对方服从${nickname}：
@@ -778,7 +778,7 @@ ${
   (() => {
     const kinks = kinksText;
     const isDominant = kinks.includes('施加方') || kinks.includes('支配方') || kinks.includes('控制方') || 
-                      kinks.includes('施虐倾向（S）') || kinks.includes('支配方（D）');
+                      kinks.includes('施虐倾向（S）') || kinks.includes('支配方（dom）');
     
     if (isDominant) {
       return `玩家是支配方时，禁止生成：
@@ -813,7 +813,7 @@ ${
 4. 多样性
    - 混合不同场景和元素
    - 避免重复的核心行为
-   - 要有大尺度露骨描写，比如性行为、性爱姿势、性器官等
+   - 结合${kinksText}所需，可以有适当的大尺度露骨描写，比如性行为、性爱姿势、性器官等
 
 5. 表达风格
    - 命令式、压迫式、羞耻导向
@@ -855,10 +855,10 @@ ${customRequirement ? `- 特别要求：${customRequirement}` : ""}
    ${(() => {
      const kinks = kinksText;
      if (kinks.includes('施加方') || kinks.includes('支配方') || kinks.includes('控制方') || 
-         kinks.includes('施虐倾向（S）') || kinks.includes('支配方（D）')) {
+         kinks.includes('施虐倾向（S）') || kinks.includes('支配方（dom）')) {
        return `玩家是支配方，所有任务必须是对方服从${nickname}、取悦${nickname}。`;
      } else if (kinks.includes('接受方') || kinks.includes('服从方') || kinks.includes('被控方') ||
-                kinks.includes('受虐倾向（M）') || kinks.includes('顺从方（s）')) {
+                kinks.includes('受虐倾向（M）') || kinks.includes('顺从方（sub）')) {
        return `玩家是服从方，所有任务必须是对方支配${nickname}、命令${nickname}。`;
      } else if (kinks.includes('切换者（Switch）') || kinks.includes('Switch')) {
        return `玩家是切换者，任务方向可在不同任务间切换，每条任务内方向必须明确。`;
