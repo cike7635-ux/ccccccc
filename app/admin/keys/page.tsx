@@ -1367,7 +1367,7 @@ function KeysContent() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto hidden md:block">
               <table className="w-full min-w-[1200px]">
                 <thead>
                   <tr className="border-b border-gray-700/50 bg-gray-900/50">
@@ -1563,6 +1563,123 @@ function KeysContent() {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* 手机端卡片式布局 */}
+            <div className="md:hidden space-y-3 p-3">
+              {paginatedKeys.map((key) => {
+                const keyStatus = key.key_status || getKeyStatus(key)
+                const status = statusConfig[keyStatus]
+                const StatusIcon = status.icon
+                const remaining = key.remaining_time || getRemainingTime(key)
+                const durationDisplay = key.duration_display || getDurationDisplay(key)
+
+                return (
+                  <div
+                    key={key.id}
+                    className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 space-y-3"
+                  >
+                    {/* 密钥基本信息 */}
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={selectedKeys.includes(key.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedKeys(prev => [...prev, key.id])
+                            } else {
+                              setSelectedKeys(prev => prev.filter(id => id !== key.id))
+                            }
+                          }}
+                          className="rounded border-gray-600 bg-gray-800 w-5 h-5 flex-shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-white font-mono text-sm truncate">
+                              {key.key_code}
+                            </span>
+                            <button
+                              onClick={() => copyToClipboard(key.key_code)}
+                              className="p-1 hover:bg-gray-700 rounded transition-colors"
+                            >
+                              {copiedKey === key.key_code ? (
+                                <Check className="w-4 h-4 text-green-400" />
+                              ) : (
+                                <Copy className="w-4 h-4 text-gray-400" />
+                              )}
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded text-xs ${status.bgColor} ${status.color}`}>
+                              {status.label}
+                            </span>
+                            <span className="text-gray-500 text-xs">
+                              {durationDisplay}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 密钥详细信息 */}
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      {key.description && (
+                        <div className="flex flex-col col-span-2">
+                          <span className="text-gray-500 text-xs">描述</span>
+                          <span className="text-gray-300 text-xs mt-1">{key.description}</span>
+                        </div>
+                      )}
+                      <div className="flex flex-col">
+                        <span className="text-gray-500 text-xs">使用者</span>
+                        <div className="mt-1">{renderUsers(key)}</div>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-gray-500 text-xs">使用次数</span>
+                        <span className="text-gray-300 text-xs mt-1">{key.used_count || 0} 次</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-gray-500 text-xs">剩余有效期</span>
+                        <span className={`text-xs mt-1 ${remaining.color}`}>{remaining.text}</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-gray-500 text-xs">创建时间</span>
+                        <span className="text-gray-300 text-xs mt-1">
+                          {key.created_at_formatted || formatDate(key.created_at)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* 操作按钮 */}
+                    <div className="flex items-center gap-2 pt-2 border-t border-gray-700/50">
+                      <button
+                        onClick={() => viewKeyDetail(key.id)}
+                        className="flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
+                      >
+                        查看详情
+                      </button>
+                      <button
+                        onClick={() => handleKeyAction(key.id, key.is_active ? 'disable' : 'enable')}
+                        disabled={isOperationLoading}
+                        className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors disabled:opacity-50 ${
+                          key.is_active
+                            ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
+                            : 'bg-green-600 hover:bg-green-700 text-white'
+                        }`}
+                      >
+                        {isOperationLoading ? '处理中...' : key.is_active ? '禁用' : '启用'}
+                      </button>
+                      <button
+                        onClick={() => handleKeyAction(key.id, 'delete')}
+                        disabled={isOperationLoading}
+                        className="py-2 px-3 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
 
             {/* 分页控件 */}

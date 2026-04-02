@@ -722,8 +722,11 @@ export default function UsersPage() {
     /* 移动端优化 */
     @media (max-width: 768px) {
       .table-container {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
+        display: none;
+      }
+      
+      .mobile-cards-container {
+        display: block;
       }
       
       .stat-card {
@@ -743,6 +746,12 @@ export default function UsersPage() {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
         padding-bottom: 0.5rem;
+      }
+    }
+    
+    @media (min-width: 769px) {
+      .mobile-cards-container {
+        display: none;
       }
     }
     
@@ -1214,6 +1223,121 @@ export default function UsersPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* 手机端卡片式布局 */}
+            <div className="mobile-cards-container space-y-3 p-3">
+              {users.map((user) => (
+                <div
+                  key={user.id}
+                  className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 space-y-3"
+                >
+                  {/* 用户基本信息 */}
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedUsers.includes(user.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedUsers(prev => [...prev, user.id])
+                          } else {
+                            setSelectedUsers(prev => prev.filter(id => id !== user.id))
+                          }
+                        }}
+                        className="rounded border-gray-600 bg-gray-700 w-5 h-5 flex-shrink-0"
+                      />
+                      {user.avatarUrl ? (
+                        <img
+                          src={user.avatarUrl}
+                          alt={user.nickname || user.email}
+                          className="w-12 h-12 rounded-full object-cover flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
+                          <span className="text-white font-semibold text-lg">
+                            {(user.nickname || user.email).charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="text-white font-medium truncate">
+                            {user.nickname || '无昵称'}
+                          </p>
+                          {user.isAdmin && (
+                            <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded-full">
+                              管理员
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center text-gray-500 text-sm">
+                          <Mail className="w-3 h-3 mr-1 flex-shrink-0" />
+                          <span className="truncate">{user.email}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 用户状态信息 */}
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="flex flex-col">
+                      <span className="text-gray-500 text-xs">密钥状态</span>
+                      <div className="mt-1">{renderKeyCell(user)}</div>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-gray-500 text-xs">性别/会员</span>
+                      <div className="mt-1 flex items-center gap-2">
+                        {renderGenderCell(user)}
+                        <span className={`px-2 py-0.5 rounded text-xs ${user.isPremium
+                          ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white'
+                          : 'bg-gray-700 text-gray-300'
+                          }`}>
+                          {user.isPremium ? '会员' : '免费'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-gray-500 text-xs">最后登录</span>
+                      <div className="mt-1">{renderLastLoginCell(user)}</div>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-gray-500 text-xs">会员到期</span>
+                      <span className="text-gray-300 text-xs mt-1">{user.accountExpires}</span>
+                    </div>
+                    <div className="flex flex-col col-span-2">
+                      <span className="text-gray-500 text-xs">注册时间</span>
+                      <span className="text-gray-300 text-xs mt-1">{user.createdAt}</span>
+                    </div>
+                  </div>
+
+                  {/* 操作按钮 */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-gray-700/50">
+                    <button
+                      onClick={() => handleViewDetail(user.id)}
+                      className="flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
+                    >
+                      查看详情
+                    </button>
+                    <button
+                      onClick={() => handleToggleUserStatus(user.id, user.email, user.isActive)}
+                      className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors ${
+                        user.isActive
+                          ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
+                          : 'bg-green-600 hover:bg-green-700 text-white'
+                      }`}
+                    >
+                      {user.isActive ? '禁用' : '启用'}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteUser(user.id, user.email)}
+                      className="py-2 px-3 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition-colors"
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </>
         )}
