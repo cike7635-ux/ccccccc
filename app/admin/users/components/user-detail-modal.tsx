@@ -362,17 +362,60 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     }
   }, [userDetail])
 
-  // 🔧 修复：安全获取游戏历史
-  const gameHistory = useMemo(() => {
-    try {
-      if (!userDetail) return [];
-      const history = userDetail.game_history || userDetail.gameHistory || [];
-      return Array.isArray(history) ? history : [];
-    } catch (err) {
-      console.error('获取gameHistory出错:', err);
-      return [];
+  // 🔧 修复：使用新的API获取游戏历史
+  const [gameHistory, setGameHistory] = useState<any[]>([]);
+  const [gameLoading, setGameLoading] = useState(false);
+  const [expandedGames, setExpandedGames] = useState<Record<string, boolean>>({});
+  
+  useEffect(() => {
+    if (userDetail?.id) {
+      fetchGameRecords();
     }
-  }, [userDetail])
+  }, [userDetail?.id]);
+  
+  const fetchGameRecords = async () => {
+    if (!userDetail?.id) return;
+    
+    try {
+      setGameLoading(true);
+      console.log(`🔍 获取用户游戏记录 ID: ${userDetail.id}`);
+      const response = await fetch(`/api/admin/games?user_id=${userDetail.id}`, {
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`获取游戏记录失败 (${response.status})`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        console.log('✅ 游戏记录数据:', result.data);
+        setGameHistory(result.data);
+        // 重置展开状态
+        setExpandedGames({});
+      } else {
+        throw new Error(result.error || '获取数据失败');
+      }
+    } catch (error: any) {
+      console.error('❌ 获取游戏记录失败:', error);
+      setGameHistory([]);
+      setExpandedGames({});
+    } finally {
+      setGameLoading(false);
+    }
+  };
+  
+  const toggleGameExpanded = (gameId: string) => {
+    setExpandedGames(prev => ({
+      ...prev,
+      [gameId]: !prev[gameId]
+    }));
+  };
 
   // 🔧 修复：安全获取密钥使用历史
   const keyUsageHistory = useMemo(() => {
@@ -1624,33 +1667,45 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                   <div className="mb-4 md:mb-6 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
                     <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
                       <p className="text-xs md:text-sm text-gray-400 mb-2">总场次</p>
-                      <p className="text-xl md:text-2xl font-bold text-white">{totals.gameTotal || 0}</p>
+                      <p className="text-xl md:text-2xl font-bold text-white">{gameHistory.length || 0}</p>
                       <p className="text-xs text-gray-500 mt-1">
-                        7天内场次: {stats?.gameStats.recent || 0}
+                        7天内场次: {gameHistory.filter(g => {
+                          const endedAt = new Date(g.ended_at);
+                          const sevenDaysAgo = new Date();
+                          sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                          return endedAt >= sevenDaysAgo;
+                        }).length}
                       </p>
                     </div>
                     <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
                       <p className="text-xs md:text-sm text-gray-400 mb-2">胜场</p>
-                      <p className="text-xl md:text-2xl font-bold text-green-400">{stats?.gameStats.wins || 0}</p>
+                      <p className="text-xl md:text-2xl font-bold text-green-400">
+                        {gameHistory.filter(g => g.winner_id === userDetail.id).length}
+                      </p>
                     </div>
                     <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
                       <p className="text-xs md:text-sm text-gray-400 mb-2">负场</p>
                       <p className="text-xl md:text-2xl font-bold text-red-400">
-                        {stats ? stats.gameStats.total - stats.gameStats.wins : 0}
+                        {gameHistory.filter(g => g.winner_id && g.winner_id !== userDetail.id).length}
                       </p>
                     </div>
                     <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
                       <p className="text-xs md:text-sm text-gray-400 mb-2">胜率</p>
                       <p className="text-xl md:text-2xl font-bold text-blue-400">
-                        {stats?.gameStats.total
-                          ? `${((stats.gameStats.wins / stats.gameStats.total) * 100).toFixed(1)}%`
-                          : '0%'
+                        {gameHistory.length > 0 ? 
+                          ((gameHistory.filter(g => g.winner_id === userDetail.id).length / gameHistory.length) * 100).toFixed(1) + '%' : 
+                          '0.0%'
                         }
                       </p>
                     </div>
                   </div>
 
-                  {gameHistory.length === 0 ? (
+                  {gameLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mr-2"></div>
+                      <span className="text-gray-400">加载游戏记录中...</span>
+                    </div>
+                  ) : gameHistory.length === 0 ? (
                     <div className="text-center py-8 md:py-12">
                       <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
                         <Gamepad2 className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
@@ -1673,52 +1728,154 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                           </thead>
                           <tbody>
                             {gameHistory.map((game, index) => {
+                              const gameId = game.id || `game-${index}`;
+                              const isExpanded = expandedGames[gameId] || false;
                               const isWin = game.winner_id === userDetail.id;
                               const isDraw = !game.winner_id;
                               const startedAt = game.started_at;
                               const endedAt = game.ended_at;
+                              const userRole = game.player1_id === userDetail.id ? 'player1' : 'player2';
+                              
+                              // 获取对手昵称
+                              const getOpponentNickname = () => {
+                                if (userRole === 'player1' && game.player2) {
+                                  return game.player2.nickname || `玩家2`;
+                                } else if (userRole === 'player2' && game.player1) {
+                                  return game.player1.nickname || `玩家1`;
+                                }
+                                return `玩家${userRole === 'player1' ? '2' : '1'}`;
+                              };
 
                               return (
-                                <tr
-                                  key={index}
-                                  className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-all"
-                                >
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <code className="text-xs bg-gray-900 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-mono border border-gray-800">
-                                      {game.id?.substring(0, 8) || '未知'}
-                                    </code>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <div className="flex flex-col">
+                                <>
+                                  <tr
+                                    key={gameId}
+                                    className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-all cursor-pointer"
+                                    onClick={() => toggleGameExpanded(gameId)}
+                                  >
+                                    <td className="py-3 md:py-4 px-3 md:px-6">
+                                      <div className="flex items-center">
+                                        <code className="text-xs bg-gray-900 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-mono border border-gray-800">
+                                          {game.room_id?.substring(0, 8) || game.id?.substring(0, 8) || '未知'}
+                                        </code>
+                                        <ChevronDown className={`w-4 h-4 ml-2 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                      </div>
+                                    </td>
+                                    <td className="py-3 md:py-4 px-3 md:px-6">
+                                      <div className="flex flex-col">
+                                        <span className="text-gray-300 text-xs md:text-sm">
+                                          {getOpponentNickname()}
+                                        </span>
+                                        <span className="text-xs text-gray-500 mt-1">
+                                          你是{userRole === 'player1' ? '玩家1' : '玩家2'}
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td className="py-3 md:py-4 px-3 md:px-6">
+                                      <div className="flex items-center">
+                                        <div className={`w-2 h-2 rounded-full mr-1 md:mr-2 ${isWin ? 'bg-green-500' : isDraw ? 'bg-yellow-500' : 'bg-red-500'
+                                          }`} />
+                                        <span className={`text-xs md:text-sm ${isWin ? 'text-green-400' : isDraw ? 'text-yellow-400' : 'text-red-400'
+                                          }`}>
+                                          {isWin ? '胜利' : isDraw ? '平局' : '失败'}
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td className="py-3 md:py-4 px-3 md:px-6">
                                       <span className="text-gray-300 text-xs md:text-sm">
-                                        玩家{game.player1_id === userDetail.id ? '2' : '1'}
+                                        {formatDuration(startedAt, endedAt)}
                                       </span>
-                                      <span className="text-xs text-gray-500 mt-1">
-                                        {game.player1_id === userDetail.id ? '你是玩家1' : '你是玩家2'}
+                                    </td>
+                                    <td className="py-3 md:py-4 px-3 md:px-6">
+                                      <span className="text-gray-300 text-xs md:text-sm">
+                                        {formatDate(startedAt)}
                                       </span>
-                                    </div>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <div className="flex items-center">
-                                      <div className={`w-2 h-2 rounded-full mr-1 md:mr-2 ${isWin ? 'bg-green-500' : isDraw ? 'bg-yellow-500' : 'bg-red-500'
-                                        }`} />
-                                      <span className={`text-xs md:text-sm ${isWin ? 'text-green-400' : isDraw ? 'text-yellow-400' : 'text-red-400'
-                                        }`}>
-                                        {isWin ? '胜利' : isDraw ? '平局' : '失败'}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <span className="text-gray-300 text-xs md:text-sm">
-                                      {formatDuration(startedAt, endedAt)}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 md:py-4 px-3 md:px-6">
-                                    <span className="text-gray-300 text-xs md:text-sm">
-                                      {formatDate(startedAt)}
-                                    </span>
-                                  </td>
-                                </tr>
+                                    </td>
+                                  </tr>
+                                  
+                                  {isExpanded && (
+                                    <tr className="border-b border-gray-800/30 bg-gray-900/30">
+                                      <td colSpan={5} className="py-4 px-3 md:px-6">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                          {/* 玩家信息 */}
+                                          <div>
+                                            <h4 className="text-sm font-medium text-gray-300 mb-3">玩家信息</h4>
+                                            <div className="space-y-2">
+                                              <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
+                                                <span className="text-xs text-gray-400">玩家1</span>
+                                                <span className="text-xs text-gray-300">
+                                                  {game.player1?.nickname || '未知'}
+                                                </span>
+                                              </div>
+                                              <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
+                                                <span className="text-xs text-gray-400">玩家2</span>
+                                                <span className="text-xs text-gray-300">
+                                                  {game.player2?.nickname || '未知'}
+                                                </span>
+                                              </div>
+                                              <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
+                                                <span className="text-xs text-gray-400">获胜者</span>
+                                                <span className="text-xs text-gray-300">
+                                                  {game.winner?.nickname || '平局'}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                          
+                                          {/* 主题信息 */}
+                                          <div>
+                                            <h4 className="text-sm font-medium text-gray-300 mb-3">主题选择</h4>
+                                            <div className="space-y-2">
+                                              <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
+                                                <span className="text-xs text-gray-400">玩家1主题</span>
+                                                <span className="text-xs text-gray-300">
+                                                  {game.player1_theme?.title || '未知'}
+                                                </span>
+                                              </div>
+                                              <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
+                                                <span className="text-xs text-gray-400">玩家2主题</span>
+                                                <span className="text-xs text-gray-300">
+                                                  {game.player2_theme?.title || '未知'}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                          
+                                          {/* 任务信息 */}
+                                          {game.task_results && game.task_results.length > 0 && (
+                                            <div className="md:col-span-2">
+                                              <h4 className="text-sm font-medium text-gray-300 mb-3">任务执行</h4>
+                                              <div className="space-y-2 max-h-40 overflow-y-auto">
+                                                {game.task_results.map((task: any, taskIndex: number) => (
+                                                  <div key={taskIndex} className="flex items-start gap-2 p-2 bg-gray-800/50 rounded-lg">
+                                                    <div className={`w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 ${task.completed ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                                      {task.completed ? (
+                                                        <Check className="w-2 h-2" />
+                                                      ) : (
+                                                        <X className="w-2 h-2" />
+                                                      )}
+                                                    </div>
+                                                    <div className="flex-1">
+                                                      <div className="text-xs text-gray-300">
+                                                        {task.task_text || '未知任务'}
+                                                      </div>
+                                                      <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
+                                                        <span>执行者: {task.executor_id === userDetail.id ? '自己' : '对手'}</span>
+                                                        {task.completed && task.timestamp && (
+                                                          <span>完成时间: {formatShortDate(task.timestamp)}</span>
+                                                        )}
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </>
                               );
                             })}
                           </tbody>

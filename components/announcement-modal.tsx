@@ -49,8 +49,6 @@ function useIsMobile() {
 }
 
 export default function AnnouncementModal() {
-  console.log('🎯 1. AnnouncementModal组件开始加载');
-  
   const isMobile = useIsMobile();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,7 +70,6 @@ export default function AnnouncementModal() {
 
   // 初始化：获取公告和用户已读状态
   useEffect(() => {
-    console.log('🎯 2. useEffect执行，开始检查公告');
     checkAndShowAnnouncements();
   }, []);
 
@@ -113,44 +110,25 @@ export default function AnnouncementModal() {
 
   const checkAndShowAnnouncements = async () => {
     try {
-      console.log('🎯 3. 开始获取公告API');
       const response = await fetch('/api/announcements/current');
-      console.log('🎯 4. API响应状态:', response.status);
-      console.log('🎯 5. API响应URL:', response.url);
       
       if (!response.ok) {
-        console.error('🎯 API请求失败:', response.statusText);
         return;
       }
       
       const result = await response.json();
-      console.log('🎯 6. API返回完整结果:', result);
-      console.log('🎯 7. success字段:', result.success);
-      console.log('🎯 8. data字段类型:', typeof result.data);
-      console.log('🎯 9. data字段长度:', result.data?.length);
       
-      if (!result.success) {
-        console.error('🎯 10. API返回success为false');
+      if (!result.success || !result.data || !result.data.length) {
         return;
       }
-      
-      if (!result.data || !result.data.length) {
-        console.log('🎯 11. 没有公告数据，返回空');
-        return;
-      }
-      
-      console.log('🎯 12. 有公告数据，显示弹窗');
-      console.log('🎯 13. 原始公告数据:', result.data);
       
       // 获取当前用户的已读记录
       const readAnnouncements = getReadAnnouncements();
-      console.log('🎯 14. 已读记录:', readAnnouncements);
       
       // 智能筛选：只显示用户未读的公告
       const unreadAnnouncements = result.data.filter((ann: Announcement) => {
         const readRecord = readAnnouncements[ann.id];
         if (!readRecord) {
-          console.log(`🎯 公告 ${ann.id} 从未读过`);
           return true; // 从未读过
         }
         
@@ -158,31 +136,18 @@ export default function AnnouncementModal() {
         const announcementUpdated = new Date(ann.updated_at).getTime();
         const lastReadTime = readRecord.readAt;
         
-        console.log(`🎯 公告 ${ann.id} 比较时间:`, {
-          announcementUpdated,
-          lastReadTime,
-          isUpdated: announcementUpdated > lastReadTime
-        });
-        
         // 如果公告更新了，重新显示
         return announcementUpdated > lastReadTime;
       });
-      
-      console.log('🎯 15. 未读公告:', unreadAnnouncements);
-      console.log('🎯 16. 未读公告数量:', unreadAnnouncements.length);
 
       if (unreadAnnouncements.length > 0) {
         setAnnouncements(unreadAnnouncements);
         setShowModal(true);
-        console.log('🎯 17. showModal设置为:', true);
-      } else {
-        console.log('🎯 没有未读公告');
       }
     } catch (error) {
-      console.error('🎯 检查公告失败:', error);
+      console.error('检查公告失败:', error);
     } finally {
       setLoading(false);
-      console.log('🎯 18. loading设置为:', false);
     }
   };
 
@@ -314,31 +279,17 @@ export default function AnnouncementModal() {
     }
   };
 
-  console.log('🎯 26. 渲染前状态:', {
-    loading,
-    showModal,
-    announcementsLength: announcements.length,
-    currentIndex,
-    isMobile,
-    windowAvailable: typeof window !== 'undefined'
-  });
-
   if (loading) {
-    console.log('🎯 27. 正在加载，返回null');
     return null;
   }
 
   if (!showModal) {
-    console.log('🎯 28. showModal为false，返回null');
     return null;
   }
 
   if (announcements.length === 0) {
-    console.log('🎯 29. 没有公告数据，返回null');
     return null;
   }
-
-  console.log('🎯 30. 准备渲染弹窗');
 
   const currentAnnouncement = announcements[currentIndex];
   const config = getAnnouncementConfig(currentAnnouncement.type);

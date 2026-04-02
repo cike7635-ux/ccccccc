@@ -11,7 +11,7 @@
 /**
  * 用户基础信息
  */
-export interface User {
+export interface UserType {
   id: string
   email: string
   nickname: string | null
@@ -33,7 +33,7 @@ export interface User {
   gender: string
   keyStatus?: 'active' | 'expired' | 'unused' | 'inactive'
   isUserActive?: boolean
-  
+
   // 🔧 新增字段：API返回的扩展字段
   gender_display?: string
   is_premium?: boolean
@@ -41,7 +41,7 @@ export interface User {
   key_status?: string
   formatted_created_at?: string
   formatted_last_login?: string
-  
+
   // 数据库原始字段（用于类型兼容）
   created_at?: string
   last_login_at?: string | null
@@ -810,28 +810,6 @@ export type {
 
 // 默认导出（如果需要）
 export default {
-  // 类型
-  User,
-  UserDetail,
-  AccessKey,
-  AIUsageRecord,
-  GameHistory,
-  KeyUsageHistory,
-  UserStats,
-  GrowthData,
-  PaginationInfo,
-  SortInfo,
-  ApiResponse,
-  
-  // 枚举类型
-  SortField,
-  SortDirection,
-  UserFilterType,
-  KeyStatus,
-  UserStatus,
-  GenderDisplay,
-  BatchActionType,
-  
   // 工具函数
   getGenderDisplay,
   isUserActive,

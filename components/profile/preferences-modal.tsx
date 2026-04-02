@@ -101,16 +101,45 @@ export default function PreferencesModal() {
     const bootstrap = async () => {
       try {
         const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
+        // 添加超时处理
+        const getUserWithTimeout = () => {
+          return new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+              reject(new Error('Network timeout'));
+            }, 5000); // 5秒超时
+            
+            supabase.auth.getUser()
+              .then(resolve)
+              .catch(reject)
+              .finally(() => clearTimeout(timeoutId));
+          });
+        };
+        
+        const { data: { user } } = await getUserWithTimeout();
         if (!active || !user) {
           setMounted(true);
           return;
         }
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("preferences")
-          .eq("id", user.id)
-          .maybeSingle();
+        
+        // 添加超时处理
+        const getProfileWithTimeout = () => {
+          return new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+              reject(new Error('Network timeout'));
+            }, 5000); // 5秒超时
+            
+            supabase
+              .from("profiles")
+              .select("preferences")
+              .eq("id", user.id)
+              .maybeSingle()
+              .then(resolve)
+              .catch(reject)
+              .finally(() => clearTimeout(timeoutId));
+          });
+        };
+        
+        const { data: profile } = await getProfileWithTimeout();
 
         const pref = (profile?.preferences ?? {}) as { gender?: Gender; kinks?: string[] };
         const hasGender = !!pref?.gender;
@@ -123,8 +152,9 @@ export default function PreferencesModal() {
         if (needPrompt && shouldShowByLocalStorage()) {
           setShow(true);
         }
-      } catch {
+      } catch (err) {
         // 忽略错误，避免阻塞页面
+        console.warn('PreferencesModal bootstrap error:', err);
       } finally {
         if (active) setMounted(true);
       }

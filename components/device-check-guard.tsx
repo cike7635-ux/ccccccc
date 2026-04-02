@@ -17,6 +17,9 @@ export function DeviceCheckGuard() {
     // 创建一个全局的检查函数
     const checkDevice = async () => {
       try {
+        // 检查是否在浏览器环境中
+        if (typeof window === 'undefined') return;
+        
         const response = await fetch('/api/device-check', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -25,13 +28,20 @@ export function DeviceCheckGuard() {
         
         if (response.status === 403) {
           // 设备不匹配，立即重定向
-          const data = await response.json();
-          console.log('🔒 设备检查失败:', data.reason);
-          window.location.href = `/login/expired?reason=device_kicked&email=${encodeURIComponent(data.email || '')}`;
+          try {
+            const data = await response.json();
+            console.log('🔒 设备检查失败:', data.reason);
+            window.location.href = `/login/expired?reason=device_kicked&email=${encodeURIComponent(data.email || '')}`;
+          } catch (jsonError) {
+            // JSON 解析失败，仍然重定向
+            window.location.href = `/login/expired?reason=device_kicked`;
+          }
           return;
         }
       } catch (error) {
-        console.error('设备检查失败:', error);
+        // 静默处理 fetch 失败，避免控制台错误
+        // 这可能是由于网络问题或 API 端点暂时不可用
+        console.debug('设备检查请求失败（忽略）:', error);
       }
     };
     

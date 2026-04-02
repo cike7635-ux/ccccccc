@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState, useRef } from "react";
-import { Mail, Lock, Eye, EyeOff, Shuffle, Key, CheckCircle, AlertCircle } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, Key, CheckCircle, AlertCircle, User } from "lucide-react";
 
 export function SignUpForm({
   className,
@@ -19,21 +19,11 @@ export function SignUpForm({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isRandom, setIsRandom] = useState(false);
   const [licenseKey, setLicenseKey] = useState("");
+  const [nickname, setNickname] = useState("");
+  const [gender, setGender] = useState<'male' | 'female' | ''>('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
-
-  const generateRandomAccount = () => {
-    const randomStr = Math.random().toString(36).substring(2, 11);
-    const randomEmail = `user_${randomStr}@example.com`;
-    const randomPass =
-      Math.random().toString(36).substring(2, 14) +
-      Math.random().toString(36).substring(2, 6).toUpperCase();
-    setEmail(randomEmail);
-    setPassword(randomPass);
-    setIsRandom(true);
-  };
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,6 +55,25 @@ export function SignUpForm({
       return;
     }
 
+    // 验证昵称
+    if (!nickname.trim()) {
+      setError('请输入昵称');
+      setIsLoading(false);
+      return;
+    }
+    if (nickname.trim().length < 2 || nickname.trim().length > 20) {
+      setError('昵称长度需在2-20个字符之间');
+      setIsLoading(false);
+      return;
+    }
+
+    // 验证性别
+    if (!gender) {
+      setError('请选择性别');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       console.log('开始注册请求...');
       
@@ -78,6 +87,8 @@ export function SignUpForm({
           email: email.trim(),
           password: password.trim(),
           keyCode: licenseKey.trim().toUpperCase(),
+          nickname: nickname.trim(),
+          gender: gender,
         }),
       });
 
@@ -133,25 +144,58 @@ export function SignUpForm({
     <div className={cn("", className)} {...props}>
       <form ref={formRef} onSubmit={handleSignUp} className="space-y-4">
         <div>
-          <Label htmlFor="licenseKey" className="block text-sm text-gray-300 mb-2">
-            产品密钥 <span className="text-red-500">*</span>
+          <Label htmlFor="nickname" className="block text-sm text-gray-300 mb-2">
+            昵称 <span className="text-red-500">*</span>
           </Label>
           <div className="glass rounded-xl p-3 flex items-center space-x-2">
-            <Key className="w-5 h-5 text-gray-400" />
+            <User className="w-5 h-5 text-gray-400" />
             <Input
-              id="licenseKey"
+              id="nickname"
               type="text"
-              placeholder="请输入您购买的产品密钥（如：XY-30-ABC123）"
+              placeholder="请输入昵称（2-20个字符）"
               required
-              value={licenseKey}
-              onChange={(e) => setLicenseKey(e.target.value)}
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
               className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0"
               disabled={isLoading}
+              minLength={2}
+              maxLength={20}
             />
           </div>
-          <p className="text-xs text-gray-500 mt-2 pl-1">
-            本游戏为会员制，需购买密钥方可注册。请前往淘宝店铺《希夷书斋》购买，或联系微信客服: xiyi1397。
-          </p>
+        </div>
+
+        <div>
+          <Label className="block text-sm text-gray-300 mb-2">
+            性别 <span className="text-red-500">*</span>
+          </Label>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setGender('male')}
+              disabled={isLoading}
+              className={`p-3 rounded-xl border transition-all flex items-center justify-center space-x-2 ${
+                gender === 'male'
+                  ? 'border-blue-500 bg-blue-500/20 text-blue-400'
+                  : 'border-gray-600 bg-white/5 text-gray-400 hover:border-gray-500'
+              }`}
+            >
+              <span className="text-lg">♂</span>
+              <span>男</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setGender('female')}
+              disabled={isLoading}
+              className={`p-3 rounded-xl border transition-all flex items-center justify-center space-x-2 ${
+                gender === 'female'
+                  ? 'border-pink-500 bg-pink-500/20 text-pink-400'
+                  : 'border-gray-600 bg-white/5 text-gray-400 hover:border-gray-500'
+              }`}
+            >
+              <span className="text-lg">♀</span>
+              <span>女</span>
+            </button>
+          </div>
         </div>
 
         <div>
@@ -163,7 +207,7 @@ export function SignUpForm({
             <Input
               id="email"
               type="email"
-              placeholder="请输入邮箱（用于登录和找回密码）"
+              placeholder="请输入常用邮箱（不支持找回）"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -201,15 +245,27 @@ export function SignUpForm({
           </div>
         </div>
 
-        <Button
-          type="button"
-          onClick={generateRandomAccount}
-          className="w-full glass py-3 rounded-xl font-medium hover:bg-white/10 transition-all flex items-center justify-center space-x-2"
-          disabled={isLoading}
-        >
-          <Shuffle className="w-4 h-4" />
-          <span>生成随机邮箱和密码</span>
-        </Button>
+        <div>
+          <Label htmlFor="licenseKey" className="block text-sm text-gray-300 mb-2">
+            产品密钥 <span className="text-red-500">*</span>
+          </Label>
+          <div className="glass rounded-xl p-3 flex items-center space-x-2">
+            <Key className="w-5 h-5 text-gray-400" />
+            <Input
+              id="licenseKey"
+              type="text"
+              placeholder="请输入您购买的产品密钥（如：XY-30-ABC123）"
+              required
+              value={licenseKey}
+              onChange={(e) => setLicenseKey(e.target.value)}
+              className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0"
+              disabled={isLoading}
+            />
+          </div>
+          <p className="text-xs text-gray-500 mt-2 pl-1">
+            本游戏为会员制，需购买密钥方可注册。请前往淘宝店铺《希夷书斋》购买，或联系微信客服: xiyi1397。
+          </p>
+        </div>
 
         {/* 错误消息 */}
         {error && (

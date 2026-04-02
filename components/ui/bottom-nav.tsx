@@ -1,4 +1,3 @@
-
 // components\ui\bottom-nav.tsx
 "use client";
 
@@ -9,9 +8,9 @@ import { LayoutGrid, Layers, UserCircle } from "lucide-react";
 export function BottomNav() {
   const pathname = usePathname();
 
-  // 在登录、认证和游戏页面隐藏底部导航
-  const hiddenOnRoutes = ["/login", "/auth", "/game"];
-  const shouldHide = hiddenOnRoutes.some((r) => pathname.startsWith(r));
+  // 在首页、登录、认证、游戏和后台管理页面隐藏底部导航
+  const hiddenOnRoutes = ["/", "/login", "/auth", "/game"];
+  const shouldHide = hiddenOnRoutes.some((r) => pathname === r) || pathname?.startsWith("/admin");
   if (shouldHide) return null;
 
   const isActive = (path: string) => {

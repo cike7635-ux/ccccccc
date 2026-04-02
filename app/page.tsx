@@ -1,22 +1,25 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { getUserData } from "@/lib/server/auth";
 
 export default async function Home() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  // 已登录则直接进入大厅
-  if (user) {
+  // 使用统一的用户数据层（包含设备检查和会员检查）
+  try {
+    await getUserData(true);
+    // 如果没有重定向，说明检查通过，进入大厅
     redirect("/lobby");
+  } catch (error: any) {
+    // 如果是 NEXT_REDIRECT 异常，说明需要重定向到登录页，让 Next.js 处理
+    if (error?.digest?.includes('NEXT_REDIRECT')) {
+      throw error;
+    }
   }
 
+  // 未登录用户显示登录页面
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-6 relative overflow-hidden">
-  
+
       {/* 背景装饰 - 更柔和 */}
       <div className="absolute inset-0 -z-10 pointer-events-none">
         <div className="absolute left-1/2 top-1/3 -translate-x-1/2 -translate-y-1/2 h-96 w-96 rounded-full blur-[100px] opacity-20 bg-gradient-to-br from-[#FF6B9D] to-[#8B5A8E]" />

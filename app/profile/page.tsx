@@ -21,8 +21,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-// 添加动态渲染导出，确保实时数据
-export const dynamic = 'force-dynamic';
+// 调整动态渲染策略，允许缓存
+// force-dynamic 会强制每次重新渲染，改为 auto 允许缓存
+export const dynamic = 'auto';
 
 // 🔥 骨架屏组件
 function ProfileSkeleton() {
@@ -80,8 +81,8 @@ function ProfileSkeleton() {
 }
 
 // 从Cookie获取设备ID（与getUserData中的逻辑一致）
-function getDeviceId(): string {
-  const cookieStore = cookies();
+async function getDeviceId(): Promise<string> {
+  const cookieStore = await cookies();
   const deviceIdCookie = cookieStore.get('love_ludo_device_id');
   return deviceIdCookie?.value || 'unknown';
 }
@@ -210,7 +211,7 @@ async function ProfileContent() {
     }
     
     // 获取设备ID（用于显示）
-    const deviceId = getDeviceId();
+    const deviceId = await getDeviceId();
     const deviceIdShort = deviceId.length > 15 
       ? deviceId.substring(0, 15) + '...' 
       : deviceId;

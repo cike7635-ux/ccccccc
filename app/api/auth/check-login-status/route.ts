@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     // 查询用户资料
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('account_expires_at, email, last_login_session')
+      .select('account_expires_at, email, last_login_session, last_login_device_id')
       .eq('id', user.id)
       .single();
     
@@ -65,17 +65,12 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // 检查设备ID（简化逻辑，实际应该调用 getUserData）
-    if (profile.last_login_session) {
-      const parts = profile.last_login_session.split('_');
-      const storedDeviceId = parts.length >= 4 ? (parts[2] === 'dev' && parts.length > 4 ? parts.slice(2, parts.length - 1).join('_') : parts[2]) : 'unknown';
-      
-      // 获取当前设备ID
+    // 检查设备ID（使用 last_login_device_id 字段）
+    if (profile.last_login_device_id) {
       const deviceIdCookie = cookieStore.get('love_ludo_device_id');
       const currentDeviceId = deviceIdCookie?.value || 'unknown';
-      
-      if (storedDeviceId !== currentDeviceId && !isLoginPage) {
-        // 🔥 设备ID不匹配且不是登录页，重定向到过期页面
+
+      if (profile.last_login_device_id !== currentDeviceId && !isLoginPage) {
         console.log(`🔴 API检测到设备ID不匹配，重定向到 /login/expired`);
         return NextResponse.redirect(new URL('/login/expired', request.url));
       }

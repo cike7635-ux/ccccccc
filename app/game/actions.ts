@@ -127,18 +127,28 @@ async function archiveCompletedSession(sessionId: string): Promise<{ success: bo
     });
   if (insertErr) return { success: false, error: insertErr.message };
 
-  // 清理临时数据：先删除 moves，再删除 session
-  const { error: delMovesErr } = await supabase
-    .from("game_moves")
-    .delete()
-    .eq("session_id", session.id);
-  if (delMovesErr) return { success: false, error: delMovesErr.message };
-
+  // 🔥 优化：使用事务方式清理临时数据
+  // 先尝试直接删除 session（依赖数据库外键级联删除 moves）
   const { error: delSessionErr } = await supabase
     .from("game_sessions")
     .delete()
     .eq("id", session.id);
-  if (delSessionErr) return { success: false, error: delSessionErr.message };
+
+  if (delSessionErr) {
+    // 如果直接删除失败，尝试分步删除
+    console.warn('直接删除 session 失败，尝试分步删除');
+    const { error: delMovesErr } = await supabase
+      .from("game_moves")
+      .delete()
+      .eq("session_id", session.id);
+    if (delMovesErr) return { success: false, error: `清理游戏数据失败: ${delMovesErr.message}` };
+
+    const { error: delSessionErr2 } = await supabase
+      .from("game_sessions")
+      .delete()
+      .eq("id", session.id);
+    if (delSessionErr2) return { success: false, error: `删除游戏会话失败: ${delSessionErr2.message}` };
+  }
 
   return { success: true };
 }

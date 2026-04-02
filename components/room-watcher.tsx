@@ -103,16 +103,18 @@ export default function RoomWatcher({ roomId, status }: { roomId: string; status
             
             const newStatus = (payload.new as any)?.status;
             const oldStatus = (payload.old as any)?.status;
+            const newPlayer1Theme = (payload.new as any)?.player1_theme_id;
+            const oldPlayer1Theme = (payload.old as any)?.player1_theme_id;
+            const newPlayer2Theme = (payload.new as any)?.player2_theme_id;
+            const oldPlayer2Theme = (payload.old as any)?.player2_theme_id;
             
-            // 只有状态真正变化时才处理
+            // 状态变化处理
             if (newStatus !== oldStatus) {
               console.log(`🔄 房间状态变化: ${oldStatus} -> ${newStatus}`);
               
               if (newStatus === "playing") {
-                // 游戏开始，立即跳转
                 jumpToGame();
               } else if (newStatus === "waiting") {
-                // 等待状态，使用防抖刷新
                 if (refreshTimeoutRef.current) {
                   clearTimeout(refreshTimeoutRef.current);
                 }
@@ -121,8 +123,22 @@ export default function RoomWatcher({ roomId, status }: { roomId: string; status
                   if (channelRef.current) {
                     debouncedRefresh();
                   }
-                }, 500); // 延迟500ms，避免频繁刷新
+                }, 500);
               }
+            } 
+            // 主题选择变化处理
+            else if (newPlayer1Theme !== oldPlayer1Theme || newPlayer2Theme !== oldPlayer2Theme) {
+              console.log(`🔄 房间主题变化: 玩家1: ${oldPlayer1Theme} -> ${newPlayer1Theme}, 玩家2: ${oldPlayer2Theme} -> ${newPlayer2Theme}`);
+              
+              if (refreshTimeoutRef.current) {
+                clearTimeout(refreshTimeoutRef.current);
+              }
+              
+              refreshTimeoutRef.current = setTimeout(() => {
+                if (channelRef.current) {
+                  debouncedRefresh();
+                }
+              }, 500);
             }
           }
         )

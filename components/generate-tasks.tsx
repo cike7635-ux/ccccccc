@@ -476,9 +476,16 @@ export default function GenerateTasksSection({
     setError(null);
     startTransition(async () => {
       try {
+        // 确保任务数据格式正确，只包含必要字段
+        const formattedTasks = tasks.map(task => ({
+          description: task.description,
+          type: "interaction",
+          order_index: task.order_index
+        }));
+        
         const formData = new FormData();
         formData.append('theme_id', themeId);
-        formData.append('tasks', JSON.stringify(tasks));
+        formData.append('tasks', JSON.stringify(formattedTasks));
         
         const { error } = await bulkInsertTasks(formData);
         if (error) {

@@ -1,6 +1,5 @@
 // /app/layout.tsx - 修复版（基于正确布局文件）
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import PerformanceMeasurement from '@/components/performance-measurement';
 import { BottomNav } from "@/components/ui/bottom-nav";
@@ -8,8 +7,6 @@ import { DeviceCheckGuard } from '@/components/device-check-guard';
 import { MembershipGuard } from '@/components/membership-guard';
 import { ClientOnly } from '@/components/ui/client-only';
 import { HeartbeatProvider } from '@/components/heartbeat-provider';
-
-const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title
@@ -96,7 +93,7 @@ export default function RootLayout({
         <meta httpEquiv="x-ua-compatible" content="IE=edge" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
       </head>
-      <body className={`${inter.className} bg-background text-foreground touch-optimized`}>
+      <body className="bg-background text-foreground touch-optimized">
         {/* 使用客户端包装器包装动态内容 */}
         <ClientOnly>
           {/* 心跳提供者 - 确保心跳机制正常工作 */}

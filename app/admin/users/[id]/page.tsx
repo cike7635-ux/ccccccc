@@ -5,9 +5,10 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { 
   ArrowLeft, User, Mail, Calendar, Clock, Shield, Key, 
-  Copy, Check, AlertCircle, Loader2, RefreshCw, ExternalLink,
+  Copy, Check, X, AlertCircle, Loader2, RefreshCw, ExternalLink,
   Edit, Trash2, FileText, History, Cpu, Battery, ShieldCheck,
-  Users, ChevronDown, ChevronUp, Timer, TimerReset, CalendarClock
+  Users, ChevronDown, ChevronUp, Timer, TimerReset, CalendarClock,
+  Gamepad2, Trophy
 } from 'lucide-react'
 
 interface ProfileDetail {
@@ -73,6 +74,11 @@ export default function UserDetailPage() {
   const [showKeyHistory, setShowKeyHistory] = useState(true)
   const [showAIRecords, setShowAIRecords] = useState(false)
   const [showExtendForm, setShowExtendForm] = useState(false)
+  const [showGameRecords, setShowGameRecords] = useState(false)
+  
+  // 游戏记录
+  const [gameRecords, setGameRecords] = useState<any[]>([])
+  const [gameLoading, setGameLoading] = useState(false)
   
   // 延长表单
   const [extendForm, setExtendForm] = useState({
@@ -126,9 +132,42 @@ export default function UserDetailPage() {
   // 复制到剪贴板
   const copyToClipboard = (text: string) => {
     if (!text) return
-    navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    
+    const copyTextToClipboard = (text: string) => {
+      // 尝试使用 navigator.clipboard API
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text)
+      } else {
+        // 备用方案：创建临时输入元素
+        const textArea = document.createElement('textarea')
+        textArea.value = text
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-999999px'
+        textArea.style.top = '-999999px'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        
+        try {
+          const successful = document.execCommand('copy')
+          if (!successful) {
+            throw new Error('复制失败')
+          }
+        } catch (error) {
+          throw error
+        } finally {
+          document.body.removeChild(textArea)
+        }
+      }
+    }
+
+    try {
+      copyTextToClipboard(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (error) {
+      console.error('复制到剪贴板失败:', error)
+    }
   }
 
   // 格式化日期
@@ -195,6 +234,94 @@ export default function UserDetailPage() {
       isActive: true,
       daysRemaining: diffDays
     }
+  }
+
+  // 获取游戏记录
+  const fetchGameRecords = async () => {
+    try {
+      setGameLoading(true)
+      
+      console.log(`🔍 获取用户游戏记录 ID: ${userId}`)
+      const response = await fetch(`/api/admin/games?user_id=${userId}`, {
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      })
+      
+      if (!response.ok) {
+        if (response.status === 401) {
+          router.push('/admin/login')
+          return
+        }
+        throw new Error(`获取游戏记录失败 (${response.status})`)
+      }
+      
+      const result = await response.json()
+      
+      if (result.success && result.data) {
+        console.log('✅ 游戏记录数据:', result.data)
+        setGameRecords(result.data)
+      } else {
+        throw new Error(result.error || '获取数据失败')
+      }
+    } catch (error: any) {
+      console.error('❌ 获取游戏记录失败:', error)
+    } finally {
+      setGameLoading(false)
+    }
+  }
+
+  // 格式化游戏时间
+  const formatGameDuration = (startStr: string | null, endStr: string | null) => {
+    if (!startStr || !endStr) return '未知'
+    try {
+      const start = new Date(startStr)
+      const end = new Date(endStr)
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return '未知'
+      const diff = Math.floor((end.getTime() - start.getTime()) / 1000)
+      const minutes = Math.floor(diff / 60)
+      const seconds = diff % 60
+      return `${minutes}分${seconds}秒`
+    } catch {
+      return '未知'
+    }
+  }
+
+  // 计算用户在游戏中的角色
+  const getUserRoleInGame = (game: any) => {
+    if (game.player1_id === userId) return 'player1'
+    if (game.player2_id === userId) return 'player2'
+    return 'unknown'
+  }
+
+  // 获取用户在游戏中的昵称
+  const getUserNicknameInGame = (game: any) => {
+    const role = getUserRoleInGame(game)
+    if (role === 'player1') return game.player1?.nickname || '玩家1'
+    if (role === 'player2') return game.player2?.nickname || '玩家2'
+    return '未知'
+  }
+
+  // 获取对手昵称
+  const getOpponentNickname = (game: any) => {
+    const role = getUserRoleInGame(game)
+    if (role === 'player1') return game.player2?.nickname || '玩家2'
+    if (role === 'player2') return game.player1?.nickname || '玩家1'
+    return '未知'
+  }
+
+  // 检查用户是否是赢家
+  const isUserWinner = (game: any) => {
+    return game.winner_id === userId
+  }
+
+  // 获取游戏结果
+  const getGameResult = (game: any) => {
+    if (!game.winner_id) return '平局'
+    if (game.winner_id === userId) return '胜利'
+    return '失败'
   }
 
   // 格式化使用类型
@@ -318,6 +445,7 @@ export default function UserDetailPage() {
   useEffect(() => {
     if (userId) {
       fetchUserDetail()
+      fetchGameRecords()
     }
   }, [userId])
 
@@ -887,6 +1015,187 @@ export default function UserDetailPage() {
             </div>
           </div>
         )}
+
+        {/* 游戏记录 */}
+        <div className="mb-6">
+          <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white flex items-center">
+                <Gamepad2 className="w-5 h-5 mr-2 text-purple-400" />
+                游戏记录
+                <span className="ml-3 bg-purple-500/20 text-purple-400 px-3 py-1 rounded-full text-sm">
+                  {gameRecords.length} 场游戏
+                </span>
+              </h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={fetchGameRecords}
+                  className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-gray-300 flex items-center gap-1"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  刷新
+                </button>
+                <button
+                  onClick={() => setShowGameRecords(!showGameRecords)}
+                  className="text-gray-400 hover:text-white flex items-center gap-1"
+                >
+                  {showGameRecords ? (
+                    <>
+                      收起
+                      <ChevronUp className="w-4 h-4" />
+                    </>
+                  ) : (
+                    <>
+                      展开
+                      <ChevronDown className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+            
+            {/* 游戏统计 */}
+            {showGameRecords && gameRecords.length > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-gray-800/50 rounded-lg">
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 mb-1">总场次</div>
+                  <div className="text-white text-lg font-bold">{gameRecords.length}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 mb-1">7天内场次</div>
+                  <div className="text-white text-lg font-bold">
+                    {gameRecords.filter(g => {
+                      const endedAt = new Date(g.ended_at);
+                      const sevenDaysAgo = new Date();
+                      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                      return endedAt >= sevenDaysAgo;
+                    }).length}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 mb-1">胜场</div>
+                  <div className="text-white text-lg font-bold">
+                    {gameRecords.filter(g => g.winner_id === userId).length}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 mb-1">胜率</div>
+                  <div className="text-white text-lg font-bold">
+                    {gameRecords.length > 0 ? 
+                      ((gameRecords.filter(g => g.winner_id === userId).length / gameRecords.length) * 100).toFixed(1) + '%' : 
+                      '0.0%'
+                    }
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {gameLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 text-purple-400 animate-spin mr-2" />
+                <span className="text-gray-400">加载游戏记录中...</span>
+              </div>
+            ) : showGameRecords ? (
+              gameRecords.length === 0 ? (
+                <div className="text-center py-8">
+                  <Gamepad2 className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                  <p className="text-gray-400">该用户暂无游戏记录</p>
+                </div>
+              ) : (
+                <div>
+                  {/* 游戏统计 */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6 p-4 bg-gray-800/50 rounded-lg">
+                    <div className="text-center">
+                      <div className="text-xs text-gray-400 mb-1">总场次</div>
+                      <div className="text-white text-lg font-bold">{gameRecords.length}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-xs text-gray-400 mb-1">7天内场次</div>
+                      <div className="text-white text-lg font-bold">
+                        {gameRecords.filter(g => {
+                          const endedAt = new Date(g.ended_at);
+                          const sevenDaysAgo = new Date();
+                          sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                          return endedAt >= sevenDaysAgo;
+                        }).length}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-xs text-gray-400 mb-1">胜场</div>
+                      <div className="text-white text-lg font-bold">
+                        {gameRecords.filter(g => g.winner_id === userId).length}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-xs text-gray-400 mb-1">负场</div>
+                      <div className="text-white text-lg font-bold">
+                        {gameRecords.filter(g => g.winner_id && g.winner_id !== userId).length}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-xs text-gray-400 mb-1">胜率</div>
+                      <div className="text-white text-lg font-bold">
+                        {gameRecords.length > 0 ? 
+                          ((gameRecords.filter(g => g.winner_id === userId).length / gameRecords.length) * 100).toFixed(1) + '%' : 
+                          '0.0%'
+                        }
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* 游戏记录表格 */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gray-800/50">
+                          <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm border-b border-gray-700/50">对局ID</th>
+                          <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm border-b border-gray-700/50">对手</th>
+                          <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm border-b border-gray-700/50">结果</th>
+                          <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm border-b border-gray-700/50">时长</th>
+                          <th className="py-3 px-4 text-left text-gray-300 font-medium text-sm border-b border-gray-700/50">开始时间</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {gameRecords.map((game) => {
+                          const gameResult = getGameResult(game);
+                          const userRole = getUserRoleInGame(game);
+                          return (
+                            <tr key={game.id} className="border-b border-gray-700/30 hover:bg-gray-800/30">
+                              <td className="py-3 px-4">
+                                <span className="text-white font-mono text-sm">{game.room_id?.substring(0, 8)}</span>
+                              </td>
+                              <td className="py-3 px-4">
+                                <div>
+                                  <div className="text-white text-sm">{getOpponentNickname(game)}</div>
+                                  <div className="text-gray-400 text-xs">你是{userRole === 'player1' ? '玩家1' : userRole === 'player2' ? '玩家2' : '未知'}</div>
+                                </div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className={`text-sm ${gameResult === '胜利' ? 'text-green-400' : gameResult === '失败' ? 'text-red-400' : 'text-yellow-400'}`}>
+                                  {gameResult}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className="text-gray-300 text-sm">{formatGameDuration(game.started_at, game.ended_at)}</span>
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className="text-gray-300 text-sm">{formatDate(game.started_at)}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            ) : (
+              <div className="text-center py-4 text-gray-400">
+                点击展开查看游戏记录
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* 操作区域 */}
         <div className="mt-6 bg-gray-800/30 border border-gray-700/50 rounded-xl p-6">

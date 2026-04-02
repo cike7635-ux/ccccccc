@@ -38,10 +38,18 @@ export async function POST(request: NextRequest) {
       { auth: { persistSession: false } }
     );
 
-    const { email, password, keyCode } = await request.json();
-    
+    const { email, password, keyCode, nickname, gender } = await request.json();
+
     if (!email || !password || !keyCode) {
       return NextResponse.json({ error: '邮箱、密码和密钥必填' }, { status: 400 });
+    }
+
+    if (!nickname || nickname.trim().length < 2 || nickname.trim().length > 20) {
+      return NextResponse.json({ error: '昵称长度需在2-20个字符之间' }, { status: 400 });
+    }
+
+    if (!gender || !['male', 'female'].includes(gender)) {
+      return NextResponse.json({ error: '请选择有效的性别' }, { status: 400 });
     }
 
     const formattedKeyCode = keyCode.trim().toUpperCase();
@@ -74,16 +82,8 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
-    
-    // 4. 检查邮箱是否已注册
-    const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers();
-    const userExists = existingUser?.users?.some(u => u.email === email.trim());
-    
-    if (userExists) {
-      return NextResponse.json({ error: '该邮箱已注册' }, { status: 400 });
-    }
 
-    // 5. 创建Auth用户
+    // 4. 直接尝试创建Auth用户，让Supabase处理邮箱重复检查
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: email.trim(),
       password: password.trim(),
@@ -95,13 +95,15 @@ export async function POST(request: NextRequest) {
         }
       },
     });
-    
+
     if (authError || !authData.user) {
       console.error('[Signup API] 创建用户失败:', authError);
-      return NextResponse.json({ 
-        error: authError?.message.includes('already registered') 
-          ? '该邮箱已注册' 
-          : `注册失败: ${authError?.message || '未知错误'}` 
+      const errorMsg = authError?.message || '';
+      if (errorMsg.includes('already registered') || errorMsg.includes('already been registered')) {
+        return NextResponse.json({ error: '该邮箱已注册' }, { status: 400 });
+      }
+      return NextResponse.json({
+        error: `注册失败: ${errorMsg || '未知错误'}`
       }, { status: 400 });
     }
 
@@ -121,7 +123,7 @@ export async function POST(request: NextRequest) {
       accountExpiresAt = expiryDate.toISOString();
     }
 
-    // 7. 🔥 修复偏好设置：创建正确的JSON对象
+    // 7. 偏好设置：创建正确的JSON对象
     const initialPreferences = {
       theme: 'light',
       language: 'zh-CN',
@@ -130,6 +132,7 @@ export async function POST(request: NextRequest) {
         show_online_status: true,
         allow_friend_requests: true
       },
+      gender: gender,
       created_at: now.toISOString()
     };
 
@@ -171,11 +174,12 @@ export async function POST(request: NextRequest) {
         account_expires_at: accountExpiresAt,
         last_login_at: now.toISOString(),
         last_login_session: initialSessionId,
+        last_login_device_id: standardDeviceId,
         created_at: now.toISOString(),
         updated_at: now.toISOString(),
         avatar_url: null,
-        nickname: generateNickname(userId), // 修复：使用随机生成的昵称
-        preferences: initialPreferences // 🔥 使用正确的JSON对象
+        nickname: nickname.trim(),
+        preferences: initialPreferences
       }, {
         onConflict: 'id',
         ignoreDuplicates: true
@@ -243,81 +247,14 @@ export async function POST(request: NextRequest) {
         .eq('id', keyData.id);
     }
 
-    console.log('[Signup API] 注册成功:', { 
-      userId, 
+    console.log('[Signup API] 注册成功:', {
+      userId,
       email: email.trim(),
       expiresAt: accountExpiresAt,
       keyUsed: keyData.key_code
     });
 
-    // 🔥 新增：为新用户自动初始化默认主题（必须在return之前！）
-    try {
-      console.log(`🎯 开始为新用户 ${userId} 初始化默认主题`);
-      const fs = await import("node:fs/promises");
-      const path = await import("node:path");
-      const filePath = path.join(process.cwd(), "lib", "tasks.json");
-      const content = await fs.readFile(filePath, "utf-8");
-      const templates: { title: string; description?: string; tasks: string[] }[] = JSON.parse(content);
-
-      let initializedThemeCount = 0;
-      
-      for (const tpl of templates) {
-        // 检查是否已存在同名主题
-        const { data: existing } = await supabaseAdmin
-          .from("themes")
-          .select("id")
-          .eq("creator_id", userId)
-          .eq("title", tpl.title)
-          .maybeSingle();
-        
-        let themeId: string | null = existing?.id ?? null;
-        
-        if (!themeId) {
-          console.log(`📝 创建主题: ${tpl.title}`);
-          const { data: created } = await supabaseAdmin
-            .from("themes")
-            .insert({
-              title: tpl.title,
-              description: tpl.description ?? null,
-              creator_id: userId,
-              is_public: false,
-              task_count: (tpl.tasks?.length ?? 0),
-            })
-            .select("id")
-            .single();
-          themeId = created?.id ?? null;
-        }
-        
-        if (themeId && tpl.tasks?.length > 0) {
-          // 批量插入任务
-          const tasksToInsert = tpl.tasks.map((desc, index) => ({
-            theme_id: themeId,
-            description: desc,
-            type: "default",
-            order_index: index,
-            is_ai_generated: false,
-          }));
-          
-          console.log(`📦 批量插入 ${tasksToInsert.length} 个任务到主题: ${tpl.title}`);
-          const { error: insertError } = await supabaseAdmin
-            .from("tasks")
-            .insert(tasksToInsert);
-          
-          if (insertError) {
-            console.error(`❌ 插入任务失败: ${insertError.message}`);
-          } else {
-            initializedThemeCount++;
-          }
-        }
-      }
-      
-      console.log(`✅ 新用户主题初始化完成: ${initializedThemeCount} 个主题`);
-    } catch (themeError) {
-      console.error('❌ 主题初始化失败:', themeError);
-      // 静默失败，不影响注册主流程
-    }
-
-    // 🔥 返回成功响应（必须在所有操作完成后）
+    // 🔥 返回成功响应
     return NextResponse.json({
       success: true,
       message: '注册成功！请检查邮箱确认注册（如需要），然后登录',

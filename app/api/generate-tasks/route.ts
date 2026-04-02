@@ -962,6 +962,7 @@ function formatTasks(tasks: Partial<Task>[]): Task[] {
     )
     .map((t: Task) => ({
       description: t.description.trim(),
+      // 只保留description字段，移除其他可能的字段
     }))
     .slice(0, 12); // 增加限制到12条
 }

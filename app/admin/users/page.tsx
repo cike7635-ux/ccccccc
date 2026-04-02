@@ -11,7 +11,7 @@ import {
 import UserDetailModal from './components/user-detail-modal'
 import GrowthChart from './components/growth-chart'
 import {
-  User as UserType,
+  UserType,
   SortField,
   SortDirection,
   getGenderDisplay,

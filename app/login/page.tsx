@@ -54,53 +54,54 @@ function LoginPageContent() {
   const tabParam = searchParams.get('tab');
   const fromSignup = searchParams.get('from') === 'signup';
   const emailParam = searchParams.get('email');
+  const redirectParam = searchParams.get('redirect');
+  const tabParamForEffect = searchParams.get('tab');
 
   // 根据URL参数设置active tab
   useEffect(() => {
-    if (tabParam === 'signup') {
+    if (tabParamForEffect === 'signup') {
       setActive('signup');
     }
-  }, [tabParam]);
+  }, [tabParamForEffect]);
 
   // 🔥 关键修复：调用服务端API检查登录状态和设备ID
   useEffect(() => {
+    let mounted = true;
+
     const checkAuth = async () => {
       try {
-        // 调用服务端API检查用户状态和设备ID
         const response = await fetch('/api/auth/check-login-status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             isLoginPage: true,
-            redirectPath: searchParams.get('redirect') || '/lobby'
+            redirectPath: redirectParam || '/lobby'
           })
         });
-        
+
         if (response.redirected) {
-          // API返回了重定向，跟随重定向
           window.location.href = response.url;
           return;
         }
-        
+
         const result = await response.json();
-        
+
+        if (!mounted) return;
+
         if (result.loggedIn) {
           console.log(`[登录页] 检测到已登录用户: ${result.email}`);
           setUser(result.user);
-          
-          // 🔥 关键：如果用户已登录，立即重定向
-          const redirectParam = searchParams.get('redirect') || '/lobby';
+
           const admin = isAdminEmail(result.email);
-          let targetPath = redirectParam;
-          
+          let targetPath = redirectParam || '/lobby';
+
           if (admin && targetPath.startsWith('/admin')) {
             targetPath = '/admin/dashboard';
           }
-          
+
           console.log(`[登录页] 已登录用户: ${result.email}, 重定向到: ${targetPath}`);
           setRedirecting(true);
-          
-          // 使用硬重定向，确保状态同步
+
           setTimeout(() => {
             window.location.href = targetPath;
           }, 100);
@@ -110,15 +111,18 @@ function LoginPageContent() {
         }
       } catch (error: any) {
         console.error('[登录页] 认证检查异常:', error.message);
-        // 出错时显示登录表单
-        setUser(null);
+        if (mounted) setUser(null);
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
-    
+
     checkAuth();
-  }, [searchParams]);
+
+    return () => {
+      mounted = false;
+    };
+  }, [redirectParam]);
 
   // 如果是注册跳转过来的，显示欢迎消息
   useEffect(() => {

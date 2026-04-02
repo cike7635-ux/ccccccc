@@ -2,6 +2,7 @@
 
 import { memo } from 'react';
 import Link from "next/link";
+import { useRouter } from 'next/navigation';
 import DeleteThemeButton from '@/app/components/themes/delete-theme-button';
 
 interface ThemeCardProps {
@@ -11,11 +12,16 @@ interface ThemeCardProps {
     description: string;
     task_count: number;
     created_at: string;
+    is_official?: boolean;
   };
   index: number;
+  onDelete?: () => void;
 }
 
-function ThemeCard({ theme, index }: ThemeCardProps) {
+function ThemeCard({ theme, index, onDelete }: ThemeCardProps) {
+  const router = useRouter();
+  const isOfficial = theme.is_official === true;
+  
   const colors = [
     'from-brand-pink to-brand-purple',
     'from-blue-500 to-purple-500',
@@ -25,11 +31,17 @@ function ThemeCard({ theme, index }: ThemeCardProps) {
   ];
   
   const colorClass = colors[index % colors.length];
+  
+  const linkHref = isOfficial ? `/themes/official/${theme.id}` : `/themes/${theme.id}`;
+
+  const handleCardClick = () => {
+    router.push(linkHref);
+  };
 
   return (
-    <Link
-      href={`/themes/${theme.id}`}
-      className="block group relative"
+    <div
+      onClick={handleCardClick}
+      className="block group relative cursor-pointer"
     >
       <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-4 border border-white/10 hover:bg-white/10 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]">
         <div className="flex items-start gap-3">
@@ -40,35 +52,47 @@ function ThemeCard({ theme, index }: ThemeCardProps) {
           
           {/* 主题内容 */}
           <div className="flex-1 min-w-0">
-            <h3 className="text-white font-medium truncate mb-1 group-hover:text-brand-pink transition-colors">
-              {theme.title}
-            </h3>
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="text-white font-medium truncate group-hover:text-brand-pink transition-colors">
+                {theme.title}
+              </h3>
+              {isOfficial && (
+                <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full flex-shrink-0">
+                  官方
+                </span>
+              )}
+            </div>
             <p className="text-gray-400 text-sm line-clamp-2 mb-3">
               {theme.description || '暂无描述'}
             </p>
             
             {/* 操作按钮和任务数量 */}
             <div className="flex items-center justify-between pt-3 border-t border-white/10">
-              <div className="flex gap-4">
-                {/* 编辑按钮 */}
-                <Link
-                  href={`/themes/${theme.id}/edit`}
-                  className="text-xs text-gray-400 hover:text-white transition-colors flex items-center gap-1"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                  编辑
-                </Link>
-                
-                {/* 删除按钮 */}
-                <DeleteThemeButton
-                  themeId={theme.id}
-                  themeTitle={theme.title}
-                  className="text-xs text-gray-400 hover:text-red-400 transition-colors flex items-center gap-1"
-                />
-              </div>
+              {!isOfficial ? (
+                <div className="flex gap-4">
+                  {/* 编辑按钮 */}
+                  <Link
+                    href={`/themes/${theme.id}/edit`}
+                    className="text-xs text-gray-400 hover:text-white transition-colors flex items-center gap-1"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    编辑
+                  </Link>
+                  
+                  {/* 删除按钮 */}
+                  <DeleteThemeButton
+                    themeId={theme.id}
+                    themeTitle={theme.title}
+                    onDelete={onDelete}
+                    className="text-xs text-gray-400 hover:text-red-400 transition-colors flex items-center gap-1"
+                  />
+                </div>
+              ) : (
+                <span className="text-xs text-gray-500">只读</span>
+              )}
               
               {/* 任务数量 */}
               <div className="text-xs text-gray-500 bg-white/5 rounded-full px-2 py-1">
@@ -78,7 +102,7 @@ function ThemeCard({ theme, index }: ThemeCardProps) {
           </div>
         </div>
       </div>
-    </Link>
+    </div>
   );
 }
 

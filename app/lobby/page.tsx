@@ -2,22 +2,26 @@
 import { getUserData } from '@/lib/server/auth';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { listAvailableThemes, createRoom, joinRoom } from "./actions";
+import { listAvailableThemes, createRoom } from "./actions";
 import { Users, LogIn, Layers, ChevronDown, Hash, ShoppingCart, Smartphone } from "lucide-react";
 import PreferencesModal from "@/components/profile/preferences-modal";
 import Link from "next/link";
 import AnnouncementModal from "@/components/announcement-modal";
 import { Suspense, memo } from 'react';
+import ThemeSelect from "./components/theme-select";
+import RoomCard from "./components/room-card";
+import JoinRoomForm from "./components/join-room-form";
+import CreateRoomForm from "./components/create-room-form";
+import RoomSkeleton from "./components/room-skeleton";
 
 // 添加动态渲染导出
 export const dynamic = 'force-dynamic';
 
 // 提取设备ID的函数
-function extractDeviceIdFromCookie(): string {
-  const cookieStore = cookies();
+async function extractDeviceIdFromCookie(): Promise<string> {
+  const cookieStore = await cookies();
   const deviceIdCookie = cookieStore.get('love_ludo_device_id');
   return deviceIdCookie?.value || 'unknown';
 }
@@ -171,10 +175,12 @@ function renderErrorState() {
 }
 
 // 🔥 更新默认导出
-export default async function LobbyPage({ searchParams }: { searchParams?: { error?: string } }) {
+export default async function LobbyPage({ searchParams }: { searchParams?: Promise<{ error?: string }> }) {
+  // 等待 searchParams 解析
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
   return (
     <Suspense fallback={<LobbySkeleton />}>
-      <LobbyContent searchParams={searchParams} />
+      <LobbyContent searchParams={resolvedSearchParams} />
     </Suspense>
   );
 }
@@ -183,15 +189,22 @@ export default async function LobbyPage({ searchParams }: { searchParams?: { err
 // 🔥 优化数据获取逻辑
 async function LobbyContent({ searchParams }: { searchParams?: { error?: string } }) {
   try {
-    const { user, profile, cacheHit } = await getUserData(true);
-    const currentDeviceId = extractDeviceIdFromCookie();
+    // 并行获取用户数据和主题数据
+    const [userData, themesData] = await Promise.all([
+      getUserData(true),
+      listAvailableThemes()
+    ]);
+    
+    const { user, profile, cacheHit } = userData;
+    const currentDeviceId = await extractDeviceIdFromCookie();
     const deviceIdShort = currentDeviceId.length > 15 ? currentDeviceId.substring(0, 15) + '...' : currentDeviceId;
     
     console.log(`🏁 Lobby页面加载 - 用户: ${user.email}, 设备: ${currentDeviceId}, 缓存命中: ${cacheHit}`);
+    console.log(`📊 预加载主题数量: ${themesData.data?.length || 0}`);
     
     const errorMessage = searchParams?.error ?? "";
     
-    return renderLobbyContent(user, profile, deviceIdShort, errorMessage, cacheHit);
+    return renderLobbyContent(user, profile, deviceIdShort, errorMessage, cacheHit, themesData.data);
     
   } catch (error) {
     console.error('Lobby页面加载失败:', error);
@@ -213,7 +226,7 @@ async function LobbyContent({ searchParams }: { searchParams?: { error?: string 
 const MemoizedThemesList = memo(ThemesList);
 
 // 🔥 分离渲染逻辑
-function renderLobbyContent(user: any, profile: any, deviceIdShort: string, errorMessage: string, cacheHit: boolean) {
+function renderLobbyContent(user: any, profile: any, deviceIdShort: string, errorMessage: string, cacheHit: boolean, themes?: any[]) {
   return (
     <>
       <PreferencesModal />
@@ -286,37 +299,8 @@ function renderLobbyContent(user: any, profile: any, deviceIdShort: string, erro
               <h3 className="text-lg font-semibold">创建房间</h3>
             </div>
             <p className="text-sm text-gray-400 mb-4">创建一个新的游戏房间，邀请你的另一半加入</p>
-  
-            <form action={createRoom} className="space-y-4">
-              <div>
-                <Label className="block text-sm text-gray-300 mb-2">选择主题</Label>
-                <div className="glass rounded-xl p-3 flex items-center space-x-2 relative">
-                  <Layers className="w-5 h-5 text-gray-400" />
-                  <select
-                    id="player1_theme_id"
-                    name="player1_theme_id"
-                    className="flex-1 bg-transparent border-none outline-none text-white text-sm cursor-pointer appearance-none"
-                    required
-                  >
-                    <Suspense fallback={
-                      <option value="" className="bg-gray-800" disabled>
-                        加载主题中...
-                      </option>
-                    }>
-                      <ThemesList />
-                    </Suspense>
-                  </select>
-                  <ChevronDown className="w-4 h-4 text-gray-400" />
-                </div>
-              </div>
-  
-              <Button
-                type="submit"
-                className="w-full gradient-primary py-3.5 rounded-xl font-semibold glow-pink transition-all hover:scale-105 active:scale-95 text-white"
-              >
-                创建房间
-              </Button>
-            </form>
+
+            <CreateRoomForm initialThemes={themes} />
           </div>
   
           <div className="glass rounded-2xl p-6">
@@ -328,52 +312,7 @@ function renderLobbyContent(user: any, profile: any, deviceIdShort: string, erro
             </div>
             <p className="text-sm text-gray-400 mb-4">输入房间码加入已有的游戏</p>
   
-            <form action={joinRoom} className="space-y-4">
-              <div>
-                <Label className="block text-sm text-gray-300 mb-2">选择主题</Label>
-                <div className="glass rounded-xl p-3 flex items-center space-x-2 relative">
-                  <Layers className="w-5 h-5 text-gray-400" />
-                  <select
-                    id="player2_theme_id"
-                    name="player2_theme_id"
-                    className="flex-1 bg-transparent border-none outline-none text-white text-sm cursor-pointer appearance-none"
-                    required
-                  >
-                    <Suspense fallback={
-                      <option value="" className="bg-gray-800" disabled>
-                        加载主题中...
-                      </option>
-                    }>
-                      <MemoizedThemesList />
-                    </Suspense>
-                  </select>
-                  <ChevronDown className="w-4 h-4 text-gray-400" />
-                </div>
-              </div>
-  
-              <div>
-                <Label className="block text-sm text-gray-300 mb-2">房间码</Label>
-                <div className="glass rounded-xl p-3 flex items-center space-x-2">
-                  <Hash className="w-5 h-5 text-gray-400" />
-                  <Input
-                    id="room_code"
-                    name="room_code"
-                    type="text"
-                    placeholder="请输入6位房间码"
-                    maxLength={6}
-                    required
-                    className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0"
-                  />
-                </div>
-              </div>
-  
-              <Button
-                type="submit"
-                className="w-full glass py-3.5 rounded-xl font-semibold hover:bg-white/10 transition-all active:scale-95"
-              >
-                加入房间
-              </Button>
-            </form>
+            <JoinRoomForm initialThemes={themes} />
           </div>
         </div>
       </div>

@@ -1,29 +1,23 @@
-// /app/admin/layout.tsx - 简化稳定版本
-'use client'
+// /app/admin/layout.tsx - 适配隐藏式侧边导航
+'use client';
 
-import { usePathname } from 'next/navigation'
-import AdminNavbar from '@/components/admin/navbar'
-import './admin-styles.css'
+import { usePathname } from 'next/navigation';
+import AdminNavbar from '@/components/admin/navbar';
+import './admin-styles.css';
 
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname()
-  const isAdminRoute = pathname?.startsWith('/admin')
+  const pathname = usePathname();
+  const isAdminRoute = pathname?.startsWith('/admin');
 
   // 如果不是管理员路由，返回原始布局
   if (!isAdminRoute) {
-    return <>{children}</>
+    return <>{children}</>;
   }
 
-  return (
-    <div className="admin-layout-root min-h-screen bg-gray-900">
-      <AdminNavbar />
-      <div className="admin-content-wrapper">
-        {children}
-      </div>
-    </div>
-  )
+  // 直接返回导航栏，内容会被导航栏组件处理
+  return <AdminNavbar>{children}</AdminNavbar>;
 }

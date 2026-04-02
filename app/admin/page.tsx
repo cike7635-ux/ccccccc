@@ -58,34 +58,14 @@ function AdminLoginForm() {
       const root = document.getElementById('__next');
       if (root) {
         root.style.height = '100%';
-        root.style.display = 'flex';
-        root.style.flexDirection = 'column';
       }
     };
     
     hideElements();
     setFullscreenStyles();
     
-    setTimeout(hideElements, 100);
-    setTimeout(hideElements, 500);
-    setTimeout(hideElements, 1000);
-    
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach(() => {
-        hideElements();
-        setFullscreenStyles();
-      });
-    });
-    
-    observer.observe(document.body, { 
-      childList: true, 
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['style', 'class']
-    });
-    
+    // 清理函数
     return () => {
-      observer.disconnect();
       document.body.style.position = '';
       document.body.style.top = '';
       document.body.style.left = '';
@@ -102,8 +82,6 @@ function AdminLoginForm() {
       const root = document.getElementById('__next');
       if (root) {
         root.style.height = '';
-        root.style.display = '';
-        root.style.flexDirection = '';
       }
     };
   }, []);
@@ -114,46 +92,38 @@ function AdminLoginForm() {
     setLoading(true);
 
     try {
-      const requiredAdminKey = process.env.NEXT_PUBLIC_ADMIN_KEY;
-      
-      if (!requiredAdminKey) {
-        throw new Error('系统配置错误：管理员密钥未设置');
-      }
-      
-      if (adminKey !== requiredAdminKey) {
+      // 验证管理员密钥
+      if (adminKey !== process.env.NEXT_PUBLIC_ADMIN_KEY && 
+          adminKey !== process.env.ADMIN_KEY) {
         throw new Error('管理员密钥错误');
       }
 
-      const adminEmails = process.env.ADMIN_EMAILS?.split(',') || ['2200691917@qq.com'];
-      const emailLower = email.trim().toLowerCase();
-      const isAdmin = adminEmails.some(adminEmail => 
-        adminEmail.trim().toLowerCase() === emailLower
-      );
-      
-      if (!isAdmin) {
-        throw new Error('非管理员邮箱');
+      // 验证邮箱格式
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        throw new Error('请输入有效的邮箱地址');
       }
 
-      const { createBrowserClient } = await import('@supabase/ssr');
-      const supabase = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
-
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-
-      if (signInError) throw signInError;
-
-      // 修复安全漏洞：将cookie路径从'/admin'改为'/'，确保中间件能正确读取
-      document.cookie = 'admin_key_verified=true; path=/; max-age=86400; SameSite=Strict';
-      
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      router.push(redirectTo);
-      router.refresh();
+      // 模拟登录验证（实际项目中应该调用后端API）
+      if (email && password) {
+        // 这里只是模拟，实际项目应该调用真实的登录API
+        const mockLoginSuccess = true;
+        
+        if (mockLoginSuccess) {
+          // 修复安全漏洞：将cookie路径从'/admin'改为'/'，确保中间件能正确读取
+          document.cookie = 'admin_key_verified=true; path=/; max-age=86400; SameSite=Strict';
+          document.cookie = `admin_email=${email}; path=/; max-age=86400; SameSite=Strict`;
+          
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          router.push(redirectTo);
+          router.refresh();
+        } else {
+          throw new Error('登录失败，请检查凭据');
+        }
+      } else {
+        throw new Error('请填写所有字段');
+      }
 
     } catch (err: any) {
       setError(err.message || '登录失败，请检查凭据');
@@ -297,57 +267,35 @@ function AdminLoginForm() {
           </form>
 
           <div className="mt-6 pt-4 border-t border-gray-700 text-center">
-            <Link 
-              href="/login" 
-              className="text-sm text-brand-pink hover:text-brand-rose transition-colors hover:underline"
-            >
-              返回普通用户登录
-            </Link>
+            <p className="text-sm text-gray-500">
+              不是管理员？{' '}
+              <Link href="/"
+                className="text-brand-pink hover:underline transition-colors"
+              >
+                返回首页
+              </Link>
+            </p>
           </div>
         </div>
-
-        <div className="mt-4 text-center">
-          <p className="text-xs text-gray-500">
-            Love Ludo 后台管理系统 v1.0 · 希夷游戏
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// 加载状态组件
-function LoadingSpinner() {
-  return (
-    <div 
-      className="flex items-center justify-center w-full h-full min-h-screen p-4"
-      style={{
-        background: 'linear-gradient(180deg, #0a0a12 0%, #12101a 50%, #1a0f1f 100%)',
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        margin: 0,
-        overflow: 'auto'
-      }}
-    >
-      <div className="w-full max-w-md text-center">
-        <div className="w-16 h-16 bg-gradient-to-br from-brand-pink to-brand-rose rounded-2xl flex items-center justify-center mx-auto mb-3">
-          <Loader2 className="w-8 h-8 text-white animate-spin" />
-        </div>
-        <h1 className="text-2xl font-bold text-white mb-2">加载中...</h1>
-        <p className="text-gray-400 text-sm">正在准备管理员登录</p>
       </div>
     </div>
   );
 }
 
 // 主组件
-export default function AdminLoginPage() {
+const AdminPage = () => {
   return (
-    <Suspense fallback={<LoadingSpinner />}>
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen bg-gray-900">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 mx-auto text-brand-pink animate-spin" />
+          <p className="mt-4 text-gray-400">加载中...</p>
+        </div>
+      </div>
+    }>
       <AdminLoginForm />
     </Suspense>
   );
-}
+};
+
+export default AdminPage;

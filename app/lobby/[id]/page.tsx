@@ -1,13 +1,15 @@
 // app/lobby/[id]/page.tsx - 优化版
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import Link from "next/link";
-import { getRoomById, listAvailableThemes, setMyTheme, startGame } from "../actions";
+import { getRoomById, startGame } from "../actions";
 import { createClient } from "@/lib/supabase/server";
 import CopyButton from "@/components/copy-button";
 import RoomWatcher from "@/components/room-watcher";
-import { ArrowLeft, Users, Copy, ChevronDown, Loader2 } from "lucide-react";
+import ThemeSelectClient from "../components/theme-select-client";
+import StartGameClient from "../components/start-game-client";
+import { ArrowLeft, Users, Copy, Loader2 } from "lucide-react";
 import { Suspense } from 'react';
+import { getThemeById } from "@/lib/cache/themes-cache";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -59,8 +61,8 @@ function RoomLoadingSkeleton() {
   );
 }
 
-// 主题选择组件
-async function ThemeSelect({ room, userId }: { room: any, userId: string }) {
+// 主题选择客户端组件
+function ThemeSelectWrapper({ room, userId, currentThemeTitle }: { room: any, userId: string, currentThemeTitle?: string | null }) {
   const iAmPlayer1 = userId === room.player1_id;
   const iAmPlayer2 = userId === room.player2_id;
   const myRole = iAmPlayer1 ? "player1" : iAmPlayer2 ? "player2" : null;
@@ -74,39 +76,15 @@ async function ThemeSelect({ room, userId }: { room: any, userId: string }) {
     );
   }
 
-  const { data: themes } = await listAvailableThemes();
   const currentThemeId = myRole === "player1" ? room.player1_theme_id : room.player2_theme_id;
 
   return (
-    <div className="glass rounded-2xl p-6">
-      <h3 className="text-lg font-semibold mb-4">我的主题选择</h3>
-      <form action={setMyTheme} className="space-y-4">
-        <input type="hidden" name="room_id" value={room.id} />
-        <div>
-          <Label className="block text-sm text-gray-300 mb-2">选择主题</Label>
-          <div className="glass rounded-xl p-3 flex items-center space-x-2 relative">
-            <select
-              id="theme_id"
-              name="theme_id"
-              className="flex-1 bg-transparent border-none outline-none text-white text-sm cursor-pointer appearance-none"
-              defaultValue={currentThemeId || ""}
-              required
-            >
-              <option value="" className="bg-gray-800">请选择</option>
-              {themes.map((t) => (
-                <option key={t.id} value={t.id} className="bg-gray-800">
-                  {t.title}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="w-4 h-4 text-gray-400" />
-          </div>
-        </div>
-        <Button type="submit" className="w-full gradient-primary py-3 rounded-xl font-semibold text-white">
-          保存我的主题
-        </Button>
-      </form>
-    </div>
+    <ThemeSelectClient
+      roomId={room.id}
+      currentThemeId={currentThemeId}
+      myRole={myRole}
+      currentThemeTitle={currentThemeTitle}
+    />
   );
 }
 
@@ -147,6 +125,12 @@ async function RoomContent({ params }: Params) {
       </div>
     );
   }
+
+  // 获取双方主题标题
+  const [player1Theme, player2Theme] = await Promise.all([
+    room.player1_theme_id ? getThemeById(room.player1_theme_id) : null,
+    room.player2_theme_id ? getThemeById(room.player2_theme_id) : null,
+  ]);
 
   const bothReady = !!(room.player1_theme_id && room.player2_theme_id);
 
@@ -195,12 +179,12 @@ async function RoomContent({ params }: Params) {
                 {room.player1_theme_id ? (
                   <>
                     <span className="w-2 h-2 bg-green-400 rounded-full mr-1"></span>
-                    已选择主题
+                    {player1Theme?.title || "已选择"}
                   </>
                 ) : (
                   <>
                     <span className="w-2 h-2 bg-gray-400 rounded-full mr-1"></span>
-                    未选择主题
+                    未选择
                   </>
                 )}
               </div>
@@ -212,38 +196,21 @@ async function RoomContent({ params }: Params) {
                 {room.player2_theme_id ? (
                   <>
                     <span className="w-2 h-2 bg-green-400 rounded-full mr-1"></span>
-                    已选择主题
+                    {player2Theme?.title || "已选择"}
                   </>
                 ) : (
                   <>
                     <span className="w-2 h-2 bg-gray-400 rounded-full mr-1"></span>
-                    未选择主题
+                    未选择
                   </>
                 )}
               </div>
             </div>
           </div>
 
-          <form action={startGame} className="mt-6">
-            <input type="hidden" name="room_id" value={room.id} />
-            <Button
-              type="submit"
-              disabled={!bothReady}
-              className={`w-full py-4 rounded-2xl font-semibold transition-all ${
-                bothReady
-                  ? "gradient-primary glow-pink text-white hover:opacity-90"
-                  : "bg-white/10 text-white/50 cursor-not-allowed"
-              }`}
-            >
-              {bothReady ? (
-                "开始游戏"
-              ) : (
-                <span className="flex items-center justify-center gap-2">
-                  等待双方选择主题
-                </span>
-              )}
-            </Button>
-          </form>
+          <div className="mt-6">
+            <StartGameClient roomId={room.id} bothReady={bothReady} />
+          </div>
         </div>
 
         <Suspense fallback={
@@ -254,7 +221,11 @@ async function RoomContent({ params }: Params) {
             </div>
           </div>
         }>
-          <ThemeSelect room={room} userId={userId} />
+          <ThemeSelectWrapper
+            room={room}
+            userId={userId}
+            currentThemeTitle={userId === room.player1_id ? player1Theme?.title : player2Theme?.title}
+          />
         </Suspense>
       </div>
     </div>

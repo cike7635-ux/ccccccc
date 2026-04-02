@@ -352,9 +352,42 @@ function KeysContent() {
 
   // 复制密钥到剪贴板
   const copyToClipboard = (keyCode: string) => {
-    navigator.clipboard.writeText(keyCode)
-    setCopiedKey(keyCode)
-    setTimeout(() => setCopiedKey(null), 2000)
+    const copyTextToClipboard = (text: string) => {
+      // 尝试使用 navigator.clipboard API
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text)
+      } else {
+        // 备用方案：创建临时输入元素
+        const textArea = document.createElement('textarea')
+        textArea.value = text
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-999999px'
+        textArea.style.top = '-999999px'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        
+        try {
+          const successful = document.execCommand('copy')
+          if (!successful) {
+            throw new Error('复制失败')
+          }
+        } catch (error) {
+          throw error
+        } finally {
+          document.body.removeChild(textArea)
+        }
+      }
+    }
+
+    try {
+      copyTextToClipboard(keyCode)
+      setCopiedKey(keyCode)
+      setTimeout(() => setCopiedKey(null), 2000)
+    } catch (error) {
+      console.error('复制到剪贴板失败:', error)
+      // 可以在这里添加错误提示
+    }
   }
 
   // 计算密钥状态（备用函数）

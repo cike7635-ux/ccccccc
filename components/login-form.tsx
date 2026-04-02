@@ -112,6 +112,7 @@ export function LoginForm({
 
       // 生成会话标识（包含设备ID）
       const sessionId = generateSessionId(data.user.id, data.session.access_token);
+      const deviceId = getOrCreateDeviceId();
       const now = new Date().toISOString();
 
       console.log("[LoginForm] 生成会话标识:", sessionId);
@@ -123,6 +124,7 @@ export function LoginForm({
           id: data.user.id,
           email: data.user.email,
           last_login_session: sessionId,
+          last_login_device_id: deviceId,
           last_login_at: now,
           updated_at: now,
           avatar_url: '',
@@ -143,6 +145,7 @@ export function LoginForm({
             .from('profiles')
             .update({
               last_login_session: sessionId,
+              last_login_device_id: deviceId,
               last_login_at: now,
               updated_at: now
             })
