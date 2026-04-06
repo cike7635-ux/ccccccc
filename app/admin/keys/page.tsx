@@ -869,10 +869,18 @@ function KeysContent() {
     }
   }
 
-  // 初始加载
+  // 初始加载和URL参数变化时刷新
   useEffect(() => {
     fetchKeys()
-  }, [fetchKeys, refreshTrigger])
+    
+    // 检查URL中是否有成功消息
+    const success = searchParams.get('success')
+    if (success) {
+      setSuccessMessage(decodeURIComponent(success))
+      // 清除URL参数
+      router.replace('/admin/keys', { scroll: false })
+    }
+  }, [fetchKeys, refreshTrigger, searchParams, router])
 
   // 自动清除成功消息
   useEffect(() => {
@@ -1325,7 +1333,22 @@ function KeysContent() {
           </div>
         </div>
 
-        {loading ? (
+        {error ? (
+          <div className="p-8 md:p-16 text-center">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-red-800 to-red-900 border border-red-700 flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-8 h-8 text-red-400" />
+            </div>
+            <h3 className="text-lg font-medium text-red-300 mb-2">加载失败</h3>
+            <p className="text-gray-400 mb-6">{error}</p>
+            <button
+              onClick={fetchKeys}
+              className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:opacity-90 rounded-lg text-white transition-opacity"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              重新加载
+            </button>
+          </div>
+        ) : loading ? (
           <div className="p-8 md:p-16 text-center">
             <div className="w-12 h-12 border-2 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
             <p className="text-gray-400 mt-4">正在加载密钥数据...</p>
@@ -1660,18 +1683,18 @@ function KeysContent() {
                       </button>
                       <button
                         onClick={() => handleKeyAction(key.id, key.is_active ? 'disable' : 'enable')}
-                        disabled={isOperationLoading}
+                        disabled={operationLoading === key.id}
                         className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors disabled:opacity-50 ${
                           key.is_active
                             ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
                             : 'bg-green-600 hover:bg-green-700 text-white'
                         }`}
                       >
-                        {isOperationLoading ? '处理中...' : key.is_active ? '禁用' : '启用'}
+                        {operationLoading === key.id ? '处理中...' : key.is_active ? '禁用' : '启用'}
                       </button>
                       <button
                         onClick={() => handleKeyAction(key.id, 'delete')}
-                        disabled={isOperationLoading}
+                        disabled={operationLoading === key.id}
                         className="py-2 px-3 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
                       >
                         删除

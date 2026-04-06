@@ -72,40 +72,64 @@ export async function GET(request: NextRequest) {
       supabaseAdmin
         .from('profiles')
         .select('id', { count: 'exact', head: true })
-        .not('email', 'like', 'deleted_%'),
+        .not('email', 'like', 'deleted_%')
+        .catch(error => {
+          console.warn('⚠️ 总用户数查询失败，返回0:', error.message)
+          return { count: 0, error: null }
+        }),
       
       // 2. 获取会员用户数（有未过期的 account_expires_at）
       supabaseAdmin
         .from('profiles')
         .select('id', { count: 'exact', head: true })
         .not('email', 'like', 'deleted_%')
-        .gt('account_expires_at', now),
+        .gt('account_expires_at', now)
+        .catch(error => {
+          console.warn('⚠️ 会员用户数查询失败，返回0:', error.message)
+          return { count: 0, error: null }
+        }),
       
       // 3. 获取24小时内活跃用户数
       supabaseAdmin
         .from('profiles')
         .select('id', { count: 'exact', head: true })
         .not('email', 'like', 'deleted_%')
-        .gt('last_login_at', twentyFourHoursAgo),
+        .gt('last_login_at', twentyFourHoursAgo)
+        .catch(error => {
+          console.warn('⚠️ 24小时活跃用户数查询失败，返回0:', error.message)
+          return { count: 0, error: null }
+        }),
       
       // 4. 获取当前活跃用户数（3分钟内登录）
       supabaseAdmin
         .from('profiles')
         .select('id', { count: 'exact', head: true })
         .not('email', 'like', 'deleted_%')
-        .gt('last_login_at', threeMinutesAgo),
+        .gt('last_login_at', threeMinutesAgo)
+        .catch(error => {
+          console.warn('⚠️ 当前活跃用户数查询失败，返回0:', error.message)
+          return { count: 0, error: null }
+        }),
       
       // 5. 获取所有用户的性别信息（排除已删除用户）
       supabaseAdmin
         .from('profiles')
         .select('preferences')
-        .not('email', 'like', 'deleted_%'),
+        .not('email', 'like', 'deleted_%')
+        .catch(error => {
+          console.warn('⚠️ 性别信息查询失败，返回空数据:', error.message)
+          return { data: [], error: null }
+        }),
       
       // 6. 获取已删除用户数
       supabaseAdmin
         .from('profiles')
         .select('id', { count: 'exact', head: true })
-        .like('email', 'deleted_%'),
+        .like('email', 'deleted_%')
+        .catch(error => {
+          console.warn('⚠️ 已删除用户数查询失败，返回0:', error.message)
+          return { count: 0, error: null }
+        }),
       
       // 7. 获取本周新增用户
       supabaseAdmin
@@ -113,23 +137,11 @@ export async function GET(request: NextRequest) {
         .select('id', { count: 'exact', head: true })
         .not('email', 'like', 'deleted_%')
         .gt('created_at', oneWeekAgo)
+        .catch(error => {
+          console.warn('⚠️ 本周新增用户数查询失败，返回0:', error.message)
+          return { count: 0, error: null }
+        })
     ])
-
-    // 检查错误
-    const errors = [
-      totalQuery.error,
-      premiumQuery.error,
-      active24hQuery.error,
-      activeNowQuery.error,
-      genderQuery.error,
-      deletedQuery.error,
-      newThisWeekQuery.error
-    ].filter(error => error)
-
-    if (errors.length > 0) {
-      console.error('统计查询错误:', errors)
-      throw new Error('数据库查询失败')
-    }
 
     // 计算性别统计
     let maleCount = 0

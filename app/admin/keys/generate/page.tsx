@@ -212,9 +212,38 @@ export default function GenerateKeysPage() {
     if (generatedKeys.length === 0) return
     
     const keysText = generatedKeys.map(k => k.key_code).join('\n')
-    navigator.clipboard.writeText(keysText)
-    setCopiedAll(true)
-    setTimeout(() => setCopiedAll(false), 2000)
+    
+    const copyTextToClipboard = (text: string) => {
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text)
+      } else {
+        const textArea = document.createElement('textarea')
+        textArea.value = text
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-999999px'
+        textArea.style.top = '-999999px'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        
+        try {
+          const successful = document.execCommand('copy')
+          if (!successful) {
+            throw new Error('复制失败')
+          }
+        } finally {
+          document.body.removeChild(textArea)
+        }
+      }
+    }
+
+    try {
+      copyTextToClipboard(keysText)
+      setCopiedAll(true)
+      setTimeout(() => setCopiedAll(false), 2000)
+    } catch (error) {
+      console.error('复制到剪贴板失败:', error)
+    }
   }
 
   // 下载密钥
@@ -255,7 +284,7 @@ export default function GenerateKeysPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center">
             <Link
-              href="/admin/keys"
+              href={success ? `/admin/keys?success=${encodeURIComponent(success)}` : '/admin/keys'}
               className="mr-4 p-2 hover:bg-gray-800 rounded-lg transition-colors"
             >
               <ArrowLeft className="w-5 h-5 text-gray-400" />
@@ -931,7 +960,7 @@ export default function GenerateKeysPage() {
                 {copiedAll ? '✓ 已复制' : '复制所有密钥'}
               </button>
               <Link
-                href="/admin/keys"
+                href={success ? `/admin/keys?success=${encodeURIComponent(success)}` : '/admin/keys'}
                 className="px-4 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:opacity-90 rounded-lg text-sm text-white flex items-center"
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
