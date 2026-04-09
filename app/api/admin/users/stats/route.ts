@@ -1,19 +1,28 @@
+// /app/api/admin/users/stats/route.ts - 修复版
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 
-// 创建管理员客户端
+// 创建Supabase管理员客户端
 function createAdminClient() {
-  const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  const { createClient } = require('@supabase/supabase-js')
+  
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    throw new Error('缺少 NEXT_PUBLIC_SUPABASE_URL 环境变量')
+  }
+  
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('缺少 SUPABASE_SERVICE_ROLE_KEY 环境变量')
+  }
+  
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
     {
-      auth: { 
+      auth: {
         persistSession: false,
         autoRefreshToken: false
       }
     }
   )
-  return supabaseAdmin
 }
 
 // 验证管理员权限
@@ -22,7 +31,6 @@ function validateAdmin(request: NextRequest): boolean {
   const referer = request.headers.get('referer') || ''
   const userAgent = request.headers.get('user-agent') || ''
   
-  // 双重验证：Cookie 或 Referer + User-Agent
   if (adminKeyVerified === 'true') {
     return true
   }
@@ -36,8 +44,8 @@ function validateAdmin(request: NextRequest): boolean {
 
 export async function GET(request: NextRequest) {
   try {
-    // 验证管理员权限
     if (!validateAdmin(request)) {
+      console.warn('🚫 未授权访问统计API')
       return NextResponse.json(
         { success: false, error: '未授权访问' },
         { status: 401 }
@@ -46,19 +54,13 @@ export async function GET(request: NextRequest) {
 
     const supabaseAdmin = createAdminClient()
     
-    // 计算时间点
     const now = new Date().toISOString()
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
     const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString()
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
     
-    console.log('📊 统计API开始计算...', {
-      currentTime: now, // ✅ 修复：改为有效的标识符
-      twentyFourHoursAgo: twentyFourHoursAgo, // ✅ 修复：改为有效的标识符
-      threeMinutesAgo: threeMinutesAgo // ✅ 修复：改为有效的标识符
-    })
+    console.log('📊 统计API开始计算...')
 
-    // 🔧 并行执行所有统计查询，提升性能
     const [
       totalQuery,
       premiumQuery,
@@ -68,129 +70,111 @@ export async function GET(request: NextRequest) {
       deletedQuery,
       newThisWeekQuery
     ] = await Promise.all([
-      // 1. 获取总用户数（排除已删除用户）
       supabaseAdmin
         .from('profiles')
         .select('id', { count: 'exact', head: true })
         .not('email', 'like', 'deleted_%')
+        .then(res => ({ count: res.count || 0, error: null }))
         .catch(error => {
-          console.warn('⚠️ 总用户数查询失败，返回0:', error.message)
+          console.warn('⚠️ 总用户数查询失败:', error.message)
           return { count: 0, error: null }
         }),
       
-      // 2. 获取会员用户数（有未过期的 account_expires_at）
       supabaseAdmin
         .from('profiles')
         .select('id', { count: 'exact', head: true })
         .not('email', 'like', 'deleted_%')
         .gt('account_expires_at', now)
+        .then(res => ({ count: res.count || 0, error: null }))
         .catch(error => {
-          console.warn('⚠️ 会员用户数查询失败，返回0:', error.message)
+          console.warn('⚠️ 会员用户数查询失败:', error.message)
           return { count: 0, error: null }
         }),
       
-      // 3. 获取24小时内活跃用户数
       supabaseAdmin
         .from('profiles')
         .select('id', { count: 'exact', head: true })
         .not('email', 'like', 'deleted_%')
         .gt('last_login_at', twentyFourHoursAgo)
+        .then(res => ({ count: res.count || 0, error: null }))
         .catch(error => {
-          console.warn('⚠️ 24小时活跃用户数查询失败，返回0:', error.message)
+          console.warn('⚠️ 24小时活跃用户数查询失败:', error.message)
           return { count: 0, error: null }
         }),
       
-      // 4. 获取当前活跃用户数（3分钟内登录）
       supabaseAdmin
         .from('profiles')
         .select('id', { count: 'exact', head: true })
         .not('email', 'like', 'deleted_%')
         .gt('last_login_at', threeMinutesAgo)
+        .then(res => ({ count: res.count || 0, error: null }))
         .catch(error => {
-          console.warn('⚠️ 当前活跃用户数查询失败，返回0:', error.message)
+          console.warn('⚠️ 当前活跃用户数查询失败:', error.message)
           return { count: 0, error: null }
         }),
       
-      // 5. 获取所有用户的性别信息（排除已删除用户）
       supabaseAdmin
         .from('profiles')
         .select('preferences')
         .not('email', 'like', 'deleted_%')
+        .then(res => ({ data: res.data || [], error: null }))
         .catch(error => {
-          console.warn('⚠️ 性别信息查询失败，返回空数据:', error.message)
+          console.warn('⚠️ 性别信息查询失败:', error.message)
           return { data: [], error: null }
         }),
       
-      // 6. 获取已删除用户数
       supabaseAdmin
         .from('profiles')
         .select('id', { count: 'exact', head: true })
         .like('email', 'deleted_%')
+        .then(res => ({ count: res.count || 0, error: null }))
         .catch(error => {
-          console.warn('⚠️ 已删除用户数查询失败，返回0:', error.message)
+          console.warn('⚠️ 已删除用户数查询失败:', error.message)
           return { count: 0, error: null }
         }),
       
-      // 7. 获取本周新增用户
       supabaseAdmin
         .from('profiles')
         .select('id', { count: 'exact', head: true })
         .not('email', 'like', 'deleted_%')
         .gt('created_at', oneWeekAgo)
+        .then(res => ({ count: res.count || 0, error: null }))
         .catch(error => {
-          console.warn('⚠️ 本周新增用户数查询失败，返回0:', error.message)
+          console.warn('⚠️ 本周新增用户数查询失败:', error.message)
           return { count: 0, error: null }
         })
     ])
 
-    // 计算性别统计
     let maleCount = 0
     let femaleCount = 0
     let otherGender = 0
     let unknownCount = 0
     
     if (genderQuery.data) {
-      genderQuery.data.forEach(profile => {
-        if (!profile.preferences) {
+      genderQuery.data.forEach((profile: any) => {
+        if (!profile?.preferences) {
           unknownCount++
           return
         }
         
         const gender = profile.preferences.gender
-        if (!gender || gender === '' || gender === null || gender === undefined) {
+        if (!gender) {
           unknownCount++
-        } else if (
-          gender === 'male' || 
-          gender === 'M' || 
-          gender === '男' ||
-          gender.toString().toLowerCase() === 'male' ||
-          gender.toString() === '男'
-        ) {
-          maleCount++
-        } else if (
-          gender === 'female' || 
-          gender === 'F' || 
-          gender === '女' ||
-          gender.toString().toLowerCase() === 'female' ||
-          gender.toString() === '女'
-        ) {
-          femaleCount++
-        } else if (
-          gender === 'other' || 
-          gender === 'non_binary' || 
-          gender === '其他' || 
-          gender === '非二元' ||
-          gender.toString().toLowerCase().includes('other') ||
-          gender.toString().includes('非二元')
-        ) {
-          otherGender++
         } else {
-          unknownCount++
+          const genderStr = String(gender).toLowerCase()
+          if (genderStr === 'male' || genderStr === 'm' || genderStr === '男') {
+            maleCount++
+          } else if (genderStr === 'female' || genderStr === 'f' || genderStr === '女') {
+            femaleCount++
+          } else if (genderStr.includes('other') || genderStr.includes('非二元')) {
+            otherGender++
+          } else {
+            unknownCount++
+          }
         }
       })
     }
 
-    // 编译统计数据
     const stats = {
       total: totalQuery.count || 0,
       premium: premiumQuery.count || 0,
@@ -215,7 +199,6 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('❌ 统计API错误:', error)
     
-    // 返回错误但包含基本数据，避免前端完全崩溃
     const fallbackStats = {
       total: 0,
       premium: 0,
@@ -234,7 +217,7 @@ export async function GET(request: NextRequest) {
         success: false, 
         error: '获取统计数据失败',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined,
-        data: fallbackStats // 提供降级数据
+        data: fallbackStats
       },
       { status: 500 }
     )

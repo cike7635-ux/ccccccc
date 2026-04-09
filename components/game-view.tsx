@@ -32,7 +32,7 @@ type GameSession = {
   } | null;
 };
 
-export default function GameView({ session, userId }: { session: GameSession; userId: string }) {
+export default function GameView({ session, userId, onGameEnd }: { session: GameSession; userId: string; onGameEnd?: (winner?: string) => void }) {
   const supabase = useMemo(() => createClient(), []);
   const [isPending, startTransition] = useTransition();
 
@@ -58,12 +58,25 @@ export default function GameView({ session, userId }: { session: GameSession; us
   const lastRealtimeUpdateRef = useRef<number>(Date.now());
   const pollingActiveRef = useRef<boolean>(false);
   const lastPollSuccessRef = useRef<number>(Date.now());
+  const isOfflineRef = useRef<boolean>(!navigator.onLine);
+  const subscriptionResubscribeRef = useRef<NodeJS.Timeout | null>(null);
+  const isSubscribedRef = useRef<boolean>(false);
+  const retryCountRef = useRef<number>(0);
+  const maxRetries = 10;
+  const isExecutingRef = useRef<boolean>(false);
+  const lastOperationTimeRef = useRef<number>(0);
+  const operationCooldown = 1000;
+  const isSettingUpChannelRef = useRef<boolean>(false);
+  const isCleaningUpRef = useRef<boolean>(false);
+  const disconnectTimeRef = useRef<number>(0);
 
   // 🔥 新增：函数引用，避免重建导致的问题
   const getPollIntervalRef = useRef<() => number>(() => 20000);
   const pollGameStateRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const resetPollTimerRef = useRef<() => void>(() => {});
   const handleGameEndedRef = useRef<(sessionData: any) => void>(() => {});
+  const syncStateImmediatelyRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const resubscribeRealtimeRef = useRef<() => void>(() => {});
 
   // ========== 第二步：定义所有 useState ==========
   const [status, setStatus] = useState<string>(session.status);
@@ -101,6 +114,7 @@ export default function GameView({ session, userId }: { session: GameSession; us
   const [p2Nickname, setP2Nickname] = useState<string>("");
   const [isMobile, setIsMobile] = useState(false);
   const [showEndModal, setShowEndModal] = useState(false);
+  const [isButtonLoading, setIsButtonLoading] = useState(false);
 
   // ========== 第三步：定义派生状态 ==========
   
@@ -126,6 +140,8 @@ export default function GameView({ session, userId }: { session: GameSession; us
       supabase.removeChannel(subscriptionRef.current);
       subscriptionRef.current = null;
     }
+    
+    let winnerName: string | undefined;
     
     // 2. 获取最终状态并确定胜者
     try {
@@ -160,6 +176,8 @@ export default function GameView({ session, userId }: { session: GameSession; us
         finalWinnerRef.current = "未知";
       }
       
+      winnerName = finalWinnerRef.current;
+      
       console.log(`🏆 最终胜者: ${finalWinnerRef.current}`);
       
       // 强制更新到最终位置
@@ -179,8 +197,13 @@ export default function GameView({ session, userId }: { session: GameSession; us
     setPendingTask(null);
     setShowEndModal(true);
     
+    // 4. 通知父组件游戏结束
+    if (onGameEnd) {
+      onGameEnd(winnerName);
+    }
+    
     console.log('✅ 游戏结束处理完成，所有网络活动已停止');
-  }, [supabase, session.id, player1Pos, player2Pos, boardSize, p1Nickname, p2Nickname]);
+  }, [supabase, session.id, player1Pos, player2Pos, boardSize, p1Nickname, p2Nickname, onGameEnd]);
 
   // 🔥 修复：canRoll 使用 ref 避免竞态条件
   const canRoll = useCallback(() => {
@@ -192,27 +215,31 @@ export default function GameView({ session, userId }: { session: GameSession; us
     );
   }, [userId]);
 
-  // 🔥 优化：根据实时订阅健康状态动态调整轮询间隔
-  // 使用 ref 避免重建
+  // 🔥 智能轮询间隔 - 平衡速度和 CPU
   const getPollInterval = useCallback(() => {
     if (gameEndedRef.current) return 0;
     
-    const { 
-      status: currentStatus, 
-      pendingTask: currentPendingTask, 
-      currentPlayerId: currentPlayer 
-    } = stateRef.current;
+    const { status: currentStatus } = stateRef.current;
     
-    // 检查实时订阅健康状态 - 如果最近60秒内有实时更新，则降低轮询频率
-    const timeSinceLastRealtime = Date.now() - lastRealtimeUpdateRef.current;
-    const realtimeHealthy = timeSinceLastRealtime < 60000;
+    if (currentStatus !== 'playing') return 60000;
     
-    // 🔥 优化：简化轮询间隔逻辑，减少频繁调整
-    if (currentStatus !== 'playing') return 30000;
-    if (currentPendingTask) return 15000;
-    if (currentPlayer === userId) return 20000;
-    return 25000;
-  }, [userId]);
+    if (isSubscribedRef.current) {
+      // 订阅健康时：保持 60 秒（CPU 零增加）
+      return 60000;
+    } else {
+      // 订阅断开时
+      const timeSinceDisconnect = Date.now() - disconnectTimeRef.current;
+      if (timeSinceDisconnect < 30000) {
+        // 前 30 秒：快速轮询（10秒）
+        console.log(`⏱️ 订阅断开初期，快速轮询: 10秒 (断开后 ${Math.floor(timeSinceDisconnect/1000)}秒)`);
+        return 10000;
+      } else {
+        // 30 秒后：慢速轮询（30秒）
+        console.log(`⏱️ 订阅断开后期，慢速轮询: 30秒`);
+        return 30000;
+      }
+    }
+  }, []);
 
   // 🔥 优化：安全轮询函数 - 移除重复的 game_moves 查询
   const pollGameState = useCallback(async () => {
@@ -246,20 +273,22 @@ export default function GameView({ session, userId }: { session: GameSession; us
         .eq('id', session.id)
         .single();
       
-      // 处理游戏结束
-      if (gameError && (gameError.code === '406' || gameError.message?.includes('406'))) {
-        console.log('🎉 游戏会话已不存在，视为游戏结束');
+      // 处理游戏结束 - PGRST116 表示查询结果为空（游戏会话不存在）
+      if (gameError && (gameError.code === 'PGRST116' || gameError.code === '406' || gameError.message?.includes('PGRST116') || gameError.message?.includes('406'))) {
+        console.log('🎉 轮询检测到游戏会话不存在，视为游戏结束');
         handleGameEndedRef.current(null);
         return;
       }
       
       if (gameError) {
         console.error('❌ 轮询失败:', gameError.message);
+        pollingActiveRef.current = false;
         return;
       }
       
       if (!sessionData) {
-        pollingActiveRef.current = false;
+        console.log('🎉 轮询检测到游戏会话为空，视为游戏结束');
+        handleGameEndedRef.current(null);
         return;
       }
       
@@ -342,6 +371,7 @@ export default function GameView({ session, userId }: { session: GameSession; us
           // 清除旧定时器
           if (pollTimerRef.current) {
             clearTimeout(pollTimerRef.current);
+            pollTimerRef.current = null;
           }
           
           // 设置新定时器
@@ -353,21 +383,252 @@ export default function GameView({ session, userId }: { session: GameSession; us
   }
   }, [supabase, session.id]);
 
-  // 🔥 优化：重置轮询计时器（收到实时更新时调用）
+  // 🔥 新增：立即同步状态函数 - 用于网络恢复、页面恢复等场景
+  const syncStateImmediately = useCallback(async () => {
+    if (gameEndedRef.current) return;
+    
+    console.log('🔄 立即同步游戏状态...');
+    
+    try {
+      const { data: sessionData, error } = await supabase
+        .from('game_sessions')
+        .select('id, current_player_id, current_turn, status, game_state')
+        .eq('id', session.id)
+        .single();
+      
+      if (error) {
+        // PGRST116 表示查询结果为空（游戏会话不存在），视为游戏结束
+        if (error.code === 'PGRST116' || error.message?.includes('PGRST116')) {
+          console.log('🎉 立即同步检测到游戏会话不存在，视为游戏结束');
+          handleGameEndedRef.current(null);
+          return;
+        }
+        console.error('❌ 立即同步失败:', error);
+        return;
+      }
+      
+      if (!sessionData) {
+        console.log('🎉 立即同步检测到游戏会话为空，视为游戏结束');
+        handleGameEndedRef.current(null);
+        return;
+      }
+      
+      const s = sessionData as any;
+      
+      // 检查游戏是否结束
+      if (s.status === 'completed') {
+        console.log('🎉 同步检测到游戏结束');
+        handleGameEndedRef.current(s);
+        return;
+      }
+      
+      const gs = (s.game_state ?? {}) as any;
+      
+      // 更新所有状态
+      setStatus(s.status);
+      setCurrentPlayerId(s.current_player_id);
+      setCurrentTurn(s.current_turn ?? 1);
+      
+      const newP1Pos = Number(gs.player1_position ?? 0);
+      const newP2Pos = Number(gs.player2_position ?? 0);
+      setPlayer1Pos(newP1Pos);
+      setPlayer2Pos(newP2Pos);
+      
+      const newPendingTask = gs.pending_task ?? null;
+      setPendingTask(newPendingTask);
+      
+      // 更新 ref
+      stateRef.current = {
+        ...stateRef.current,
+        player1Pos: newP1Pos,
+        player2Pos: newP2Pos,
+        pendingTask: newPendingTask,
+        status: s.status,
+        currentPlayerId: s.current_player_id,
+        currentTurn: s.current_turn ?? 1,
+      };
+      
+      lastRealtimeUpdateRef.current = Date.now();
+      console.log('✅ 状态同步完成');
+      
+    } catch (error) {
+      console.error('❌ 立即同步异常:', error);
+    }
+  }, [supabase, session.id]);
+
+  // 🔥 重写：使用指数退避重连机制（参考 room-watcher）
+  const setupRealtimeChannel = useCallback(() => {
+    if (gameEndedRef.current) return;
+    if (isSettingUpChannelRef.current) {
+      console.log('⏸️ 跳过订阅建立：正在设置中');
+      return;
+    }
+    
+    isSettingUpChannelRef.current = true;
+    isCleaningUpRef.current = true; // 🔒 标记：正在清理旧订阅
+    console.log('📡 建立/重建实时订阅...');
+    
+    // 清理旧订阅
+    if (subscriptionRef.current) {
+      try {
+        supabase.removeChannel(subscriptionRef.current);
+      } catch (e) {
+        console.warn('清理旧订阅失败:', e);
+      }
+      subscriptionRef.current = null;
+    }
+    
+    // 短暂延迟后解除清理标记
+    setTimeout(() => {
+      isCleaningUpRef.current = false;
+    }, 500);
+    
+    const channel = supabase
+      .channel(`game_${session.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'game_sessions',
+          filter: `id=eq.${session.id}`
+        },
+        (payload) => {
+          if (gameEndedRef.current) return;
+          
+          console.log('⚡ 实时订阅收到更新');
+          lastRealtimeUpdateRef.current = Date.now();
+          
+          const s = (payload.new as any) ?? {};
+          
+          if (s.status === 'completed') {
+            console.log('🎉 实时订阅检测到游戏结束');
+            handleGameEndedRef.current(s);
+            return;
+          }
+          
+          const gs = (s.game_state ?? {}) as any;
+          
+          setStatus(s.status);
+          setCurrentPlayerId(s.current_player_id);
+          setCurrentTurn(s.current_turn ?? 1);
+          
+          const newP1Pos = Number(gs.player1_position ?? 0);
+          const newP2Pos = Number(gs.player2_position ?? 0);
+          setPlayer1Pos(newP1Pos);
+          setPlayer2Pos(newP2Pos);
+          
+          const newPendingTask = gs.pending_task ?? null;
+          setPendingTask(newPendingTask);
+          
+          stateRef.current = {
+            ...stateRef.current,
+            player1Pos: newP1Pos,
+            player2Pos: newP2Pos,
+            pendingTask: newPendingTask,
+            status: s.status,
+            currentPlayerId: s.current_player_id,
+            currentTurn: s.current_turn ?? 1,
+          };
+        }
+      )
+      .on(
+        'postgres_changes',
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'game_moves',
+          filter: `session_id=eq.${session.id}` 
+        },
+        (payload) => {
+          if (gameEndedRef.current) return;
+          
+          const mv = (payload.new as any) ?? {};
+          if (typeof mv.dice_value === 'number') {
+            console.log(`🎲 实时订阅更新骰子: ${mv.dice_value}`);
+            setIsRolling(true);
+            setTimeout(() => {
+              setLastDice(mv.dice_value);
+              setIsRolling(false);
+            }, 600);
+            
+            lastRealtimeUpdateRef.current = Date.now();
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log(`📡 实时订阅状态: ${status}`);
+        
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ 实时订阅连接成功');
+          isSubscribedRef.current = true;
+          retryCountRef.current = 0;
+          lastRealtimeUpdateRef.current = Date.now();
+          isSettingUpChannelRef.current = false;
+          isCleaningUpRef.current = false;
+        } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED') {
+          console.log(`ℹ️ 实时订阅断开: ${status}`);
+          const wasSubscribed = isSubscribedRef.current;
+          isSubscribedRef.current = false;
+          
+          // 🔧 记录断开时间（只在第一次断开时记录）
+          if (wasSubscribed) {
+            disconnectTimeRef.current = Date.now();
+            console.log(`⏱️ 记录订阅断开时间: ${new Date(disconnectTimeRef.current).toLocaleTimeString()}`);
+          }
+          
+          // 🚀 关键修复：如果是正在清理，不触发重连
+          if (!gameEndedRef.current && !isSettingUpChannelRef.current && !isCleaningUpRef.current) {
+            attemptReconnect();
+          } else if (isCleaningUpRef.current) {
+            console.log('⏸️ 跳过重连：正在清理旧订阅');
+          }
+        }
+      });
+    
+    subscriptionRef.current = channel;
+    
+    setTimeout(() => {
+      isSettingUpChannelRef.current = false;
+    }, 2000);
+  }, [supabase, session.id]);
+
+  // 🔥 新增：指数退避重连机制
+  const attemptReconnect = useCallback(() => {
+    if (gameEndedRef.current) return;
+    if (isSettingUpChannelRef.current) {
+      console.log('⏸️ 跳过重连：正在设置通道');
+      return;
+    }
+    if (retryCountRef.current >= maxRetries) {
+      console.error(`❌ 达到最大重试次数 (${maxRetries})，停止重连，依赖轮询`);
+      return;
+    }
+
+    // 清除之前的重连定时器
+    if (subscriptionResubscribeRef.current) {
+      clearTimeout(subscriptionResubscribeRef.current);
+      subscriptionResubscribeRef.current = null;
+    }
+
+    retryCountRef.current++;
+    
+    // 指数退避：1秒, 2秒, 4秒, 8秒, 10秒
+    const delay = Math.min(1000 * Math.pow(2, retryCountRef.current - 1), 10000);
+    
+    console.log(`🔄 尝试重新连接 (${retryCountRef.current}/${maxRetries})，${delay/1000}秒后`);
+    
+    subscriptionResubscribeRef.current = setTimeout(() => {
+      setupRealtimeChannel();
+    }, delay);
+  }, [maxRetries, setupRealtimeChannel]);
+
+  // 🔥 保持兼容性别名
+  const resubscribeRealtime = setupRealtimeChannel;
+
+  // 🔥 简化：收到实时更新时只更新健康状态，不重置轮询计时器
   const resetPollTimer = useCallback(() => {
-    if (gameEndedRef.current || pageHiddenRef.current) return;
-    
-    if (pollTimerRef.current) {
-      clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
-    
-    const nextInterval = getPollIntervalRef.current();
-    if (nextInterval > 0) {
-      pollTimerRef.current = setTimeout(() => {
-        pollGameStateRef.current();
-      }, nextInterval);
-    }
+    // 不重置轮询计时器，避免定时器叠加
   }, []);
 
   // 🔥 更新函数引用
@@ -376,7 +637,39 @@ export default function GameView({ session, userId }: { session: GameSession; us
     pollGameStateRef.current = pollGameState;
     resetPollTimerRef.current = resetPollTimer;
     handleGameEndedRef.current = handleGameEnded;
-  }, [getPollInterval, pollGameState, resetPollTimer, handleGameEnded]);
+    syncStateImmediatelyRef.current = syncStateImmediately;
+    resubscribeRealtimeRef.current = resubscribeRealtime;
+  }, [getPollInterval, pollGameState, resetPollTimer, handleGameEnded, syncStateImmediately, resubscribeRealtime]);
+
+  // 🔥 新增：操作防抖函数
+  const canExecuteOperation = useCallback((): boolean => {
+    if (gameEndedRef.current) return false;
+    if (isExecutingRef.current) {
+      console.log('⏸️ 操作被阻止：上一个操作正在执行中');
+      return false;
+    }
+    
+    const now = Date.now();
+    const timeSinceLastOp = now - lastOperationTimeRef.current;
+    if (timeSinceLastOp < operationCooldown) {
+      console.log(`⏸️ 操作被阻止：冷却中 (${operationCooldown - timeSinceLastOp}ms)`);
+      return false;
+    }
+    
+    return true;
+  }, [operationCooldown]);
+
+  // 🔥 新增：标记操作开始/结束
+  const markOperationStart = useCallback((): boolean => {
+    if (!canExecuteOperation()) return false;
+    isExecutingRef.current = true;
+    lastOperationTimeRef.current = Date.now();
+    return true;
+  }, [canExecuteOperation]);
+
+  const markOperationEnd = useCallback(() => {
+    isExecutingRef.current = false;
+  }, []);
 
   // ========== 第四步：定义所有 useEffect ==========
 
@@ -426,7 +719,7 @@ export default function GameView({ session, userId }: { session: GameSession; us
     };
   }, [session?.id]);
 
-  // 🔥 简化的实时订阅 - 使用 ref 避免函数重建
+  // 🔥 实时订阅 - 使用重连机制
   useEffect(() => {
     if (gameEndedRef.current) {
       console.log('⏹️ 游戏已结束，跳过订阅初始化');
@@ -437,114 +730,64 @@ export default function GameView({ session, userId }: { session: GameSession; us
     
     console.log(`📡 建立实时订阅，游戏ID: ${session.id}`);
     
-    let isActive = true;
-    
-    const channel = supabase
-      .channel(`game_${session.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'game_sessions',
-          filter: `id=eq.${session.id}`
-        },
-        (payload) => {
-          if (!isActive || gameEndedRef.current) return;
-          
-          console.log('⚡ 实时订阅收到更新');
-          lastRealtimeUpdateRef.current = Date.now();
-          
-          // 收到实时更新后，重置轮询计时器
-          resetPollTimerRef.current();
-          
-          const s = (payload.new as any) ?? {};
-          
-          // 游戏结束处理
-          if (s.status === 'completed') {
-            console.log('🎉 实时订阅检测到游戏结束');
-            handleGameEndedRef.current(s);
-            return;
-          }
-          
-          const gs = (s.game_state ?? {}) as any;
-
-          // 快速更新状态 - 直接设置，不依赖之前的 state
-          setStatus(s.status);
-          setCurrentPlayerId(s.current_player_id);
-          setCurrentTurn(s.current_turn ?? 1);
-
-          const newP1Pos = Number(gs.player1_position ?? 0);
-          const newP2Pos = Number(gs.player2_position ?? 0);
-
-          setPlayer1Pos(newP1Pos);
-          setPlayer2Pos(newP2Pos);
-
-          const newPendingTask = gs.pending_task ?? null;
-          setPendingTask(newPendingTask);
-
-          // 更新 ref
-          stateRef.current = {
-            ...stateRef.current,
-            player1Pos: newP1Pos,
-            player2Pos: newP2Pos,
-            pendingTask: newPendingTask,
-            status: s.status,
-            currentPlayerId: s.current_player_id,
-            currentTurn: s.current_turn ?? 1,
-          };
-        }
-      )
-      .on(
-        'postgres_changes',
-        { 
-          event: 'INSERT', 
-          schema: 'public', 
-          table: 'game_moves',
-          filter: `session_id=eq.${session.id}` 
-        },
-        (payload) => {
-          if (!isActive || gameEndedRef.current) return;
-          
-          const mv = (payload.new as any) ?? {};
-          if (typeof mv.dice_value === 'number') {
-            console.log(`🎲 实时订阅更新骰子: ${mv.dice_value}`);
-            setIsRolling(true);
-            setTimeout(() => {
-              setLastDice(mv.dice_value);
-              setIsRolling(false);
-            }, 600);
-            
-            // 收到骰子更新后，重置轮询计时器
-            lastRealtimeUpdateRef.current = Date.now();
-            resetPollTimerRef.current();
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log(`📡 实时订阅状态: ${status}`);
-        
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ 实时订阅连接成功');
-          lastRealtimeUpdateRef.current = Date.now();
-        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-          console.log(`ℹ️ 实时订阅断开: ${status}，依赖轮询系统`);
-          // 🔥 优化：不立即重连，依赖轮询系统
-        }
-      });
-    
-    subscriptionRef.current = channel;
+    setupRealtimeChannel();
     
     return () => {
       console.log('🧹 清理实时订阅');
-      isActive = false;
+      
+      if (subscriptionResubscribeRef.current) {
+        clearTimeout(subscriptionResubscribeRef.current);
+        subscriptionResubscribeRef.current = null;
+      }
       
       if (subscriptionRef.current) {
-        supabase.removeChannel(subscriptionRef.current);
+        try {
+          supabase.removeChannel(subscriptionRef.current);
+        } catch (e) {
+          console.warn('清理订阅失败:', e);
+        }
         subscriptionRef.current = null;
       }
+      
+      isSubscribedRef.current = false;
+      retryCountRef.current = 0;
+      isSettingUpChannelRef.current = false;
     };
-  }, [supabase, session.id]);
+  }, [supabase, session.id, setupRealtimeChannel]);
+
+  // 🔥 新增：网络状态监听
+  useEffect(() => {
+    if (gameEndedRef.current) return;
+    
+    const handleOnline = () => {
+      console.log('🌐 网络已恢复');
+      isOfflineRef.current = false;
+      retryCountRef.current = 0;
+      
+      // 🚀 顺序调整：先立即同步状态，再重连订阅
+      console.log('🔄 网络恢复：立即同步状态');
+      syncStateImmediatelyRef.current();
+      
+      // 稍微延迟一下重连订阅，给同步状态一些时间
+      setTimeout(() => {
+        console.log('📡 网络恢复：重连实时订阅');
+        setupRealtimeChannel();
+      }, 300);
+    };
+    
+    const handleOffline = () => {
+      console.log('📵 网络已断开');
+      isOfflineRef.current = true;
+    };
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []); // 🔧 空依赖数组，只挂载一次
 
   // 🔥 玩家信息获取
   useEffect(() => {
@@ -608,11 +851,27 @@ export default function GameView({ session, userId }: { session: GameSession; us
           return;
         }
         
-        console.log('▶️ 页面恢复，恢复轮询');
+        console.log('▶️ 页面恢复，立即同步状态');
         pageHiddenRef.current = false;
         
-        // 立即轮询一次
-        pollGameState();
+        // 🚀 顺序：先同步，再重连，最后恢复轮询
+        console.log('🔄 页面恢复：立即同步状态');
+        syncStateImmediatelyRef.current();
+        
+        // 重置重试计数
+        retryCountRef.current = 0;
+        
+        // 稍微延迟一下重连订阅
+        setTimeout(() => {
+          console.log('📡 页面恢复：重连实时订阅');
+          setupRealtimeChannel();
+        }, 300);
+        
+        // 恢复轮询
+        setTimeout(() => {
+          console.log('🔄 页面恢复：恢复轮询');
+          pollGameStateRef.current();
+        }, 600);
       }
     };
 
@@ -621,48 +880,96 @@ export default function GameView({ session, userId }: { session: GameSession; us
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [pollGameState]);
+  }, []);
 
   // ========== 第五步：事件处理函数 ==========
 
-  const handleRoll = useCallback(() => {
+  const handleRoll = useCallback(async () => {
     if (!canRoll()) return;
+    if (isButtonLoading) return;
+    if (!markOperationStart()) return;
 
     console.log(`🎲 玩家 ${userId} 开始掷骰子`);
-    startTransition(async () => {
-      try {
-        await rollDice(session.id);
-        // 操作后轮询
-        setTimeout(() => {
-          pollGameState();
-        }, 1000);
-      } catch (error) {
-        console.error('掷骰子失败:', error);
+    setIsButtonLoading(true);
+    
+    try {
+      await rollDice(session.id);
+      
+      // 🚀 智能同步策略
+      if (isSubscribedRef.current) {
+        // 订阅健康：只同步 1 次，然后完全依赖实时订阅
+        console.log('⚡ 操作完成，订阅健康，立即同步 1 次');
+        syncStateImmediatelyRef.current();
+      } else {
+        // 订阅断开：同步 3 次，保证不遗漏
+        console.log('⚡ 操作完成，订阅断开，同步 3 次');
+        syncStateImmediatelyRef.current();
+        setTimeout(() => syncStateImmediatelyRef.current(), 5000);
+        setTimeout(() => syncStateImmediatelyRef.current(), 10000);
       }
-    });
-  }, [canRoll, pollGameState, userId, session.id]);
+    } catch (error) {
+      console.error('掷骰子失败:', error);
+    } finally {
+      markOperationEnd();
+      setIsButtonLoading(false);
+    }
+  }, [canRoll, userId, session.id, isButtonLoading, markOperationStart, markOperationEnd]);
 
-  async function onExecutorConfirm() {
+  const onExecutorConfirm = useCallback(async () => {
+    if (isButtonLoading) return;
+    if (!markOperationStart()) return;
+    
     console.log(`✅ 执行者确认完成任务`);
-    startTransition(async () => {
+    setIsButtonLoading(true);
+    
+    try {
       await confirmTaskExecution(session.id);
-      // 操作后轮询
-      setTimeout(() => {
-        pollGameState();
-      }, 1000);
-    });
-  }
+      
+      // 🚀 智能同步策略
+      if (isSubscribedRef.current) {
+        // 订阅健康：只同步 1 次，然后完全依赖实时订阅
+        console.log('⚡ 操作完成，订阅健康，立即同步 1 次');
+        syncStateImmediatelyRef.current();
+      } else {
+        // 订阅断开：同步 3 次，保证不遗漏
+        console.log('⚡ 操作完成，订阅断开，同步 3 次');
+        syncStateImmediatelyRef.current();
+        setTimeout(() => syncStateImmediatelyRef.current(), 5000);
+        setTimeout(() => syncStateImmediatelyRef.current(), 10000);
+      }
+    } finally {
+      markOperationEnd();
+      setIsButtonLoading(false);
+    }
+  }, [session.id, isButtonLoading, markOperationStart, markOperationEnd]);
 
-  async function onObserverVerify(done: boolean) {
+  const onObserverVerify = useCallback(async (done: boolean) => {
+    if (isButtonLoading) return;
+    if (!markOperationStart()) return;
+    
     console.log(`👁️ 观察者验证任务: ${done ? "已执行" : "未执行"}`);
-    startTransition(async () => {
+    setIsButtonLoading(true);
+    
+    try {
       await verifyTask(session.id, done);
-      // 操作后轮询
-      setTimeout(() => {
-        pollGameState();
-      }, 1000);
-    });
-  }
+      
+      // 🚀 智能同步策略
+      if (isSubscribedRef.current) {
+        // 订阅健康：只同步 1 次，然后完全依赖实时订阅
+        console.log('⚡ 操作完成，订阅健康，立即同步 1 次');
+        syncStateImmediatelyRef.current();
+      } else {
+        // 订阅断开：同步 3 次，保证不遗漏
+        console.log('⚡ 操作完成，订阅断开，同步 3 次');
+        syncStateImmediatelyRef.current();
+        setTimeout(() => syncStateImmediatelyRef.current(), 5000);
+        setTimeout(() => syncStateImmediatelyRef.current(), 10000);
+      }
+    } finally {
+      markOperationEnd();
+      setIsButtonLoading(false);
+    }
+  }, [session.id, isButtonLoading, markOperationStart, markOperationEnd]);
 
   // 🔥 棋盘生成（保持不变）
   const cells = Array.from({ length: boardSize }, (_, i) => i);
@@ -783,14 +1090,14 @@ export default function GameView({ session, userId }: { session: GameSession; us
           <Button
             type="button"
             onClick={handleRoll}
-            disabled={!canRoll() || isPending}
-            className={`gradient-primary px-6 py-3 rounded-xl font-semibold glow-pink text-white flex items-center gap-2 transition-transform ${canRoll() && !isPending
+            disabled={!canRoll() || isPending || isButtonLoading}
+            className={`gradient-primary px-6 py-3 rounded-xl font-semibold glow-pink text-white flex items-center gap-2 transition-transform ${canRoll() && !isPending && !isButtonLoading
                 ? "hover:scale-105 active:scale-95"
                 : "opacity-50 cursor-not-allowed"
-              } ${isPending ? "animate-button-press" : ""}`}
+              } ${isPending || isButtonLoading ? "animate-button-press" : ""}`}
           >
             <Dice6 className="w-5 h-5" />
-            <span>{isPending ? "掷骰中" : "掷骰子"}</span>
+            <span>{isPending || isButtonLoading ? "掷骰中" : "掷骰子"}</span>
           </Button>
         </div>
       </div>
@@ -930,10 +1237,10 @@ export default function GameView({ session, userId }: { session: GameSession; us
                 <Button
                   type="button"
                   onClick={onExecutorConfirm}
-                  disabled={isPending}
+                  disabled={isPending || isButtonLoading}
                   className="flex-1 gradient-primary py-3 rounded-xl font-semibold glow-pink text-white"
                 >
-                  完成任务
+                  {isButtonLoading ? "处理中…" : "完成任务"}
                 </Button>
               </div>
             ) : pendingTask.status === "executed" && pendingTask.observer_id === userId ? (
@@ -941,18 +1248,18 @@ export default function GameView({ session, userId }: { session: GameSession; us
                 <Button
                   type="button"
                   onClick={() => onObserverVerify(true)}
-                  disabled={isPending}
+                  disabled={isPending || isButtonLoading}
                   className="flex-1 bg-green-600 py-3 rounded-xl font-semibold text-white hover:bg-green-700"
                 >
-                  已执行
+                  {isButtonLoading ? "处理中…" : "已执行"}
                 </Button>
                 <Button
                   type="button"
                   onClick={() => onObserverVerify(false)}
-                  disabled={isPending}
+                  disabled={isPending || isButtonLoading}
                   className="flex-1 bg-red-600 py-3 rounded-xl font-semibold text-white hover:bg-red-700"
                 >
-                  未执行
+                  {isButtonLoading ? "处理中…" : "未执行"}
                 </Button>
               </div>
             ) : (

@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       timestamp: now,
-      nextHeartbeat: Date.now() + 50000 // 告诉客户端下次心跳时间
+      nextHeartbeat: Date.now() + 80000 // 告诉客户端下次心跳时间（80秒后）
     });
     
   } catch (error) {

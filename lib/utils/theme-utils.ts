@@ -1,18 +1,15 @@
 // /lib/utils/theme-utils.ts - 主题相关的公共函数
 
 import { createClient } from '@/lib/supabase/server';
+import { getUserData } from '@/lib/server/auth';
 import { handleError, createError, ErrorCodes } from './error-handler';
 
 /**
- * 检查用户是否已登录
+ * 检查用户是否已登录（包含会员和设备检查）
  */
 export async function checkUserLoggedIn() {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      throw createError(ErrorCodes.UNAUTHORIZED, '用户未登录');
-    }
+    const { user } = await getUserData();
     return user;
   } catch (error) {
     throw handleError(error);

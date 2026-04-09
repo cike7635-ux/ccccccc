@@ -4,6 +4,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getUserData } from "@/lib/server/auth";
 import {
   getAllThemesForUser,
   incrementThemesVersion,
@@ -40,12 +41,9 @@ type RoomRecord = {
 export { incrementThemesVersion, getUserThemes, getOfficialThemes };
 
 async function requireUser() {
+  const { user, profile } = await getUserData();
   const supabase = await createClient();
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data?.user) {
-    redirect('/login');
-  }
-  return { supabase, user: data.user } as const;
+  return { supabase, user, profile } as const;
 }
 
 function generateRoomCode() {
@@ -105,10 +103,10 @@ export async function setMyTheme(formData: FormData): Promise<void> {
 
     console.log(`📝 设置我的主题，用户: ${user.id}, 房间: ${roomId}, 主题: ${myThemeId}`);
 
-    // 获取房间信息确认用户身份
+    // 获取房间信息确认用户身份（包括主题字段！）
     const { data: room, error: roomError } = await supabase
       .from("rooms")
-      .select("id, player1_id, player2_id, status")
+      .select("id, player1_id, player2_id, player1_theme_id, player2_theme_id, status")
       .eq("id", roomId)
       .single();
 
@@ -126,14 +124,28 @@ export async function setMyTheme(formData: FormData): Promise<void> {
       return;
     }
 
-    // 根据角色更新对应的主题字段
+    // 🚀 一次性准备更新数据（同时更新主题和状态）
     const updateData: Record<string, any> = {};
+    
+    // 1. 更新当前用户的主题
     if (isPlayer1) {
       updateData.player1_theme_id = myThemeId;
     } else if (isPlayer2) {
       updateData.player2_theme_id = myThemeId;
     }
 
+    // 2. 检查：两人是否都有主题了（包括当前这次设置的）
+    const player1ThemeAfter = isPlayer1 ? myThemeId : room.player1_theme_id;
+    const player2ThemeAfter = isPlayer2 ? myThemeId : room.player2_theme_id;
+    const bothWillHaveTheme = player1ThemeAfter && player2ThemeAfter;
+    
+    // 3. 如果两人都有主题且当前状态是 waiting，更新为 ready
+    if (bothWillHaveTheme && room.status === "waiting") {
+      updateData.status = "ready";
+      console.log(`✅ 两人都选好主题，状态将更新为 ready`);
+    }
+
+    // 🚀 一次性执行 UPDATE！
     const { error: updateError } = await supabase
       .from("rooms")
       .update(updateData)
@@ -408,11 +420,11 @@ export async function joinRoom(formData: FormData): Promise<void> {
 
     console.log(`🔍 加入房间，用户: ${user.id}, 房间码: ${roomCode}, 主题: ${myThemeId}`);
 
-    // 先检查房间是否存在
+    // 先检查房间是否存在（包括主题字段！）
     console.log(`🔍 查询房间，条件: room_code=${roomCode}, status=waiting`);
     const { data: roomCheck, error: roomCheckError } = await supabase
       .from("rooms")
-      .select("id,status,player2_id,creator_id,player1_id")
+      .select("id,status,player2_id,creator_id,player1_id,player1_theme_id")
       .eq("room_code", roomCode)
       .maybeSingle();
 
@@ -465,14 +477,23 @@ export async function joinRoom(formData: FormData): Promise<void> {
 
     console.log(`📝 加入房间: ${roomCheck.id}, 用户: ${user.id}`);
 
-    // 更新房间状态 - 只更新玩家2信息，保持房间状态为 waiting
+    // 准备更新数据
+    const updateData: Record<string, any> = {
+      player2_id: user.id,
+      player2_nickname: nickname,
+      player2_theme_id: myThemeId,
+    };
+    
+    // 检查是否两人都选好主题了（player1 应该已经有主题了）
+    if (roomCheck.player1_id && roomCheck.player1_theme_id) {
+      updateData.status = "ready";
+      console.log(`✅ 两人都加入并选好主题，状态更新为 ready`);
+    }
+
+    // 更新房间
     const { data: updated, error: updateError } = await supabase
       .from("rooms")
-      .update({
-        player2_id: user.id,
-        player2_nickname: nickname,
-        player2_theme_id: myThemeId,
-      })
+      .update(updateData)
       .eq("id", roomCheck.id)
       .select("id")
       .single();

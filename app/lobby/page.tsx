@@ -7,14 +7,15 @@ import { Button } from "@/components/ui/button";
 import { listAvailableThemes, createRoom } from "./actions";
 import { Users, LogIn, Layers, ChevronDown, Hash, ShoppingCart, Smartphone } from "lucide-react";
 import PreferencesModal from "@/components/profile/preferences-modal";
-import Link from "next/link";
 import AnnouncementModal from "@/components/announcement-modal";
+import Link from "next/link";
 import { Suspense, memo } from 'react';
 import ThemeSelect from "./components/theme-select";
 import RoomCard from "./components/room-card";
 import JoinRoomForm from "./components/join-room-form";
 import CreateRoomForm from "./components/create-room-form";
 import RoomSkeleton from "./components/room-skeleton";
+import ClientOnlyWrapper from "@/components/client-only-wrapper";
 
 // 添加动态渲染导出
 export const dynamic = 'force-dynamic';
@@ -229,8 +230,10 @@ const MemoizedThemesList = memo(ThemesList);
 function renderLobbyContent(user: any, profile: any, deviceIdShort: string, errorMessage: string, cacheHit: boolean, themes?: any[]) {
   return (
     <>
-      <PreferencesModal />
-      <AnnouncementModal />
+      <ClientOnlyWrapper>
+        <PreferencesModal />
+        <AnnouncementModal />
+      </ClientOnlyWrapper>
       
       <div className="max-w-md mx-auto min-h-svh flex flex-col p-6 pb-24">
         {/* 顶部提示小字 */}

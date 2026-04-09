@@ -491,16 +491,27 @@ export async function bulkInsertTasks(formData: FormData) {
     }
 
     // 更新主题的任务数量
-    const { error: updateError } = await supabase
+    const { data: theme, error: fetchError } = await supabase
       .from('themes')
-      .update({
-        task_count: tasksToInsert.length,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', theme_id);
+      .select('task_count')
+      .eq('id', theme_id)
+      .single();
 
-    if (updateError) {
-      console.error('[bulkInsertTasks] 更新任务数量失败:', updateError);
+    if (!fetchError && theme) {
+      const newTaskCount = (theme.task_count || 0) + tasksToInsert.length;
+      const { error: updateError } = await supabase
+        .from('themes')
+        .update({
+          task_count: newTaskCount,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', theme_id);
+
+      if (updateError) {
+        console.error('[bulkInsertTasks] 更新任务数量失败:', updateError);
+      }
+    } else {
+      console.error('[bulkInsertTasks] 获取主题失败:', fetchError);
     }
 
     // 清除缓存

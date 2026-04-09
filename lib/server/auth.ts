@@ -151,30 +151,74 @@ export async function getUserData(isLoginPage: boolean = false): Promise<{
   const supabase = await createClient();
   const cookieStore = await cookies();
   
-  // 1. 尝试从缓存获取
-  const { data: { user: cachedUser } } = await supabase.auth.getUser();
+  // 获取设备ID（用于缓存键）
+  const deviceIdCookie = cookieStore.get('love_ludo_device_id');
+  const currentDeviceId = deviceIdCookie?.value || 'unknown';
+  const deviceCacheKey = `device_${currentDeviceId}`;
+  
+  // 1. 尝试从缓存获取用户信息（不依赖网络）
+  let cachedUser = null;
+  
+  try {
+    const { data } = await supabase.auth.getUser();
+    cachedUser = data?.user;
+  } catch (error) {
+    console.error('获取用户信息异常（网络错误？）:', error);
+  }
+  
+  // 尝试多种缓存键
+  const userCacheKey = cachedUser ? `user_${cachedUser.id}` : null;
+  const userDataCached = userCacheKey ? userDataCache.get(userCacheKey) : null;
+  const deviceDataCached = userDataCache.get(deviceCacheKey);
+  
+  // 如果获取用户失败（网络错误），但有有效的设备缓存，直接使用缓存
+  if (!cachedUser && deviceDataCached && deviceDataCached.expiresAt > Date.now()) {
+    console.log('🔄 网络错误，但有有效设备缓存，使用缓存数据');
+    const profile = deviceDataCached.data.profile;
+    
+    if (profile?.account_expires_at) {
+      const expiryDate = new Date(profile.account_expires_at);
+      if (expiryDate < new Date()) {
+        console.log('❌ 会员已过期（缓存检查）');
+        redirect('/account-expired');
+      }
+    }
+    
+    return { ...deviceDataCached.data, cacheHit: true };
+  }
+  
+  // 如果获取用户失败（网络错误），但有有效的用户缓存，尝试使用
+  if (!cachedUser && userDataCached && userDataCached.expiresAt > Date.now()) {
+    console.log('🔄 网络错误，但有有效用户缓存，使用缓存数据');
+    const profile = userDataCached.data.profile;
+    
+    if (profile?.account_expires_at) {
+      const expiryDate = new Date(profile.account_expires_at);
+      if (expiryDate < new Date()) {
+        console.log('❌ 会员已过期（缓存检查）');
+        redirect('/account-expired');
+      }
+    }
+    
+    return { ...userDataCached.data, cacheHit: true };
+  }
+  
+  // 如果仍然没有cachedUser，重定向
   if (!cachedUser) {
-    console.log('❌ 用户未登录，重定向到登录页');
+    console.log('❌ 用户未登录（或网络错误），重定向到登录页');
     redirect('/login');
+    return; // 这行不会执行，但让TypeScript安心
   }
   
   const cacheKey = `user_${cachedUser.id}`;
-  const cached = userDataCache.get(cacheKey);
   
-  // 2. 获取设备ID
-  const deviceIdCookie = cookieStore.get('love_ludo_device_id');
-  const currentDeviceId = deviceIdCookie?.value || 'unknown';
-  
-  // 3. 分层缓存策略
   // 检查设备验证缓存（50秒）
   const deviceCached = deviceCheckCache.get(cacheKey);
-  const userDataCached = userDataCache.get(cacheKey);
   
-  // 如果设备验证缓存有效且设备ID匹配，检查会员状态后返回用户数据
   if (deviceCached && deviceCached.expiresAt > Date.now() && deviceCached.deviceId === currentDeviceId) {
-    if (userDataCached && userDataCached.expiresAt > Date.now()) {
-      // 🔥 缓存命中时也要检查会员是否过期（使用缓存中的数据）
-      const profile = userDataCached.data.profile;
+    const userDataCached2 = userDataCache.get(cacheKey);
+    if (userDataCached2 && userDataCached2.expiresAt > Date.now()) {
+      const profile = userDataCached2.data.profile;
       if (profile?.account_expires_at) {
         const expiryDate = new Date(profile.account_expires_at);
         if (expiryDate < new Date()) {
@@ -184,12 +228,12 @@ export async function getUserData(isLoginPage: boolean = false): Promise<{
       }
       
       console.log('✅ 分层缓存命中（设备+用户数据）');
-      return { ...userDataCached.data, cacheHit: true };
+      return { ...userDataCached2.data, cacheHit: true };
     }
   }
   
-  // 如果只有设备验证缓存过期，但用户数据缓存还在，需要重新验证设备
-  if (userDataCached && userDataCached.expiresAt > Date.now()) {
+  const userDataCached3 = userDataCache.get(cacheKey);
+  if (userDataCached3 && userDataCached3.expiresAt > Date.now()) {
     console.log('🔄 设备验证缓存过期，重新验证设备');
   }
 
@@ -250,6 +294,12 @@ export async function getUserData(isLoginPage: boolean = false): Promise<{
   // 8. 设置分层缓存
   // 用户数据缓存（5分钟）
   userDataCache.set(cacheKey, {
+    data: { user, profile },
+    expiresAt: Date.now() + USER_DATA_CACHE_TTL
+  });
+  
+  // 🔥 同时使用设备ID作为缓存键，方便网络恢复时查找
+  userDataCache.set(`device_${currentDeviceId}`, {
     data: { user, profile },
     expiresAt: Date.now() + USER_DATA_CACHE_TTL
   });

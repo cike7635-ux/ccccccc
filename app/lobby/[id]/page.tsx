@@ -165,8 +165,14 @@ async function RoomContent({ params }: Params) {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-400">状态</span>
-              <span className={`font-medium ${room.status === 'waiting' ? 'text-yellow-400' : 'text-green-400'}`}>
-                {room.status === 'waiting' ? '等待中' : '游戏中'}
+              <span className={`font-medium ${
+                room.status === 'waiting' ? 'text-yellow-400' : 
+                room.status === 'ready' ? 'text-green-400' : 
+                'text-blue-400'
+              }`}>
+                {room.status === 'waiting' ? '等待中' : 
+                 room.status === 'ready' ? '准备就绪' : 
+                 '游戏中'}
               </span>
             </div>
           </div>

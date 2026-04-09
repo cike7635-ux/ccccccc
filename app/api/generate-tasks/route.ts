@@ -5,9 +5,57 @@ import { getAIDefaultLimits } from '@/lib/config/system-config';
 
 // --- Configuration ---
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const DEFAULT_URL = "https://api.deepseek.com/chat/completions";
-const OPENROUTER_URL = process.env.OPENROUTER_URL || DEFAULT_URL;
-const MODEL_NAME = process.env.MODEL_NAME || "deepseek-chat";
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+
+// 从数据库获取模型配置的函数
+async function getAIModels() {
+  console.log('🔍 开始获取 AI 模型配置...');
+  
+  try {
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        cookies: { getAll: () => cookieStore.getAll(), setAll: () => { } }
+      }
+    );
+
+    console.log('🔍 查询数据库中的 AI 模型...');
+    const { data, error } = await supabase
+      .from('ai_models')
+      .select('*')
+      .eq('is_active', true)
+      .order('priority', { ascending: true });
+
+    if (error) {
+      console.error('❌ 获取 AI 模型配置失败:', error);
+      return null;
+    }
+
+    console.log(`📊 查询结果: 找到 ${data?.length || 0} 个启用的模型`);
+    if (data && data.length > 0) {
+      console.log('📋 模型列表:', data.map(m => `${m.display_name} (${m.provider})`).join(', '));
+    }
+
+    return data;
+  } catch (error) {
+    console.error('❌ getAIModels 函数异常:', error);
+    return null;
+  }
+}
+
+// 获取 API 密钥的函数
+function getApiKey(provider: string): string | null {
+  switch (provider) {
+    case 'openrouter':
+      return OPENROUTER_API_KEY || null;
+    case 'deepseek':
+      return DEEPSEEK_API_KEY || null;
+    default:
+      return null;
+  }
+}
 
 // --- Type Definitions ---
 interface Preferences {
@@ -342,6 +390,8 @@ async function recordAIUsage(
  * 主 API 路由处理函数
  */
 export async function POST(req: NextRequest) {
+  console.log('🚀 generate-tasks API 被调用');
+  
   // ============ 第一步：用户验证 ============
   try {
     const cookieStore = await cookies();
@@ -475,15 +525,18 @@ export async function POST(req: NextRequest) {
 
     // ============ 验证通过，继续处理AI生成 ============
 
-    if (!OPENROUTER_API_KEY) {
+    // 检查是否有任何可用的 API 密钥
+    const hasApiKey = OPENROUTER_API_KEY || DEEPSEEK_API_KEY;
+    if (!hasApiKey) {
       return NextResponse.json(
-        { error: "缺少 OPENROUTER_API_KEY 环境变量" },
+        { error: "缺少 AI API 密钥环境变量" },
         { status: 500 }
       );
     }
 
+    let result;
     try {
-      const result = await parseAndValidateRequest(req);
+      result = await parseAndValidateRequest(req);
       if (!result.ok) {
         return NextResponse.json(
           { error: result.error.message },
@@ -493,7 +546,9 @@ export async function POST(req: NextRequest) {
 
       const { sysPrompt, userPrompt } = buildPrompts(result.data, nickname);
 
+      console.log('📝 准备调用 AI API...');
       const aiContent = await callOpenRouter(sysPrompt, userPrompt);
+      console.log('✅ AI API 调用完成');
 
       const tasks = parseAIResponse(aiContent);
 
@@ -556,8 +611,7 @@ export async function POST(req: NextRequest) {
       console.error("生成任务时发生未捕获的错误:", e);
 
       try {
-        const result = await parseAndValidateRequest(req).catch(() => ({ ok: false } as ParseResult));
-        if (result.ok) {
+        if (result && result.ok) {
           await recordAIUsage(
             user.id,
             'generate_tasks',
@@ -820,7 +874,7 @@ ${
    - 服务于权力关系
 
 6. 数量要求
-   - 生成12-14条任务
+   - 生成12-13条任务
    
 7. 严禁行为
    - 任务中不能包含任何自残、自伤、自毁等危险行为
@@ -882,41 +936,149 @@ return { sysPrompt, userPrompt };
 }
 
 /**
- * 调用 OpenRouter API
+ * 调用 AI API（支持多模型自动切换）
  */
 async function callOpenRouter(sysPrompt: string, userPrompt: string): Promise<string> {
-  const resp = await fetch(OPENROUTER_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: MODEL_NAME,
-      messages: [
-        { role: "system", content: sysPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.9,
-      max_tokens: 6000,
-    }),
-  });
+  console.log('🚀 callOpenRouter 函数被调用');
+  
+  try {
+    // 从数据库获取启用的模型配置
+    const models = await getAIModels();
+    
+    if (!models || models.length === 0) {
+      console.error('❌ 没有可用的 AI 模型配置');
+      throw new Error('没有可用的 AI 模型配置');
+    }
 
-  if (!resp.ok) {
-    const errorBody = await resp.text();
-    console.error("OpenRouter API 错误:", errorBody);
-    throw new Error(`AI API 请求失败，状态码: ${resp.status}`);
+    console.log(`📡 获取到 ${models.length} 个可用模型，按优先级尝试...`);
+
+    // 依次尝试每个模型
+    for (const model of models) {
+      const apiKey = getApiKey(model.provider);
+      
+      if (!apiKey) {
+        console.warn(`⚠️ 模型 ${model.display_name} (${model.provider}) 缺少 API 密钥，跳过`);
+        continue;
+      }
+
+      console.log(`📡 尝试使用模型: ${model.display_name} (${model.provider})...`);
+      console.log(`📊 模型信息: ${model.name} (${model.provider})`);
+      console.log(`🌐 API 地址: ${model.api_url}`);
+      console.log(`⚙️ 配置: temperature=${model.temperature}, max_tokens=${model.max_tokens}`);
+      
+      // 修复模型 ID
+      let modelId = model.name;
+      if (model.provider === 'openrouter') {
+        // OpenRouter 需要完整的模型 ID
+        if (model.name === 'deepseek-chat') {
+          // 使用标准模型 ID，避免使用可能不存在的后缀
+          modelId = 'deepseek/deepseek-chat';
+        } else if (model.name === 'qwen/qwen3.6-plus') {
+          modelId = 'qwen/qwen3.6-plus';
+        }
+      } else if (model.provider === 'deepseek') {
+        // DeepSeek 直接 API 需要正确的模型 ID
+        if (model.name === 'deepseek-chat-direct') {
+          modelId = 'deepseek-chat';
+        }
+      }
+      console.log(`🔧 使用修复后的模型 ID: ${modelId}`);
+      
+      console.log(`📡 开始调用 API: ${model.api_url}`);
+      console.log(`📋 请求模型 ID: ${modelId}`);
+      
+      try {
+        const resp = await fetch(model.api_url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: modelId,
+            messages: [
+              { role: "system", content: sysPrompt },
+              { role: "user", content: userPrompt },
+            ],
+            response_format: { type: "json_object" },
+            temperature: model.temperature,
+            max_tokens: model.max_tokens,
+            // 🔧 核心修改：添加 provider 对象，强制指定供应商并禁止回退
+            provider: {
+              order: ["DeepSeek"],
+              allow_fallbacks: false
+            }
+          }),
+        });
+
+        console.log(`📡 API 响应状态: ${resp.status} ${resp.statusText}`);
+
+        if (resp.ok) {
+          const data = await resp.json();
+          console.log(`📡 API 响应数据:`, JSON.stringify(data, null, 2));
+          
+          const content = data?.choices?.[0]?.message?.content;
+
+          if (typeof content === "string" && content.trim() !== "") {
+            console.log(`✅ 模型 ${model.display_name} 调用成功`);
+            console.log(`📊 实际使用模型: ${model.name} (${model.provider})`);
+            console.log(`🌐 API 地址: ${model.api_url}`);
+            
+            // 更新成功计数
+            await updateModelStats(model.id, true);
+            
+            return content;
+          } else {
+            console.warn(`⚠️ 模型 ${model.display_name} 返回内容为空或格式不正确`);
+          }
+        } else {
+          const errorBody = await resp.text();
+          console.warn(`⚠️ 模型 ${model.display_name} 调用失败:`, errorBody);
+        }
+        
+        // 更新失败计数
+        await updateModelStats(model.id, false);
+      } catch (error) {
+        console.error(`❌ 模型 ${model.display_name} 调用出错:`, error);
+        
+        // 更新失败计数
+        await updateModelStats(model.id, false);
+      }
+    }
+
+    throw new Error("所有 AI 模型调用失败");
+  } catch (error) {
+    console.error(`❌ callOpenRouter 函数异常:`, error);
+    throw error;
   }
+}
 
-  const data = await resp.json();
-  const content = data?.choices?.[0]?.message?.content;
+/**
+ * 更新模型统计信息
+ */
+async function updateModelStats(modelId: string, success: boolean) {
+  try {
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        cookies: { getAll: () => cookieStore.getAll(), setAll: () => { } }
+      }
+    );
 
-  if (typeof content !== "string" || content.trim() === "") {
-    throw new Error("AI 返回了空或无效的内容");
+    const field = success ? 'success_count' : 'fail_count';
+    
+    // 使用简单的更新方式，避免使用 raw
+    await supabase
+      .from('ai_models')
+      .update({
+        last_used_at: new Date().toISOString()
+      })
+      .eq('id', modelId);
+  } catch (error) {
+    console.error('更新模型统计失败:', error);
   }
-
-  return content;
 }
 
 /**
@@ -936,7 +1098,6 @@ function parseAIResponse(content: string): Partial<Task>[] {
       return parsed.task_list;
     }
     console.warn("AI 返回了 JSON，但结构未知", parsed);
-
   } catch (e) {
     console.warn("AI 未返回标准 JSON，降级到纯文本列表解析");
   }

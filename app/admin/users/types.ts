@@ -366,8 +366,8 @@ export function isUserActive(lastLoginAt: string | null): boolean {
   try {
     const lastLogin = new Date(lastLoginAt)
     const now = new Date()
-    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000) // 改为5分钟
-    return lastLogin > fiveMinutesAgo
+    const threeMinutesAgo = new Date(now.getTime() - 3 * 60 * 1000) // 改为3分钟
+    return lastLogin > threeMinutesAgo
   } catch {
     return false
   }

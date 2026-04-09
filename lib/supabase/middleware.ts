@@ -44,8 +44,15 @@ export async function updateSession(request: NextRequest) {
 
   // IMPORTANT: If you remove getClaims() and you use server-side rendering
   // with the Supabase client, your users may be randomly logged out.
-  const { data } = await supabase.auth.getClaims();
-  const user = data?.claims;
+  let user = null;
+  try {
+    const { data } = await supabase.auth.getClaims();
+    user = data?.claims;
+  } catch (error) {
+    console.error('中间件获取用户Claims失败:', error);
+    // 🔥 获取Claims失败时，不直接重定向，而是继续处理
+    // 这可能是由于网络问题导致的，避免断网恢复后被踢出
+  }
 
   if (
     request.nextUrl.pathname !== "/" &&

@@ -15,8 +15,9 @@ function isAdminPath(path: string): boolean {
  * 检查是否是受保护的游戏路径
  */
 function isProtectedGamePath(path: string): boolean {
-  const exactPaths = ['/lobby', '/game', '/profile', '/themes', '/game-history', '/themes/new', '/feedback'];
-  if (exactPaths.includes(path)) return true;
+  // 使用Set提高匹配速度
+  const exactPaths = new Set(['/lobby', '/game', '/profile', '/themes', '/game-history', '/themes/new', '/feedback']);
+  if (exactPaths.has(path)) return true;
   const prefixPaths = ['/game/', '/themes/'];
   return prefixPaths.some(prefix => path.startsWith(prefix));
 }
@@ -25,8 +26,9 @@ function isProtectedGamePath(path: string): boolean {
  * 检查是否是公开路径
  */
 function isPublicPath(path: string): boolean {
-  const exactPublicPaths = ['/', '/login', '/account-expired', '/renew', '/admin/unauthorized', '/login/expired'];
-  if (exactPublicPaths.includes(path)) return true;
+  // 使用Set提高匹配速度
+  const exactPublicPaths = new Set(['/', '/login', '/account-expired', '/renew', '/admin/unauthorized', '/login/expired']);
+  if (exactPublicPaths.has(path)) return true;
   const prefixPublicPaths = ['/auth/', '/api/auth/'];
   return prefixPublicPaths.some(prefix => path.startsWith(prefix));
 }
@@ -78,7 +80,7 @@ function ensureDeviceId(request: NextRequest, response: NextResponse): string {
   }
   
   // 生成唯一的设备ID
-  const newDeviceId = `dev_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+  const newDeviceId = `dev_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   
   // 设置到响应cookie中
   response.cookies.set({
@@ -91,7 +93,10 @@ function ensureDeviceId(request: NextRequest, response: NextResponse): string {
     httpOnly: true
   });
   
-  console.log(`🆔 生成新设备ID: ${newDeviceId}`);
+  // 只在开发环境输出日志
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`🆔 生成新设备ID: ${newDeviceId}`);
+  }
   return newDeviceId;
 }
 
@@ -115,29 +120,26 @@ export async function middleware(request: NextRequest) {
   
   // 3. 管理员路径 - 🔐 保持严格验证
   if (isAdminPath(currentPath)) {
-    const { supabase, response } = createMiddlewareClient(request);
+    const { response } = createMiddlewareClient(request);
     
     const adminCookie = request.cookies.get('admin_key_verified')?.value;
     
     if (!adminCookie) {
-      console.log(`🚨 未授权访问管理员页面: ${currentPath}`);
+      // 只在开发环境输出日志
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`🚨 未授权访问管理员页面: ${currentPath}`);
+      }
       
       const loginUrl = new URL('/admin', request.url);
       loginUrl.searchParams.set('redirect', currentPath);
       return NextResponse.redirect(loginUrl);
     }
     
-    // 🔥 管理员页面也需要认证Cookie
-    const hasAuthCookie = request.cookies.has('sb-zjiyuqafcztiozonhncz-auth-token');
-    if (!hasAuthCookie) {
-      console.log(`🚨 管理员页面但无认证Cookie: ${currentPath}`);
-      const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('redirect', currentPath);
-      return NextResponse.redirect(loginUrl);
-    }
-    
     const execTime = Date.now() - startTime;
-    console.log(`✅ 管理员访问: ${currentPath} (${execTime}ms)`);
+    // 只在开发环境输出日志
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`✅ 管理员访问: ${currentPath} (${execTime}ms)`);
+    }
     return response;
   }
   
@@ -149,7 +151,10 @@ export async function middleware(request: NextRequest) {
     const hasAuthCookie = request.cookies.has('sb-zjiyuqafcztiozonhncz-auth-token');
     
     if (!hasAuthCookie) {
-      console.log(`❌ 无认证Cookie，重定向到登录页: ${currentPath}`);
+      // 只在开发环境输出日志
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`❌ 无认证Cookie，重定向到登录页: ${currentPath}`);
+      }
       
       const redirectUrl = new URL('/login', request.url);
       redirectUrl.searchParams.set('redirect', currentPath);
@@ -160,18 +165,37 @@ export async function middleware(request: NextRequest) {
     ensureDeviceId(request, response);
     
     const execTime = Date.now() - startTime;
-    console.log(`✅ 快速放行受保护页面: ${currentPath} (${execTime}ms)`);
+    // 只在开发环境输出日志
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`✅ 快速放行受保护页面: ${currentPath} (${execTime}ms)`);
+    }
     return response;
   }
   
   // 5. 其他路径 - 直接放行
   const execTime = Date.now() - startTime;
-  console.log(`⚡ 其他路径: ${currentPath} (${execTime}ms)`);
+  // 只在开发环境输出日志
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`⚡ 其他路径: ${currentPath} (${execTime}ms)`);
+  }
   return NextResponse.next();
 }
 
 export const config = {
   matcher: [
+    /*
+     * 匹配需要认证的路径
+     */
+    '/admin/:path*',
+    '/lobby',
+    '/game/:path*',
+    '/profile',
+    '/themes/:path*',
+    '/game-history',
+    '/feedback',
+    /*
+     * 排除静态资源
+     */
     '/((?!_next/static|_next/image|favicon.ico|public/).*)',
   ],
 };

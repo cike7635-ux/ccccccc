@@ -2,7 +2,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import PerformanceMeasurement from '@/components/performance-measurement';
-import { BottomNav } from "@/components/ui/bottom-nav";
+import { ConditionalBottomNav } from "@/components/conditional-bottom-nav";
+import { MainContentWrapper } from "@/components/main-content-wrapper";
 import { DeviceCheckGuard } from '@/components/device-check-guard';
 import { MembershipGuard } from '@/components/membership-guard';
 import { ClientOnly } from '@/components/ui/client-only';
@@ -109,12 +110,12 @@ export default function RootLayout({
           <PerformanceMeasurement />
 
           {/* 主内容区域 */}
-          <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-950 pb-16">
+          <MainContentWrapper>
             {children}
-          </div>
+          </MainContentWrapper>
 
           {/* 底部导航栏 */}
-          <BottomNav />
+          <ConditionalBottomNav />
 
           {/* 开发环境调试工具 */}
           {/* {isDevelopment && (

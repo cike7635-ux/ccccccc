@@ -4,8 +4,8 @@
 import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 
-// 心跳间隔（50秒）
-const HEARTBEAT_INTERVAL = 50000;
+// 心跳间隔（80秒）
+const HEARTBEAT_INTERVAL = 80000;
 
 export function useHeartbeat() {
   const heartbeatRef = useRef<NodeJS.Timeout | null>(null);
@@ -14,14 +14,33 @@ export function useHeartbeat() {
   
   // 判断当前页面是否需要心跳
   const shouldSendHeartbeat = () => {
-    // 只在游戏相关页面启用心跳
-    const gamePaths = ['/lobby', '/game', '/profile', '/themes', '/game-history'];
-    const isGamePath = gamePaths.some(path => pathname.startsWith(path));
+    // 🔥 优化：在主要用户活动页面启用心跳，准确判断在线状态
+    const activePaths = [
+      '/',              // 首页
+      '/game',          // 游戏页面
+      '/lobby',         // 大厅页面
+      '/profile',       // 个人资料页面
+      '/themes',        // 主题库页面
+      '/settings',      // 设置页面
+      '/help',          // 帮助页面
+      '/feedback',      // 反馈页面
+      '/account',       // 账户相关页面（包括AI生成器）
+      '/tasks'          // 任务页面
+    ];
+    
+    const isActivePath = activePaths.some(path => {
+      // 首页需要精确匹配
+      if (path === '/') {
+        return pathname === '/';
+      }
+      // 其他页面使用startsWith匹配
+      return pathname.startsWith(path);
+    });
     
     // 页面可见时才发送心跳
     const isVisible = document.visibilityState === 'visible';
     
-    return isGamePath && isVisible;
+    return isActivePath && isVisible;
   };
   
   useEffect(() => {
@@ -31,8 +50,8 @@ export function useHeartbeat() {
       
       const now = Date.now();
       
-      // 防抖：确保至少间隔45秒
-      if (now - lastHeartbeatRef.current < 45000) {
+      // 防抖：确保至少间隔75秒
+      if (now - lastHeartbeatRef.current < 75000) {
         return;
       }
       

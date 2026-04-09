@@ -2,6 +2,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getUserData } from "@/lib/server/auth";
 
 type GameSession = {
   id: string;
@@ -29,12 +30,9 @@ type GameSession = {
 };
 
 async function requireUser() {
+  const { user, profile } = await getUserData();
   const supabase = await createClient();
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data?.user) {
-    throw new Error("未登录，无法执行该操作");
-  }
-  return { supabase, user: data.user } as const;
+  return { supabase, user, profile } as const;
 }
 
 export async function getActiveSession(): Promise<{

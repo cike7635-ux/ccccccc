@@ -1,8 +1,8 @@
 // /app/admin/dashboard/components/system-status.tsx
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { Shield, CheckCircle, AlertCircle, Activity } from 'lucide-react'
+import { useState } from 'react'
+import { Shield, CheckCircle, AlertCircle, Activity, RefreshCw } from 'lucide-react'
 
 interface SystemStatusItem {
   name: string
@@ -18,21 +18,23 @@ export default function SystemStatus() {
     { name: '安全防护', status: 'normal', description: '已启用' }
   ])
 
-  const checkStatus = useCallback(() => {
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  // 🔥 优化：移除自动检查，改为手动刷新
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    
+    // 模拟状态检查
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    
     setStatuses(prev => prev.map(status => ({
       ...status,
-      // 模拟随机状态变化
       status: Math.random() > 0.95 ? 'error' : 
               Math.random() > 0.9 ? 'warning' : 'normal'
     })))
-  }, []) // 使用 useCallback 避免重复创建函数
-
-  // 模拟状态检查
-  useEffect(() => {
-    const intervalId = setInterval(checkStatus, 30000) // 每30秒检查一次
     
-    return () => clearInterval(intervalId)
-  }, [checkStatus]) // 添加 checkStatus 到依赖数组
+    setIsRefreshing(false)
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -59,10 +61,14 @@ export default function SystemStatus() {
           <Shield className="w-5 h-5 mr-2 text-blue-400" />
           系统状态
         </h3>
-        <div className="flex items-center text-sm">
-          <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
-          <span className="text-gray-400">实时监控</span>
-        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="flex items-center text-sm text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+          {isRefreshing ? '检查中...' : '手动检查'}
+        </button>
       </div>
       
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

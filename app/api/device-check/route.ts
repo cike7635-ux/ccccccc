@@ -129,9 +129,13 @@ export async function POST(request: NextRequest) {
     
   } catch (error) {
     console.error('❌ 设备检查API异常:', error);
+    // 🔥 网络错误或其他异常时，允许访问（避免断网恢复后被踢出）
     return NextResponse.json(
-      { allowed: false, reason: 'server_error', message: '服务器内部错误' },
-      { status: 500 }
+      { 
+        allowed: true, 
+        reason: 'network_error_fallback',
+        message: '网络错误，使用缓存数据'
+      }
     );
   }
 }

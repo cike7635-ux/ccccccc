@@ -4,7 +4,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/profile";
-import { clearUserCache } from "@/lib/server/auth"; // 🔥 新增：导入缓存清除函数
+import { getUserData, clearUserCache } from "@/lib/server/auth"; // 🔥 新增：导入 getUserData
 
 type UpdatePreferencesPayload = {
   gender: "male" | "female" | "non_binary";
@@ -12,12 +12,9 @@ type UpdatePreferencesPayload = {
 };
 
 async function requireUser() {
+  const { user } = await getUserData();
   const supabase = await createClient();
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data?.user) {
-    throw new Error("未登录");
-  }
-  return { supabase, userId: data.user.id } as const;
+  return { supabase, userId: user.id } as const;
 }
 
 export async function updateNickname(nickname: string): Promise<{ ok: boolean; error?: string }> {

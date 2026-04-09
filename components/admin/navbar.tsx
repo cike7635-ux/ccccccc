@@ -18,7 +18,8 @@ import {
   Shield,
   ChevronRight,
   ChevronLeft,
-  Gamepad2
+  Gamepad2,
+  Cpu
 } from 'lucide-react';
 
 const navItems = [
@@ -26,6 +27,7 @@ const navItems = [
   { href: '/admin/users', label: '用户管理', icon: Users },
   { href: '/admin/keys', label: '密钥管理', icon: Key },
   { href: '/admin/ai-usage', label: 'AI统计', icon: Brain },
+  { href: '/admin/ai-models', label: 'AI模型', icon: Cpu },
   { href: '/admin/themes', label: '主题管理', icon: Palette },
   { href: '/admin/games', label: '游戏记录', icon: Gamepad2 },
   { href: '/admin/feedback', label: '反馈管理', icon: MessageSquare },
