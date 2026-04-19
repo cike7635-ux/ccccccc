@@ -7,6 +7,29 @@ import { rollDice, confirmTaskExecution, verifyTask } from "@/app/game/actions";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Settings, MapPin, Heart, Zap, Trophy, Dice6, MessageSquareHeart, Plane, PlaneTakeoff, Rocket } from "lucide-react";
 
+// 简单的LRU缓存实现
+class LRUCache {
+  cache: Map<string, number>;
+  maxSize: number;
+  
+  constructor(maxSize: number = 100) {
+    this.cache = new Map();
+    this.maxSize = maxSize;
+  }
+  
+  has(key: string): boolean {
+    return this.cache.has(key);
+  }
+  
+  set(key: string): void {
+    if (this.cache.size >= this.maxSize) {
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
+    this.cache.set(key, Date.now());
+  }
+}
+
 type GameSession = {
   id: string;
   room_id: string;
@@ -69,6 +92,9 @@ export default function GameView({ session, userId, onGameEnd }: { session: Game
   const isSettingUpChannelRef = useRef<boolean>(false);
   const isCleaningUpRef = useRef<boolean>(false);
   const disconnectTimeRef = useRef<number>(0);
+  
+  // 🔥 新增：消息去重缓存
+  const processedMessagesRef = useRef(new LRUCache(100));
 
   // 🔥 新增：函数引用，避免重建导致的问题
   const getPollIntervalRef = useRef<() => number>(() => 20000);
@@ -215,33 +241,33 @@ export default function GameView({ session, userId, onGameEnd }: { session: Game
     );
   }, [userId]);
 
-  // 🔥 智能轮询间隔 - 平衡速度和 CPU
+  // 🔥 智能轮询间隔 - 平衡速度和 CPU（优化版）
   const getPollInterval = useCallback(() => {
     if (gameEndedRef.current) return 0;
     
     const { status: currentStatus } = stateRef.current;
     
-    if (currentStatus !== 'playing') return 60000;
+    if (currentStatus !== 'playing') return 30000;
     
     if (isSubscribedRef.current) {
-      // 订阅健康时：保持 60 秒（CPU 零增加）
-      return 60000;
+      // 订阅健康时：30秒（兼顾CPU和同步）
+      return 30000;
     } else {
       // 订阅断开时
       const timeSinceDisconnect = Date.now() - disconnectTimeRef.current;
-      if (timeSinceDisconnect < 30000) {
-        // 前 30 秒：快速轮询（10秒）
-        console.log(`⏱️ 订阅断开初期，快速轮询: 10秒 (断开后 ${Math.floor(timeSinceDisconnect/1000)}秒)`);
-        return 10000;
+      if (timeSinceDisconnect < 60000) {
+        // 前 60 秒：快速轮询（3秒）
+        console.log(`⏱️ 订阅断开初期，快速轮询: 3秒 (断开后 ${Math.floor(timeSinceDisconnect/1000)}秒)`);
+        return 3000;
       } else {
-        // 30 秒后：慢速轮询（30秒）
-        console.log(`⏱️ 订阅断开后期，慢速轮询: 30秒`);
-        return 30000;
+        // 60 秒后：慢速轮询（10秒）
+        console.log(`⏱️ 订阅断开后期，慢速轮询: 10秒`);
+        return 10000;
       }
     }
   }, []);
 
-  // 🔥 优化：安全轮询函数 - 移除重复的 game_moves 查询
+  // 🔥 优化：安全轮询函数 - 加入消息指纹去重和骰子备份查询
   const pollGameState = useCallback(async () => {
     // 🔥 立即检查游戏结束状态
     if (gameEndedRef.current) {
@@ -266,12 +292,24 @@ export default function GameView({ session, userId, onGameEnd }: { session: Game
       
       console.log(`🔄 轮询获取游戏状态，间隔: ${interval}ms`);
       
-      // 只查询游戏状态，骰子通过实时订阅监听
-      const { data: sessionData, error: gameError } = await supabase
-        .from('game_sessions')
-        .select('id, current_player_id, current_turn, status, game_state')
-        .eq('id', session.id)
-        .single();
+      // 🔥 并行查询：游戏状态 + 最新骰子（作为实时订阅的备份）
+      const [gameResult, diceResult] = await Promise.all([
+        supabase
+          .from('game_sessions')
+          .select('id, current_player_id, current_turn, status, game_state')
+          .eq('id', session.id)
+          .single(),
+        supabase
+          .from('game_moves')
+          .select('id, dice_value, player_id, created_at')
+          .eq('session_id', session.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+      ]);
+      
+      const { data: sessionData, error: gameError } = gameResult;
+      const { data: latestMove } = diceResult;
       
       // 处理游戏结束 - PGRST116 表示查询结果为空（游戏会话不存在）
       if (gameError && (gameError.code === 'PGRST116' || gameError.code === '406' || gameError.message?.includes('PGRST116') || gameError.message?.includes('406'))) {
@@ -292,7 +330,30 @@ export default function GameView({ session, userId, onGameEnd }: { session: Game
         return;
       }
       
+      // 🔥 同步骰子备份：轮询同步骰子（作为实时订阅的备份）
+      if (latestMove && typeof latestMove.dice_value === 'number') {
+        const moveFingerprint = `poll.game_moves.${latestMove.id}.INSERT.${latestMove.created_at}_${latestMove.dice_value}`;
+        if (!processedMessagesRef.current.has(moveFingerprint)) {
+          processedMessagesRef.current.set(moveFingerprint);
+          console.log(`🔄 轮询同步骰子: ${latestMove.dice_value}`);
+          setIsRolling(true);
+          setTimeout(() => {
+            setLastDice(latestMove.dice_value);
+            setIsRolling(false);
+          }, 600);
+        }
+      }
+      
+      // 🔥 游戏状态同步：加入消息指纹去重
       const s = sessionData as any;
+      const gs = (s.game_state ?? {}) as any;
+      const stateHash = `${s.status}_${s.current_turn}_${JSON.stringify(gs)}`;
+      const stateFingerprint = `poll.game_sessions.${sessionData.id}.UPDATE.${Date.now()}_${stateHash}`;
+      if (processedMessagesRef.current.has(stateFingerprint)) {
+        console.log(`⏭️ 跳过已处理的轮询状态更新`);
+      } else {
+        processedMessagesRef.current.set(stateFingerprint);
+      }
       
       // 检查游戏是否结束
       if (s.status === 'completed') {
@@ -301,8 +362,6 @@ export default function GameView({ session, userId, onGameEnd }: { session: Game
         return;
       }
       
-      const gs = (s.game_state ?? {}) as any;
-
       // 优化状态更新
       const newP1Pos = Number(gs.player1_position ?? 0);
       const newP2Pos = Number(gs.player2_position ?? 0);
@@ -484,7 +543,12 @@ export default function GameView({ session, userId, onGameEnd }: { session: Game
     }, 500);
     
     const channel = supabase
-      .channel(`game_${session.id}`)
+      .channel(`game:${session.id}`, {
+        config: {
+          broadcast: { self: true },
+          presence: { key: userId },
+        },
+      })
       .on(
         'postgres_changes',
         {
@@ -494,12 +558,22 @@ export default function GameView({ session, userId, onGameEnd }: { session: Game
           filter: `id=eq.${session.id}`
         },
         (payload) => {
+          // 🔥 简化消息指纹，确保可靠性
+          const s = (payload.new as any) ?? {};
+          const stateHash = `${s.status}_${s.current_turn}_${JSON.stringify(s.game_state)}`;
+          const fingerprint = `game_sessions.${session.id}.UPDATE.${Date.now()}_${stateHash}`;
+          
+          if (processedMessagesRef.current.has(fingerprint)) {
+            console.log(`⏭️ 跳过已处理的状态更新`);
+            return;
+          }
+          
+          processedMessagesRef.current.set(fingerprint);
+          
           if (gameEndedRef.current) return;
           
-          console.log('⚡ 实时订阅收到更新');
+          console.log('📡 实时同步游戏状态更新');
           lastRealtimeUpdateRef.current = Date.now();
-          
-          const s = (payload.new as any) ?? {};
           
           if (s.status === 'completed') {
             console.log('🎉 实时订阅检测到游戏结束');
@@ -541,11 +615,21 @@ export default function GameView({ session, userId, onGameEnd }: { session: Game
           filter: `session_id=eq.${session.id}` 
         },
         (payload) => {
-          if (gameEndedRef.current) return;
-          
+          // 🔥 简化消息指纹，确保可靠性
           const mv = (payload.new as any) ?? {};
           if (typeof mv.dice_value === 'number') {
-            console.log(`🎲 实时订阅更新骰子: ${mv.dice_value}`);
+            const fingerprint = `game_moves.${mv.id}.INSERT.${mv.created_at}_${mv.dice_value}`;
+            
+            if (processedMessagesRef.current.has(fingerprint)) {
+              console.log(`⏭️ 跳过已处理的骰子: ${mv.dice_value}`);
+              return;
+            }
+            
+            processedMessagesRef.current.set(fingerprint);
+            
+            if (gameEndedRef.current) return;
+            
+            console.log(`🎲 实时同步骰子: ${mv.dice_value}`);
             setIsRolling(true);
             setTimeout(() => {
               setLastDice(mv.dice_value);

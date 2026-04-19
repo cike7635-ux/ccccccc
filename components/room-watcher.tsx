@@ -77,21 +77,27 @@ export default function RoomWatcher({ roomId, status }: { roomId: string; status
         const supabase = createClient();
         const { data: room, error } = await supabase
           .from("rooms")
-          .select("status")
+          .select("*") // 查询完整房间信息
           .eq("id", roomId)
           .single();
 
-        if (!error && room && room.status === "playing") {
-          logger.log(`🎯 定期检查发现房间状态为playing，跳转到游戏页面`);
-          jumpToGame();
+        if (!error && room) {
+          if (room.status === "playing") {
+            logger.log(`🎯 定期检查发现房间状态为playing，跳转到游戏页面`);
+            jumpToGame();
+          } else {
+            // 定期检查时，如果发现房间有变化，也触发刷新
+            logger.log(`🔄 定期检查房间状态，触发刷新`);
+            debouncedRefresh();
+          }
         }
       } catch (error) {
         logger.error(`❌ 定期检查房间状态失败:`, error);
       }
     };
 
-    // 每3秒检查一次房间状态
-    const intervalId = setInterval(checkRoomStatus, 3000);
+    // 每5秒检查一次房间状态（更频繁一些）
+    const intervalId = setInterval(checkRoomStatus, 5000);
 
     return () => {
       clearInterval(intervalId);
@@ -101,17 +107,29 @@ export default function RoomWatcher({ roomId, status }: { roomId: string; status
   // 🔥 设置订阅，带重试机制
   const setupChannel = async (supabase: any) => {
     try {
-      // 🔥 网络恢复时，跳过等待认证会话，直接尝试建立订阅
+      // 先检查认证状态
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData?.session) {
-        logger.log(`🔄 RoomWatcher 无认证会话，快速尝试建立订阅`);
+        logger.log(`🔄 RoomWatcher 无认证会话，先刷新会话`);
+        const { error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError) {
+          logger.error(`❌ 刷新会话失败:`, refreshError);
+          return;
+        }
       }
 
       logger.log(`🎧 建立房间监听，房间ID: ${roomId}`);
       
       // 创建房间状态监听通道
-      channelRef.current = supabase
-        .channel(`room_${roomId}`)
+    channelRef.current = supabase
+      .channel(`room_${roomId}`, {
+        config: {
+          broadcast: {
+            self: true
+          },
+          presence: { key: 'room-watcher' }
+        }
+      })
         .on(
           "postgres_changes",
           { 
@@ -166,9 +184,9 @@ export default function RoomWatcher({ roomId, status }: { roomId: string; status
             logger.error(`❌ 房间监听错误，房间: ${roomId}`);
             setConnectionStatus("disconnected");
 
-            // 🔥 使用快速重连模式（无指数退避）
-            logger.log(`� 检测到连接断开，快速重连`);
-            attemptReconnect(supabase, false);
+            // 使用适当的重连策略
+            logger.log(`🔄 检测到连接断开，准备重连`);
+            attemptReconnect(supabase, true); // 使用指数退避
           }
         });
 
@@ -182,7 +200,7 @@ export default function RoomWatcher({ roomId, status }: { roomId: string; status
   // 🔥 优化：添加参数决定是否使用指数退避
   const attemptReconnect = (supabase: any, useBackoff: boolean = true) => {
     if (retryCountRef.current >= maxRetries) {
-      logger.error(`❌ 达到最大重试次数 (${maxRetries})，停止重连`);
+      logger.error(`❌ 达到最大重试次数 (${maxRetries})，停止重连，使用轮询作为备份`);
       setConnectionStatus("disconnected");
       return;
     }
@@ -198,10 +216,10 @@ export default function RoomWatcher({ roomId, status }: { roomId: string; status
       channelRef.current = null;
     }
 
-    // 🔥 网络恢复时使用固定小延迟（0.5秒），避免长时间等待
+    // 添加适当的延迟，避免连续失败
     const delay = useBackoff
       ? Math.min(1000 * Math.pow(2, retryCountRef.current - 1), 10000) // 指数退避
-      : 0; // 🔥 快速重连：0秒延迟（由调用方控制延迟）
+      : 1000; // 快速重连：1秒延迟，给网络一些恢复时间
 
     logger.log(`⏳ ${delay/1000}秒后重连，房间: ${roomId}`);
 
