@@ -1,30 +1,20 @@
 // /app/api/admin/keys/statistics/route.ts
-import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 export async function GET(request: NextRequest) {
   try {
     console.log('📊 获取密钥统计信息')
-    
-    // 验证管理员权限
-    const authMethods = {
-      cookie: request.cookies.get('admin_key_verified')?.value,
-      referer: request.headers.get('referer'),
-      userAgent: request.headers.get('user-agent')
+
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      )
     }
 
-    const isAuthenticated = authMethods.cookie || 
-      (authMethods.referer?.includes('/admin/') && authMethods.userAgent)
-
-    if (!isAuthenticated) {
-      return NextResponse.json({ success: false, error: '未授权访问' }, { status: 401 })
-    }
-
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    )
+    const supabaseAdmin = createAdminClient()
 
     // 获取当前时间
     const now = new Date()

@@ -1,32 +1,18 @@
 // /app/api/admin/users/batch/route.ts - 优化版，支持批量删除
 import { NextRequest, NextResponse } from 'next/server'
-
-// 简化：直接创建 Supabase 客户端
-function createAdminClient() {
-  const { createClient } = require('@supabase/supabase-js')
-  
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    throw new Error('缺少 NEXT_PUBLIC_SUPABASE_URL 环境变量')
-  }
-  
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error('缺少 SUPABASE_SERVICE_ROLE_KEY 环境变量')
-  }
-  
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    }
-  )
-}
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 export async function POST(request: NextRequest) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabaseAdmin = createAdminClient();
     const body = await request.json()
     const { userIds, action, reason } = body
     
@@ -36,8 +22,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-    
-    const supabaseAdmin = createAdminClient()
     let affectedCount = 0
     
     if (action === 'delete') {

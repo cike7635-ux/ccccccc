@@ -1,60 +1,21 @@
 // /app/api/admin/feedbacks/route.ts - 优化后的精确版本
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
-
-// 简化的管理员验证（实际应该更严格）
-async function isAdminEmail(email: string): Promise<boolean> {
-  if (!email) return false;
-  try {
-    const adminEmails = process.env.ADMIN_EMAILS?.split(',') || [];
-    return adminEmails.includes(email.trim());
-  } catch (error) {
-    console.error('检查管理员邮箱失败:', error);
-    return false;
-  }
-}
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 
 export async function GET(request: NextRequest) {
   try {
     console.log('🎯 管理员获取反馈列表API被调用');
-    
-    // 1. 管理员验证（简化版）
-    const authHeader = request.headers.get('authorization');
-    let isAdmin = false;
-    
-    if (authHeader) {
-      const token = authHeader.replace('Bearer ', '');
-      try {
-        const { data: { user } } = await supabaseAdmin.auth.getUser(token);
-        if (user?.email) {
-          isAdmin = await isAdminEmail(user.email);
-        }
-      } catch (e) {
-        console.log('⚠️ Token验证失败');
-      }
-    }
-    
-    // 检查Cookie（中间件已设置）
-    if (!isAdmin) {
-      const cookieHeader = request.headers.get('cookie') || '';
-      if (cookieHeader.includes('admin_key_verified=true')) {
-        isAdmin = true;
-      }
-    }
-    
-    if (!isAdmin) {
+
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       return NextResponse.json(
-        { success: false, error: '非管理员账号' },
-        { status: 403 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       );
     }
-    
+
+    const supabaseAdmin = createAdminClient()
+
     // 2. 获取查询参数
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '20');

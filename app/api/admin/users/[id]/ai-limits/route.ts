@@ -1,12 +1,20 @@
 // /app/api/admin/users/[id]/ai-limits/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
     const userId = params.id;
     const { dailyLimit, cycleLimit } = await request.json();
     
@@ -25,7 +33,7 @@ export async function PUT(
       );
     }
     
-    const supabase = createClient();
+    const supabase = createAdminClient();
     
     // 更新用户限制
     const { error } = await supabase

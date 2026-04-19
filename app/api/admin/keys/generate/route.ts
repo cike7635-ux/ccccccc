@@ -1,26 +1,17 @@
 // /app/api/admin/keys/generate/route.ts
-import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 export async function POST(request: NextRequest) {
   try {
     console.log('🔑 接收到密钥生成请求')
 
-    // 1. 验证管理员权限
-    const authMethods = {
-      cookie: request.cookies.get('admin_key_verified')?.value,
-      referer: request.headers.get('referer'),
-      userAgent: request.headers.get('user-agent')
-    }
-
-    const isAuthenticated = authMethods.cookie || 
-      (authMethods.referer?.includes('/admin/') && authMethods.userAgent)
-
-    if (!isAuthenticated) {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       console.log('❌ 未授权访问')
       return NextResponse.json(
-        { success: false, error: '未授权访问', code: 'UNAUTHORIZED' },
-        { status: 401 }
+        { success: false, error: validation.error, code: 'UNAUTHORIZED' },
+        { status: validation.status }
       )
     }
 
@@ -92,11 +83,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. 创建Supabase管理员客户端
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    )
+    const supabaseAdmin = createAdminClient()
 
     // 6. 计算激活截止时间（绝对日期）
     const now = new Date()

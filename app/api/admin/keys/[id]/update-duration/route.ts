@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js'; // 修复这里
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 
 export async function PATCH(
   request: NextRequest,
@@ -8,37 +8,24 @@ export async function PATCH(
   try {
     const keyId = params.id;
     const body = await request.json();
-    
-    const { 
-      original_duration_hours, 
-      account_valid_for_days, 
+
+    const {
+      original_duration_hours,
+      account_valid_for_days,
       key_expires_at,
       max_uses,
-      description 
+      description
     } = body;
 
-    // 验证管理员权限
-    const authMethods = {
-      cookie: request.cookies.get('admin_key_verified')?.value,
-      referer: request.headers.get('referer'),
-      userAgent: request.headers.get('user-agent')
-    };
-
-    const isAuthenticated = authMethods.cookie || 
-      (authMethods.referer?.includes('/admin/') && authMethods.userAgent);
-
-    if (!isAuthenticated) {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       return NextResponse.json(
-        { success: false, error: '未授权访问' },
-        { status: 401 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       );
     }
 
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    );
+    const supabaseAdmin = createAdminClient();
 
     // 构建更新数据
     const updateData: any = { updated_at: new Date().toISOString() };

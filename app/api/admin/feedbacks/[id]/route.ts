@@ -1,50 +1,6 @@
 // /app/api/admin/feedbacks/[id]/route.ts - 删除功能版本
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
-
-// 简化的管理员验证
-async function isAdminEmail(email: string): Promise<boolean> {
-  if (!email) return false;
-  try {
-    const adminEmails = process.env.ADMIN_EMAILS?.split(',') || [];
-    return adminEmails.includes(email.trim());
-  } catch (error) {
-    console.error('检查管理员邮箱失败:', error);
-    return false;
-  }
-}
-
-// 验证管理员权限
-async function checkAdminAuth(request: NextRequest): Promise<boolean> {
-  try {
-    // 检查Cookie
-    const cookieHeader = request.headers.get('cookie') || '';
-    if (cookieHeader.includes('admin_key_verified=true')) {
-      return true;
-    }
-    
-    // 检查Authorization头
-    const authHeader = request.headers.get('authorization');
-    if (authHeader) {
-      const token = authHeader.replace('Bearer ', '');
-      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
-      if (user?.email) {
-        return await isAdminEmail(user.email);
-      }
-    }
-    
-    return false;
-  } catch (error) {
-    console.error('管理员验证失败:', error);
-    return false;
-  }
-}
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 
 // PATCH - 更新反馈
 export async function PATCH(
@@ -56,15 +12,15 @@ export async function PATCH(
     console.log(`🎯 更新反馈 #${feedbackId}`);
     
     // 验证管理员权限
-    const isAdmin = await checkAdminAuth(request);
-    if (!isAdmin) {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       return NextResponse.json(
-        { success: false, error: '非管理员账号' },
-        { status: 403 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       );
     }
-    
-    // 解析请求体
+
+    const supabaseAdmin = createAdminClient()
     const body = await request.json();
     console.log('🔍 更新请求体:', body);
     
@@ -149,16 +105,18 @@ export async function DELETE(
   try {
     const feedbackId = params.id;
     console.log(`🗑️ 删除反馈 #${feedbackId}`);
-    
+
     // 验证管理员权限
-    const isAdmin = await checkAdminAuth(request);
-    if (!isAdmin) {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       return NextResponse.json(
-        { success: false, error: '非管理员账号' },
-        { status: 403 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       );
     }
-    
+
+    const supabaseAdmin = createAdminClient()
+
     // 先获取反馈信息（用于日志）
     const { data: feedback, error: fetchError } = await supabaseAdmin
       .from('feedbacks')

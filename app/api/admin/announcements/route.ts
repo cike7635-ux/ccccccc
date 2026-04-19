@@ -1,22 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-// 创建Supabase管理员客户端
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 
 export async function GET(request: NextRequest) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabaseAdmin = createAdminClient();
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
     const status = searchParams.get('status');
     const offset = (page - 1) * limit;
 
-    // 构建查询
     let query = supabaseAdmin
       .from('announcements')
       .select(`
@@ -81,9 +82,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabaseAdmin = createAdminClient();
     const body = await request.json();
-    
-    // 验证必填字段
+
     if (!body.title || !body.content) {
       return NextResponse.json(
         { success: false, error: '标题和内容不能为空' },

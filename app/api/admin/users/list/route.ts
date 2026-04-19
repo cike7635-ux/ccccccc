@@ -1,47 +1,6 @@
 // /app/api/admin/users/list/route.ts - 修复版，支持会员到期时间筛选和排序
 import { NextRequest, NextResponse } from 'next/server'
-
-// 创建Supabase管理员客户端
-function createAdminClient() {
-  const { createClient } = require('@supabase/supabase-js')
-  
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    throw new Error('缺少 NEXT_PUBLIC_SUPABASE_URL 环境变量')
-  }
-  
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error('缺少 SUPABASE_SERVICE_ROLE_KEY 环境变量')
-  }
-  
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    }
-  )
-}
-
-// 验证管理员权限
-function validateAdmin(request: NextRequest): boolean {
-  const adminKeyVerified = request.cookies.get('admin_key_verified')?.value
-  const referer = request.headers.get('referer') || ''
-  const userAgent = request.headers.get('user-agent') || ''
-  
-  // 双重验证：Cookie 或 Referer + User-Agent
-  if (adminKeyVerified === 'true') {
-    return true
-  }
-  
-  if (referer.includes('/admin/') && userAgent) {
-    return true
-  }
-  
-  return false
-}
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 // 从preferences中提取性别显示值
 function extractGenderDisplay(preferences: any): string {
@@ -63,11 +22,12 @@ function extractGenderDisplay(preferences: any): string {
 export async function GET(request: NextRequest) {
   try {
     // 验证管理员权限
-    if (!validateAdmin(request)) {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       console.warn('🚫 未授权访问用户列表API')
       return NextResponse.json(
-        { success: false, error: '未授权访问' },
-        { status: 401 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       )
     }
 

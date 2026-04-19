@@ -1,6 +1,6 @@
 // /app/api/admin/settings/ai-limits/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { validateAdminSession } from '@/lib/server/admin-auth';
 import { getSystemConfig } from '@/lib/config/system-config';
 
 export async function GET() {
@@ -32,6 +32,14 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
     const body = await request.json();
     const systemConfig = getSystemConfig();
     

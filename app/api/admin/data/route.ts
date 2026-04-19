@@ -1,5 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,46 +9,16 @@ export async function GET(request: NextRequest) {
       hasCookie: !!request.cookies.get('admin_key_verified')
     })
 
-    // 1. 多重身份验证
-    const authMethods = {
-      cookie: request.cookies.get('admin_key_verified'),
-      referer: request.headers.get('referer'),
-      userAgent: request.headers.get('user-agent')
-    }
-
-    const isAuthenticated =
-      authMethods.cookie ||
-      (authMethods.referer?.includes('/admin/') && authMethods.userAgent)
-
-    if (!isAuthenticated) {
-      console.warn('❌ 未经授权的API访问:', authMethods)
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      console.warn('❌ 未经授权的API访问')
       return NextResponse.json(
-        { success: false, error: '未授权访问', code: 'UNAUTHORIZED_ACCESS' },
-        { status: 401 }
+        { success: false, error: validation.error, code: 'UNAUTHORIZED_ACCESS' },
+        { status: validation.status }
       )
     }
 
-    // 2. 环境变量验证
-    const requiredEnvVars = ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']
-    const missingEnvVars = requiredEnvVars.filter(env => !process.env[env])
-
-    if (missingEnvVars.length > 0) {
-      console.error('❌ 缺少环境变量:', missingEnvVars)
-      return NextResponse.json(
-        { success: false, error: '服务器配置不完整', missing: missingEnvVars },
-        { status: 500 }
-      )
-    }
-
-    // 3. 创建Supabase管理员客户端
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: { persistSession: false },
-        global: { headers: { 'x-application-name': 'love-ludo-admin-api' } }
-      }
-    )
+    const supabaseAdmin = createAdminClient()
 
     // 4. 解析查询参数
     const { searchParams } = new URL(request.url)
@@ -273,11 +243,34 @@ export async function GET(request: NextRequest) {
           .order('started_at', { ascending: false })
           .limit(20) // 改为20条
 
+        // 🔧 新增：查询用户创建的主题（减少初始查询量）
+        const { data: userThemes, error: themesError } = await supabaseAdmin
+          .from('themes')
+          .select('*')
+          .eq('creator_id', detailId)
+          .order('created_at', { ascending: false })
+          .limit(20) // 减少初始查询量
+
+        // 🔧 新增：查询用户主题关联的任务（减少初始查询量）
+        let userTasks: any[] = []
+        if (userThemes && userThemes.length > 0) {
+          const themeIds = userThemes.map((t: any) => t.id)
+          const { data: tasks } = await supabaseAdmin
+            .from('tasks')
+            .select('*')
+            .in('theme_id', themeIds)
+            .order('created_at', { ascending: false })
+            .limit(20) // 每个主题只查前20个任务
+          userTasks = tasks || []
+        }
+
         console.log('✅ 用户详情查询成功:', {
           用户: profileData.email,
           密钥记录数: finalKeyHistoryCount || 0,
           AI记录数: aiTotalCount || 0,
           游戏记录数: gameHistoryCount || 0,
+          主题数: userThemes?.length || 0,
+          任务数: userTasks.length,
           当前密钥: currentKey ? currentKey.key_code : '无'
         })
 
@@ -313,7 +306,11 @@ export async function GET(request: NextRequest) {
 
           // 游戏历史记录
           game_history: gameHistory || [],
-          game_history_total: gameHistoryCount || 0 // 🔧 添加总数
+          game_history_total: gameHistoryCount || 0, // 🔧 添加总数
+
+          // 主题和任务
+          themes: userThemes || [],
+          tasks: userTasks
         }
 
         return NextResponse.json({

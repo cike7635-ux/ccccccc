@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 import { getAICostConfig } from '@/lib/config/system-config';
 
 export async function GET(request: NextRequest) {
   try {
-    // 创建Supabase客户端
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    );
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabase = createAdminClient()
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());

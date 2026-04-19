@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-// 创建Supabase管理员客户端
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabaseAdmin = createAdminClient();
     const id = params.id;
 
     const { data: announcement, error } = await supabaseAdmin
@@ -58,6 +60,15 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabaseAdmin = createAdminClient();
     const id = params.id;
     const body = await request.json();
 
@@ -117,6 +128,15 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabaseAdmin = createAdminClient();
     const id = params.id;
 
     // 检查公告是否存在

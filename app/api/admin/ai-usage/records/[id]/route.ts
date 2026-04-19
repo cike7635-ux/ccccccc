@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabase = createAdminClient();
     const { id } = params;
     const recordId = parseInt(id);
 
@@ -15,12 +24,6 @@ export async function GET(
         { status: 400 }
       );
     }
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    );
 
     // 1. 获取记录基本信息
     const { data: record, error: recordError } = await supabase
@@ -134,6 +137,15 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabase = createAdminClient();
     const { id } = params;
     const recordId = parseInt(id);
 
@@ -144,14 +156,6 @@ export async function DELETE(
       );
     }
 
-    // 检查管理员权限
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    );
-
-    // 删除记录
     const { error } = await supabase
       .from('ai_usage_records')
       .delete()

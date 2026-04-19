@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { validateAdminSession } from '@/lib/server/admin-auth'
 
 export async function GET(request: NextRequest, context: { params: { id: string } }) {
   try {
@@ -14,7 +15,14 @@ export async function GET(request: NextRequest, context: { params: { id: string 
 
     console.log(`🔍 调试API: 获取密钥详情 ID: ${keyId}`)
     
-    // 跳过管理员权限验证（仅用于调试）
+    // 验证管理员权限
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
     
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -124,8 +132,8 @@ export async function GET(request: NextRequest, context: { params: { id: string 
     console.error('❌ 调试API异常:', error)
     return NextResponse.json({
       success: false,
-      error: error.message,
-      stack: error.stack
+      error: process.env.NODE_ENV === 'development' ? error.message : '服务器错误',
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     }, { status: 500 })
   }
 }

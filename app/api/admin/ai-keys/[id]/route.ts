@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 
-// 获取单个密钥详情
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabase = createAdminClient();
     const { id } = params;
     const keyId = parseInt(id);
 
@@ -16,12 +24,6 @@ export async function GET(
         { status: 400 }
       );
     }
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    );
 
     const { data: key, error } = await supabase
       .from('ai_boost_keys')
@@ -49,7 +51,7 @@ export async function GET(
   } catch (error: any) {
     console.error('获取密钥详情错误:', error);
     return NextResponse.json(
-      { success: false, error: error.message || '服务器错误' },
+      { success: false, error: process.env.NODE_ENV === 'development' ? error.message : '服务器错误' },
       { status: 500 }
     );
   }
@@ -61,9 +63,18 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabase = createAdminClient();
     const { id } = params;
     const keyId = parseInt(id);
-    
+
     if (isNaN(keyId) || keyId <= 0) {
       return NextResponse.json(
         { success: false, error: '无效的密钥ID' },
@@ -73,12 +84,6 @@ export async function PUT(
 
     const body = await request.json();
     const { is_active, description, max_uses, price } = body;
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    );
 
     const updates: any = {};
     if (is_active !== undefined) updates.is_active = is_active;
@@ -109,7 +114,7 @@ export async function PUT(
   } catch (error: any) {
     console.error('更新密钥错误:', error);
     return NextResponse.json(
-      { success: false, error: error.message || '服务器错误' },
+      { success: false, error: process.env.NODE_ENV === 'development' ? error.message : '服务器错误' },
       { status: 500 }
     );
   }
@@ -121,6 +126,15 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabase = createAdminClient();
     const { id } = params;
     const keyId = parseInt(id);
 
@@ -130,12 +144,6 @@ export async function DELETE(
         { status: 400 }
       );
     }
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    );
 
     // 先检查密钥是否已使用
     const { data: key } = await supabase
@@ -170,7 +178,7 @@ export async function DELETE(
   } catch (error: any) {
     console.error('删除密钥错误:', error);
     return NextResponse.json(
-      { success: false, error: error.message || '服务器错误' },
+      { success: false, error: process.env.NODE_ENV === 'development' ? error.message : '服务器错误' },
       { status: 500 }
     );
   }

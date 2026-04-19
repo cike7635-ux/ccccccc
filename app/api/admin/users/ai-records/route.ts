@@ -1,5 +1,6 @@
-import { createClient } from '@supabase/supabase-js'
+// /app/api/admin/users/ai-records/route.ts
 import { NextRequest, NextResponse } from 'next/server'
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,17 +9,16 @@ export async function GET(request: NextRequest) {
       timestamp: new Date().toISOString()
     })
 
-    // 1. 验证管理员权限
-    const adminCookie = request.cookies.get('admin_key_verified')?.value
-    if (!adminCookie) {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       console.warn('❌ 未授权的AI记录访问')
       return NextResponse.json(
-        { success: false, error: '未授权访问' },
-        { status: 401 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       )
     }
 
-    // 2. 解析查询参数
+    const supabaseAdmin = createAdminClient()
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
     const page = parseInt(searchParams.get('page') || '1')
@@ -47,15 +47,6 @@ export async function GET(request: NextRequest) {
     }
 
     // 4. 创建Supabase管理员客户端
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: { persistSession: false },
-        global: { headers: { 'x-application-name': 'love-ludo-admin-api' } }
-      }
-    )
-
     // 5. 查询总记录数
     const { count: totalCount, error: countError } = await supabaseAdmin
       .from('ai_usage_records')

@@ -98,6 +98,7 @@ export default function ThemesPage() {
   const [batchLoading, setBatchLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [totalCount, setTotalCount] = useState(0);
+  const [jumpPage, setJumpPage] = useState('');
   
   // 添加编辑主题基本信息的状态
   const [showEditThemeModal, setShowEditThemeModal] = useState(false);
@@ -639,10 +640,20 @@ export default function ThemesPage() {
   const [creating, setCreating] = useState(false);
   const totalPages = Math.ceil(totalCount / 20);
 
+  const handleJumpPage = () => {
+    const page = parseInt(jumpPage);
+    if (page && page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+      setJumpPage('');
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'official') {
+      setTotalCount(0);
       fetchOfficialThemes()
     } else {
+      setTotalCount(0);
       fetchUserThemes()
     }
   }, [activeTab, currentPage, searchTerm, fetchOfficialThemes, fetchUserThemes])
@@ -882,7 +893,7 @@ export default function ThemesPage() {
                                 <input
                                   type="checkbox"
                                   checked={selectedUserThemes.length === userThemes.length && userThemes.length > 0}
-                                  onChange={toggleSelectAllUserTasks}
+                                  onChange={toggleSelectAllUserThemes}
                                   className="w-4 h-4 rounded border-gray-500"
                                 />
                                 全选本页
@@ -966,9 +977,25 @@ export default function ThemesPage() {
                     >
                       上一页
                     </button>
-                    <span className="text-sm text-gray-400">
-                      {currentPage} / {totalPages}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={1}
+                        max={totalPages}
+                        value={jumpPage}
+                        onChange={(e) => setJumpPage(e.target.value ? parseInt(e.target.value) : '')}
+                        onKeyDown={(e) => e.key === 'Enter' && handleJumpPage()}
+                        className="w-16 px-2 py-1 bg-white/10 border border-white/20 rounded-lg text-center text-sm"
+                        placeholder="1"
+                      />
+                      <span className="text-sm text-gray-400">/ {totalPages}</span>
+                      <button
+                        onClick={handleJumpPage}
+                        className="px-2 py-1 bg-brand-pink hover:bg-brand-pink/80 rounded-lg text-sm transition-colors"
+                      >
+                        跳转
+                      </button>
+                    </div>
                     <button
                       onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                       disabled={currentPage === totalPages}

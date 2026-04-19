@@ -1,23 +1,15 @@
 // /app/api/admin/keys/batch/route.ts
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 export async function POST(request: NextRequest) {
   try {
     console.log('🔄 接收到批量操作请求')
     
-    // 验证管理员权限
-    const authMethods = {
-      cookie: request.cookies.get('admin_key_verified')?.value,
-      referer: request.headers.get('referer'),
-      userAgent: request.headers.get('user-agent')
-    }
-
-    const isAuthenticated = authMethods.cookie || 
-      (authMethods.referer?.includes('/admin/') && authMethods.userAgent)
-
-    if (!isAuthenticated) {
-      return NextResponse.json({ success: false, error: '未授权访问' }, { status: 401 })
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json({ success: false, error: validation.error }, { status: validation.status });
     }
 
     // 验证环境变量
@@ -55,12 +47,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 创建Supabase管理员客户端
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    )
+    const supabaseAdmin = createAdminClient();
 
     let result
     const now = new Date().toISOString()
@@ -191,25 +178,13 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // 验证管理员权限...
-    const authMethods = {
-      cookie: request.cookies.get('admin_key_verified')?.value,
-      referer: request.headers.get('referer'),
-      userAgent: request.headers.get('user-agent')
+    // 验证管理员权限
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json({ success: false, error: validation.error }, { status: validation.status });
     }
 
-    const isAuthenticated = authMethods.cookie || 
-      (authMethods.referer?.includes('/admin/') && authMethods.userAgent)
-
-    if (!isAuthenticated) {
-      return NextResponse.json({ success: false, error: '未授权访问' }, { status: 401 })
-    }
-
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    )
+    const supabaseAdmin = createAdminClient()
 
     const { data, error } = await supabaseAdmin
       .from('access_keys')

@@ -1,43 +1,21 @@
-import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 type KeyStatus = 'unused' | 'used' | 'expired' | 'disabled'
 
 export async function GET(request: NextRequest) {
   try {
     console.log('🔑 获取密钥列表（修复版）...')
-    
-    // 验证管理员权限
-    const authMethods = {
-      cookie: request.cookies.get('admin_key_verified')?.value,
-      referer: request.headers.get('referer'),
-      userAgent: request.headers.get('user-agent')
+
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      )
     }
 
-    const isAuthenticated = authMethods.cookie || 
-      (authMethods.referer?.includes('/admin/') && authMethods.userAgent)
-
-    if (!isAuthenticated) {
-      return NextResponse.json({ 
-        success: false, 
-        error: '未授权访问' 
-      }, { status: 401 })
-    }
-
-    // 验证环境变量
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json({ 
-        success: false, 
-        error: '环境变量未配置' 
-      }, { status: 500 })
-    }
-
-    // 创建Supabase管理员客户端
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
-      { auth: { persistSession: false } }
-    )
+    const supabaseAdmin = createAdminClient()
 
     // 1. 查询所有密钥（简单查询，无关联）
     const { data: keys, error } = await supabaseAdmin

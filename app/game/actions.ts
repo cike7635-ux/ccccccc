@@ -93,6 +93,13 @@ async function archiveCompletedSession(sessionId: string): Promise<{ success: bo
     for (const t of tasks ?? []) taskMap[t.id] = t.description;
   }
 
+  // 获取房间信息（包含主题）
+  const { data: room } = await supabase
+    .from("rooms")
+    .select("player1_theme_id, player2_theme_id")
+    .eq("id", session.room_id)
+    .single();
+
   const special: Record<number, string> = (state.special_cells ?? {}) as any;
   const results = [] as Array<{ executor_id: string; observer_id: string; task_text: string | null; completed: boolean; timestamp: string }>;
   for (const m of moves ?? []) {
@@ -122,6 +129,9 @@ async function archiveCompletedSession(sessionId: string): Promise<{ success: bo
       started_at: session.started_at,
       ended_at: session.ended_at ?? new Date().toISOString(),
       task_results: results,
+      // 添加主题信息（需要数据库有这些字段）
+      player1_theme_id: room?.player1_theme_id,
+      player2_theme_id: room?.player2_theme_id,
     });
   if (insertErr) return { success: false, error: insertErr.message };
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 export async function PUT(
   request: NextRequest,
@@ -7,21 +7,17 @@ export async function PUT(
 ) {
   try {
     console.log('🔄 处理用户状态更新请求')
-    
-    // 1. 验证管理员权限
-    const adminKeyVerified = request.cookies.get('admin_key_verified')
-    const referer = request.headers.get('referer')
-    const isFromAdminPage = referer?.includes('/admin/')
-    
-    const isAuthenticated = adminKeyVerified?.value === 'true' || isFromAdminPage
-    
-    if (!isAuthenticated) {
+
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       console.warn('❌ 未授权访问')
       return NextResponse.json(
-        { success: false, error: '未授权访问' },
-        { status: 401 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       )
     }
+
+    const supabaseAdmin = createAdminClient()
 
     // 2. 解析请求体
     const { isActive } = await request.json()
@@ -38,14 +34,6 @@ export async function PUT(
     }
 
     // 4. 创建Supabase客户端
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: { persistSession: false }
-      }
-    )
-
     // 5. 检查用户是否存在
     const { data: user, error: userError } = await supabaseAdmin
       .from('profiles')
@@ -131,25 +119,15 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    // 验证权限
-    const adminKeyVerified = request.cookies.get('admin_key_verified')
-    const referer = request.headers.get('referer')
-    const isFromAdminPage = referer?.includes('/admin/')
-    
-    const isAuthenticated = adminKeyVerified?.value === 'true' || isFromAdminPage
-    
-    if (!isAuthenticated) {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       return NextResponse.json(
-        { success: false, error: '未授权访问' },
-        { status: 401 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       )
     }
 
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    )
+    const supabaseAdmin = createAdminClient()
 
     const { data: user, error } = await supabaseAdmin
       .from('profiles')

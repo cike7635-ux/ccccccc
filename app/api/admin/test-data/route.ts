@@ -1,22 +1,18 @@
 // /app/api/admin/test-data/route.ts
-import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 export async function GET(request: NextRequest) {
   try {
-    // 仅检查Service Role Key
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       return NextResponse.json(
-        { success: false, error: '服务未配置' },
-        { status: 500 }
-      )
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
     }
 
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    )
+    const supabaseAdmin = createAdminClient()
 
     const searchParams = request.nextUrl.searchParams
     const table = searchParams.get('table') || 'profiles'

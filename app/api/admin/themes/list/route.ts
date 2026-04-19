@@ -1,41 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-// 创建Supabase管理员客户端
-function createAdminClient() {
-  const { createClient } = require('@supabase/supabase-js')
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    }
-  )
-}
-
-// 验证管理员权限
-function validateAdmin(request: NextRequest): boolean {
-  const adminKeyVerified = request.cookies.get('admin_key_verified')?.value
-  const referer = request.headers.get('referer') || ''
-  const userAgent = request.headers.get('user-agent') || ''
-
-  if (adminKeyVerified === 'true') {
-    return true
-  }
-
-  if (referer.includes('/admin/') && userAgent) {
-    return true
-  }
-
-  return false
-}
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 
 export async function GET(request: NextRequest) {
   try {
-    if (!validateAdmin(request)) {
-      return NextResponse.json({ error: '未授权访问' }, { status: 403 });
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json({ error: validation.error }, { status: validation.status });
     }
 
     const supabaseAdmin = createAdminClient()

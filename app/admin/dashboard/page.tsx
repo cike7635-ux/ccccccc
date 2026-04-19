@@ -2,7 +2,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-// import { createClient } from '@/lib/supabase/server' // 这行可能需要调整
 import StatsCards from './components/stats-cards'
 import UserGrowthChart from './components/user-growth-chart'
 import SystemStatus from './components/system-status'
@@ -11,7 +10,7 @@ import QuickActions from './components/quick-actions'
 import DataOverview from './components/data-overview'
 import { DashboardStats, User } from './types'
 
-// 模拟数据
+// 模拟数据（作为 fallback）
 const mockStats: DashboardStats = {
   totalUsers: 1234,
   activeUsers: 45,
@@ -44,23 +43,37 @@ export default function AdminDashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // 这里可以替换为真实的Supabase查询
-        // const supabase = createClient()
-        // 获取统计数据的逻辑...
+        // 从API获取真实数据
+        const response = await fetch('/api/admin/dashboard', { credentials: 'include' });
         
-        // 模拟API延迟
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        
-        setStats(mockStats)
-        setUsers(mockUsers)
-      } catch (error: unknown) { // 将 any 改为 unknown
-        console.error('获取数据失败:', error)
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success) {
+            setStats(result.data.stats);
+            setUsers(result.data.users);
+          } else {
+            console.error('获取数据失败:', result.error);
+            // 使用模拟数据作为fallback
+            setStats(mockStats);
+            setUsers(mockUsers);
+          }
+        } else {
+          console.error('API请求失败:', response.status);
+          // 使用模拟数据作为fallback
+          setStats(mockStats);
+          setUsers(mockUsers);
+        }
+      } catch (error: unknown) {
+        console.error('获取数据失败:', error);
+        // 使用模拟数据作为fallback
+        setStats(mockStats);
+        setUsers(mockUsers);
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
     }
 
-    fetchData()
+    fetchData();
   }, [])
 
   if (loading) {

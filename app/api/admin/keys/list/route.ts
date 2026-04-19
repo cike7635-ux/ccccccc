@@ -1,37 +1,21 @@
-import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 // 获取密钥列表（增强版，支持多用户显示）
 export async function GET(request: NextRequest) {
   try {
     console.log('🔍 开始获取密钥列表（增强版）')
-    
-    // 验证管理员权限
-    const authMethods = {
-      cookie: request.cookies.get('admin_key_verified')?.value,
-      referer: request.headers.get('referer'),
-      userAgent: request.headers.get('user-agent')
-    }
 
-    const isAuthenticated = authMethods.cookie || 
-      (authMethods.referer?.includes('/admin/') && authMethods.userAgent)
-
-    if (!isAuthenticated) {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       console.log('❌ 未授权访问')
-      return NextResponse.json({ 
-        success: false, 
-        error: '未授权访问，请先登录管理后台' 
-      }, { status: 401 })
+      return NextResponse.json({
+        success: false,
+        error: validation.error
+      }, { status: validation.status })
     }
 
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { 
-        auth: { persistSession: false },
-        db: { schema: 'public' }
-      }
-    )
+    const supabaseAdmin = createAdminClient();
 
     // 1. 获取所有密钥的基础信息
     console.log('📦 查询access_keys表...')
@@ -267,11 +251,7 @@ export async function GET(request: NextRequest) {
     
     // 尝试返回基本数据（不包含使用者信息）
     try {
-      const supabaseAdmin = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        { auth: { persistSession: false } }
-      )
+      const supabaseAdmin = createAdminClient()
       
       const { data: basicKeys } = await supabaseAdmin
         .from('access_keys')

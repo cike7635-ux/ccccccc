@@ -1,52 +1,55 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { 
-  ChevronDown, 
-  ChevronUp, 
-  Trophy, 
-  Calendar, 
-  Clock, 
-  Palette, 
-  CheckCircle2, 
+import { useState } from 'react';
+import {
+  CheckCircle2,
   XCircle,
+  ChevronDown,
+  ChevronUp,
+  Trophy,
+  Calendar,
+  Users,
   ChevronLeft,
   ChevronRight,
-  Loader2,
-  Gamepad2
+  Clock
 } from 'lucide-react';
 
-const ITEMS_PER_PAGE = 20;
-
-interface TaskResult {
-  executor_id: string;
-  observer_id: string;
-  task_text: string | null;
-  completed: boolean;
-  timestamp: string;
+// 先导出 GameRecord 类型
+export interface GameRecord {
+  id: string;
+  session_id?: string;
+  room_id?: string;
+  player1_id?: string;
+  player2_id?: string;
+  winner_id?: string | null;
+  started_at?: string;
+  ended_at?: string | null;
+  task_results?: Array<{
+    executor_id?: string;
+    observer_id?: string;
+    task_text?: string | null;
+    completed?: boolean;
+    timestamp?: string;
+  }>;
+  is_abandoned?: boolean;
+  is_in_progress?: boolean;
+  player1?: { nickname: string; email: string } | null;
+  player2?: { nickname: string; email: string } | null;
+  winner?: { nickname: string; email: string } | null;
+  player1_theme?: { title: string } | null;
+  player2_theme?: { title: string } | null;
 }
 
-interface GameRecord {
-  id: string;
-  room_id: string;
-  session_id: string;
-  player1_id: string;
-  player2_id: string;
-  winner_id: string | null;
-  started_at: string;
-  ended_at: string;
-  task_results: TaskResult[];
-  player1: { nickname: string; email: string } | null;
-  player2: { nickname: string; email: string } | null;
-  winner: { nickname: string; email: string } | null;
-  player1_theme: { title: string } | null;
-  player2_theme: { title: string } | null;
+interface GamesListProps {
+  games: GameRecord[];
+  totalPages: number;
+  currentPage: number;
+  onPageChange: (page: number) => void;
+  loading?: boolean;
 }
 
 function formatDate(dateStr: string) {
-  const date = new Date(dateStr);
-  return date.toLocaleString('zh-CN', {
+  return new Date(dateStr).toLocaleString('zh-CN', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -55,7 +58,8 @@ function formatDate(dateStr: string) {
   });
 }
 
-function formatDuration(startStr: string, endStr: string) {
+function formatDuration(startStr: string, endStr: string | null) {
+  if (!endStr) return '未完成';
   const start = new Date(startStr);
   const end = new Date(endStr);
   const diff = Math.floor((end.getTime() - start.getTime()) / 1000);
@@ -64,45 +68,48 @@ function formatDuration(startStr: string, endStr: string) {
   return `${minutes}分${seconds}秒`;
 }
 
-interface GamesListProps {
-  initialGames: GameRecord[];
-  initialTotalCount: number;
-  initialTotalPages: number;
-}
-
-export default function GamesList({ initialGames, initialTotalCount, initialTotalPages }: GamesListProps) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const currentPage = parseInt(searchParams.get('page') || '1');
-  
-  const [games, setGames] = useState<GameRecord[]>(initialGames);
-  const [loading, setLoading] = useState(false);
-  const [totalPages, setTotalPages] = useState(initialTotalPages);
-  const [totalCount, setTotalCount] = useState(initialTotalCount);
-  const [goToPage, setGoToPage] = useState('');
+export default function GamesList({ games, totalPages, currentPage, onPageChange, loading }: GamesListProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [goToPage, setGoToPage] = useState('');
 
-  useEffect(() => {
-    setGames(initialGames);
-    setTotalCount(initialTotalCount);
-    setTotalPages(initialTotalPages);
-  }, [initialGames, initialTotalCount, initialTotalPages]);
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      onPageChange(page);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleGoToPage = () => {
+    const page = parseInt(goToPage);
+    if (page) {
+      handlePageChange(page);
+      setGoToPage('');
+    }
+  };
 
   const toggleExpand = (id: string) => {
     setExpandedId(expandedId === id ? null : id);
   };
 
-  const handleGoToPage = () => {
-    const page = parseInt(goToPage);
-    if (page >= 1 && page <= totalPages) {
-      router.push(`/admin/games?page=${page}`);
-      setGoToPage('');
-    }
-  };
+  if (loading) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="text-center py-12">
+          <div className="text-gray-400">加载中...</div>
+        </div>
+      </div>
+    );
+  }
 
-  const handlePageChange = (page: number) => {
-    router.push(`/admin/games?page=${page}`);
-  };
+  if (!games || games.length === 0) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="text-center py-12">
+          <div className="text-gray-400">暂无游戏记录</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -111,123 +118,130 @@ export default function GamesList({ initialGames, initialTotalCount, initialTota
         <p className="text-gray-400">查看所有游戏对局的详细记录</p>
       </div>
 
-      <div className="flex flex-wrap gap-4 mb-6 items-center">
-        <div className="flex items-center gap-2 ml-auto">
-          <div className="text-sm text-gray-400">
-            共 <span className="text-white font-medium">{totalCount}</span> 条记录
-          </div>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-brand-pink animate-spin mr-2" />
-          <span className="text-gray-400">加载中...</span>
-        </div>
-      ) : games.length === 0 ? (
-        <div className="text-center py-12">
-          <div className="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Gamepad2 className="w-8 h-8 text-gray-500" />
-          </div>
-          <h3 className="text-lg font-medium text-white mb-2">暂无游戏记录</h3>
-          <p className="text-gray-400">还没有玩家进行过游戏</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {games.map((game) => (
+      <div className="space-y-4">
+        {games.map((game) => (
+          <div
+            key={game.id}
+            className="border border-gray-700 rounded-xl overflow-hidden bg-gray-800/30"
+          >
             <div
-              key={game.id}
-              className="bg-gray-800/50 border border-gray-700 rounded-xl overflow-hidden"
+              className="p-4 cursor-pointer hover:bg-gray-700/50 transition-colors"
+              onClick={() => toggleExpand(game.id)}
             >
-              <div
-                className="p-4 cursor-pointer hover:bg-gray-800/80 transition-colors"
-                onClick={() => toggleExpand(game.id)}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-gradient-to-br from-brand-pink to-brand-rose rounded-lg flex items-center justify-center">
-                      <Trophy className="w-6 h-6 text-white" />
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-white font-medium">
+                        {game.player1?.nickname || '玩家1'} vs {game.player2?.nickname || '玩家2'}
+                      </h3>
+                      {game.is_in_progress ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded-full">
+                          正在进行
+                        </span>
+                      ) : game.is_abandoned ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-500/20 text-gray-400 text-xs rounded-full">
+                          中途退出
+                        </span>
+                      ) : game.winner ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded-full">
+                          <CheckCircle2 className="w-3 h-3" />
+                          {game.winner.nickname} 胜
+                        </span>
+                      ) : null}
                     </div>
-                    <div>
-                      <div className="flex items-center gap-3">
-                        <h3 className="text-white font-medium">
-                          {game.player1?.nickname || '玩家1'} vs {game.player2?.nickname || '玩家2'}
-                        </h3>
-                        {game.winner && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded-full">
-                            <CheckCircle2 className="w-3 h-3" />
-                            {game.winner.nickname} 胜
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-4 mt-1 text-sm text-gray-400">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-4 h-4" />
-                          {formatDate(game.started_at)}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-4 h-4" />
-                          {formatDuration(game.started_at, game.ended_at)}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Palette className="w-4 h-4" />
-                          {game.player1_theme?.title || '未知'} / {game.player2_theme?.title || '未知'}
-                        </span>
-                      </div>
+                    
+                  </div>
+
+                  <div className="flex items-center gap-6 text-sm text-gray-400">
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="w-4 h-4" />
+                      <span>{formatDate(game.started_at!)}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-4 h-4" />
+                      <span>{formatDuration(game.started_at!, game.ended_at)}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Users className="w-4 h-4" />
+                      <span>2 位玩家</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-green-400">
+                      <Trophy className="w-4 h-4" />
+                      <span>
+                        {`${game.task_results?.length || 0} 个任务`}
+                      </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right hidden sm:block">
-                      <div className="text-sm text-gray-400">
-                        <span className="text-white">{game.task_results?.length || 0}</span> 个任务
-                      </div>
+
+                  {/* 主题显示 */}
+                  {(game.player1_theme || game.player2_theme) && (
+                    <div className="mt-2 text-xs text-gray-400">
+                      主题: {game.player1_theme?.title || '无'} / {game.player2_theme?.title || '无'}
                     </div>
-                    <button className="p-2 hover:bg-gray-700 rounded-lg transition-colors">
-                      {expandedId === game.id ? (
-                        <ChevronUp className="w-5 h-5 text-gray-400" />
-                      ) : (
-                        <ChevronDown className="w-5 h-5 text-gray-400" />
-                      )}
-                    </button>
-                  </div>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t border-gray-700">
-                  <div>
-                    <div className="text-xs text-gray-500 mb-1">玩家1</div>
-                    <div className="text-white text-sm">{game.player1?.nickname || '-'}</div>
-                    <div className="text-gray-400 text-xs">{game.player1?.email || '-'}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500 mb-1">玩家2</div>
-                    <div className="text-white text-sm">{game.player2?.nickname || '-'}</div>
-                    <div className="text-gray-400 text-xs">{game.player2?.email || '-'}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500 mb-1">房间ID</div>
-                    <div className="text-white text-sm font-mono">{game.room_id?.substring(0, 8)}...</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500 mb-1">游戏ID</div>
-                    <div className="text-white text-sm font-mono">{game.id?.substring(0, 8)}...</div>
-                  </div>
-                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleExpand(game.id);
+                  }}
+                  className="p-1 hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                  {expandedId === game.id ? (
+                    <ChevronUp className="w-5 h-5 text-gray-400" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                  )}
+                </button>
               </div>
 
-              {expandedId === game.id && (
-                <div className="border-t border-gray-700 p-4 bg-gray-800/30">
-                  <h4 className="text-white font-medium mb-4 flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5" />
-                    任务执行记录
-                  </h4>
-                  
-                  {!game.task_results || game.task_results.length === 0 ? (
-                    <div className="text-center py-8 text-gray-400">
-                      本场游戏没有任务记录
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {game.task_results.map((task, index) => (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t border-gray-700">
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">玩家1</div>
+                  <div className="text-white text-sm">{game.player1?.nickname || '-'}</div>
+                  <div className="text-gray-400 text-xs">{game.player1?.email || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">玩家2</div>
+                  <div className="text-white text-sm">{game.player2?.nickname || '-'}</div>
+                  <div className="text-gray-400 text-xs">{game.player2?.email || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">房间ID</div>
+                  <div className="text-white text-sm font-mono">{game.room_id?.substring(0, 8)}...</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">游戏ID</div>
+                  <div className="text-white text-sm font-mono">{game.id?.substring(0, 8)}...</div>
+                </div>
+              </div>
+            </div>
+
+            {expandedId === game.id && (
+              <div className="border-t border-gray-700 p-4 bg-gray-800/30">
+                <h4 className="text-white font-medium mb-4 flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5" />
+                  任务执行记录
+                </h4>
+
+                {!game.task_results || game.task_results.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">
+                    本场游戏没有任务记录
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {game.task_results.map((task, index) => {
+                      // 未完成游戏的任务可能没有 observer_id，处理一下
+                      const executorNickname = task.executor_id === game.player1_id 
+                        ? game.player1?.nickname 
+                        : game.player2?.nickname;
+                      const observerNickname = task.observer_id 
+                        ? (task.observer_id === game.player1_id ? game.player1?.nickname : game.player2?.nickname)
+                        : null;
+                      
+                      return (
                         <div
                           key={index}
                           className="flex items-start gap-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700"
@@ -246,50 +260,50 @@ export default function GamesList({ initialGames, initialTotalCount, initialTota
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
                               <span className="text-white text-sm">
-                                {task.executor_id === game.player1_id 
-                                  ? game.player1?.nickname 
-                                  : game.player2?.nickname}
+                                {executorNickname}
                               </span>
                               <span className="text-gray-500 text-xs">执行任务</span>
-                              <span className="text-gray-400 text-xs ml-auto">
-                                {formatDate(task.timestamp)}
-                              </span>
+                              {task.timestamp && (
+                                <span className="text-gray-400 text-xs ml-auto">
+                                  {formatDate(task.timestamp)}
+                                </span>
+                              )}
                             </div>
                             <p className="text-gray-300 text-sm">
                               {task.task_text || '未知任务'}
                             </p>
-                            <div className="mt-2 text-xs text-gray-400">
-                              观察者: {task.observer_id === game.player1_id 
-                                ? game.player1?.nickname 
-                                : game.player2?.nickname}
-                            </div>
+                            {observerNickname && (
+                              <div className="mt-2 text-xs text-gray-400">
+                                观察者: {observerNickname}
+                              </div>
+                            )}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      );
+                    })}
+                  </div>
+                )}
 
-                  <div className="mt-4 pt-4 border-t border-gray-700">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-400">任务统计</span>
-                      <div className="flex items-center gap-4">
-                        <span className="text-green-400">
-                          ✓ {game.task_results?.filter(t => t.completed).length || 0} 完成
-                        </span>
-                        <span className="text-red-400">
-                          ✗ {game.task_results?.filter(t => !t.completed).length || 0} 未完成
-                        </span>
-                      </div>
+                <div className="mt-4 pt-4 border-t border-gray-700">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-400">任务统计</span>
+                    <div className="flex items-center gap-4">
+                      <span className="text-green-400">
+                        ✓ {game.task_results?.filter(t => t.completed).length || 0} 完成
+                      </span>
+                      <span className="text-red-400">
+                        ✗ {game.task_results?.filter(t => !t.completed).length || 0} 未完成
+                      </span>
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
 
-      {!loading && games.length > 0 && (
+      {!loading && games && games.length > 0 && (
         <div className="mt-6 flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-2">
             <button

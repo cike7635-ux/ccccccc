@@ -1,26 +1,28 @@
 // /app/api/admin/ai-keys/list/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 
-// 获取AI密钥列表
 export async function GET(request: NextRequest) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabase = createAdminClient();
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
     const boostType = searchParams.get('boostType');
-    const status = searchParams.get('status'); // 'all', 'active', 'used', 'expired'
+    const status = searchParams.get('status');
     const search = searchParams.get('search');
     const sortBy = searchParams.get('sortBy') || 'created_at';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
 
     const offset = (page - 1) * limit;
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    );
 
     // 🔥 修复：使用直接的SELECT查询，确保返回所有需要的字段
     let query = supabase

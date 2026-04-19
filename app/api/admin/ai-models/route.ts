@@ -1,51 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-function createAdminClient() {
-  const { createClient } = require('@supabase/supabase-js')
-  
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    throw new Error('缺少 NEXT_PUBLIC_SUPABASE_URL 环境变量')
-  }
-  
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error('缺少 SUPABASE_SERVICE_ROLE_KEY 环境变量')
-  }
-  
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    }
-  )
-}
-
-function validateAdmin(request: NextRequest): boolean {
-  const adminKeyVerified = request.cookies.get('admin_key_verified')?.value
-  const referer = request.headers.get('referer') || ''
-  const userAgent = request.headers.get('user-agent') || ''
-  
-  if (adminKeyVerified === 'true') {
-    return true
-  }
-  
-  if (referer.includes('/admin/') && userAgent) {
-    return true
-  }
-  
-  return false
-}
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 export async function GET(request: NextRequest) {
   try {
-    if (!validateAdmin(request)) {
-      return NextResponse.json({ success: false, error: '未授权访问' }, { status: 401 })
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json({ success: false, error: validation.error }, { status: validation.status });
     }
 
-    const supabaseAdmin = createAdminClient()
+    const supabaseAdmin = createAdminClient();
     
     const { data, error } = await supabaseAdmin
       .from('ai_models')
@@ -76,8 +39,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!validateAdmin(request)) {
-      return NextResponse.json({ success: false, error: '未授权访问' }, { status: 401 })
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json({ success: false, error: validation.error }, { status: validation.status });
     }
 
     const body = await request.json()
@@ -131,8 +95,9 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    if (!validateAdmin(request)) {
-      return NextResponse.json({ success: false, error: '未授权访问' }, { status: 401 })
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json({ success: false, error: validation.error }, { status: validation.status });
     }
 
     const body = await request.json()
@@ -178,8 +143,9 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    if (!validateAdmin(request)) {
-      return NextResponse.json({ success: false, error: '未授权访问' }, { status: 401 })
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json({ success: false, error: validation.error }, { status: validation.status });
     }
 
     const { searchParams } = new URL(request.url)

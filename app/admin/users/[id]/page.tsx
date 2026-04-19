@@ -8,7 +8,7 @@ import {
   Copy, Check, X, AlertCircle, Loader2, RefreshCw, ExternalLink,
   Edit, Trash2, FileText, History, Cpu, Battery, ShieldCheck,
   Users, ChevronDown, ChevronUp, Timer, TimerReset, CalendarClock,
-  Gamepad2, Trophy
+  Gamepad2, Trophy, Palette, ListTodo
 } from 'lucide-react'
 
 interface ProfileDetail {
@@ -56,6 +56,28 @@ interface ProfileDetail {
     response_data: any
     success: boolean
   }>
+
+  themes?: Array<{
+    id: string
+    title: string
+    description: string | null
+    type: string | null
+    is_public: boolean | null
+    is_official: boolean | null
+    task_count: number | null
+    created_at: string
+    updated_at: string
+  }>
+
+  tasks?: Array<{
+    id: string
+    theme_id: string | null
+    description: string
+    type: string | null
+    order_index: number | null
+    is_ai_generated: boolean | null
+    created_at: string
+  }>
 }
 
 export default function UserDetailPage() {
@@ -75,6 +97,7 @@ export default function UserDetailPage() {
   const [showAIRecords, setShowAIRecords] = useState(false)
   const [showExtendForm, setShowExtendForm] = useState(false)
   const [showGameRecords, setShowGameRecords] = useState(false)
+  const [showThemes, setShowThemes] = useState(false)
   
   // 游戏记录
   const [gameRecords, setGameRecords] = useState<any[]>([])
@@ -319,6 +342,8 @@ export default function UserDetailPage() {
 
   // 获取游戏结果
   const getGameResult = (game: any) => {
+    if (game.is_in_progress) return '进行中'
+    if (game.is_abandoned) return '中途退出'
     if (!game.winner_id) return '平局'
     if (game.winner_id === userId) return '胜利'
     return '失败'
@@ -831,11 +856,20 @@ export default function UserDetailPage() {
           </div>
           
           <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
-            <h3 className="text-sm font-medium text-gray-400 mb-2 flex items-center">
-              <Battery className="w-4 h-4 mr-2" />
-              统计信息
-            </h3>
-            <div className="space-y-2">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-gray-400 flex items-center">
+                <Battery className="w-4 h-4 mr-2" />
+                统计信息
+              </h3>
+              <button
+                onClick={() => setShowThemes(!showThemes)}
+                className="text-xs text-pink-400 hover:text-pink-300 flex items-center gap-1"
+              >
+                {showThemes ? '收起详情' : '查看详情'}
+                {showThemes ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </button>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <span className="text-gray-500 text-xs">密钥使用记录</span>
                 <p className="text-white text-lg font-bold">
@@ -848,7 +882,97 @@ export default function UserDetailPage() {
                   {userData.ai_records?.length || 0} 次
                 </p>
               </div>
+              <div>
+                <span className="text-gray-500 text-xs">游戏记录</span>
+                <p className="text-white text-lg font-bold">
+                  {gameRecords.length} 场
+                </p>
+              </div>
+              <div>
+                <span className="text-gray-500 text-xs">创建主题</span>
+                <p className="text-pink-400 text-lg font-bold cursor-pointer hover:text-pink-300"
+                   onClick={() => setShowThemes(!showThemes)}>
+                  {userData.themes?.length || 0} 个
+                </p>
+              </div>
             </div>
+            
+            {showThemes && (
+              <div className="mt-4 pt-4 border-t border-gray-700/50">
+                {userData.themes && userData.themes.length > 0 ? (
+                  <div className="space-y-3">
+                    {userData.themes.map((theme) => {
+                      const themeTasks = userData.tasks?.filter(t => t.theme_id === theme.id) || []
+                      return (
+                        <div key={theme.id} className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="text-white font-medium text-sm">{theme.title}</h4>
+                                {theme.is_official && (
+                                  <span className="px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded">
+                                    官方
+                                  </span>
+                                )}
+                                {theme.is_public ? (
+                                  <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-xs rounded">
+                                    公开
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-xs rounded">
+                                    私有
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-gray-500">
+                                <span>创建: {formatDate(theme.created_at)}</span>
+                                <span>任务数: {themeTasks.length}</span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {themeTasks.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-gray-700/30">
+                              <div className="flex items-center gap-1 mb-2">
+                                <ListTodo className="w-3 h-3 text-blue-400" />
+                                <span className="text-gray-400 text-xs">任务列表</span>
+                              </div>
+                              <div className="space-y-1">
+                                {themeTasks.slice(0, 3).map((task, index) => (
+                                  <div key={task.id} className="flex items-start gap-2 bg-gray-800/50 rounded p-1.5">
+                                    <span className="text-gray-500 text-xs mt-0.5">
+                                      {task.order_index ?? index + 1}.
+                                    </span>
+                                    <span className="text-gray-300 text-xs flex-1">
+                                      {task.description}
+                                    </span>
+                                    {task.is_ai_generated && (
+                                      <span className="text-xs bg-purple-500/20 text-purple-400 px-1 py-0.5 rounded">
+                                        AI
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                                {themeTasks.length > 3 && (
+                                  <div className="text-center text-gray-500 text-xs py-1">
+                                    还有 {themeTasks.length - 3} 个任务...
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <Palette className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+                    <p className="text-gray-400 text-sm">该用户暂无创建的主题</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1016,7 +1140,6 @@ export default function UserDetailPage() {
           </div>
         )}
 
-        {/* 游戏记录 */}
         <div className="mb-6">
           <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
@@ -1171,7 +1294,7 @@ export default function UserDetailPage() {
                                 </div>
                               </td>
                               <td className="py-3 px-4">
-                                <span className={`text-sm ${gameResult === '胜利' ? 'text-green-400' : gameResult === '失败' ? 'text-red-400' : 'text-yellow-400'}`}>
+                                <span className={`text-sm ${gameResult === '胜利' ? 'text-green-400' : gameResult === '失败' ? 'text-red-400' : gameResult === '进行中' ? 'text-blue-400' : gameResult === '中途退出' ? 'text-orange-400' : 'text-yellow-400'}`}>
                                   {gameResult}
                                 </span>
                               </td>

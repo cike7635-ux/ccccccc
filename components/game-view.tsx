@@ -893,7 +893,22 @@ export default function GameView({ session, userId, onGameEnd }: { session: Game
     setIsButtonLoading(true);
     
     try {
-      await rollDice(session.id);
+      // 先开始骰子动画
+      setIsRolling(true);
+      
+      const result = await rollDice(session.id);
+      
+      if (result.success && result.diceValue) {
+        // 骰子结果已知，立即更新（动画会在600ms后自动显示结果）
+        setTimeout(() => {
+          setLastDice(result.diceValue);
+          setIsRolling(false);
+        }, 600);
+      } else {
+        // 骰子失败，停止动画
+        setIsRolling(false);
+        console.error('掷骰子失败:', result.error);
+      }
       
       // 🚀 智能同步策略
       if (isSubscribedRef.current) {
@@ -909,6 +924,7 @@ export default function GameView({ session, userId, onGameEnd }: { session: Game
       }
     } catch (error) {
       console.error('掷骰子失败:', error);
+      setIsRolling(false);
     } finally {
       markOperationEnd();
       setIsButtonLoading(false);

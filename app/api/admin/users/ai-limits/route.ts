@@ -1,10 +1,18 @@
 // /app/api/admin/users/ai-limits/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createClient();
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabase = createAdminClient();
     
     // 获取所有用户的AI限制
     const { data: users, error } = await supabase

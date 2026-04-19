@@ -1,57 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-// 创建管理员客户端
-function createAdminClient() {
-  const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: { 
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    }
-  )
-  return supabaseAdmin
-}
-
-// 验证管理员权限 - 与列表API保持一致
-function validateAdmin(request: NextRequest): boolean {
-  const adminKeyVerified = request.cookies.get('admin_key_verified')?.value
-  const referer = request.headers.get('referer') || ''
-  const userAgent = request.headers.get('user-agent') || ''
-  
-  console.log('🔐 增长API验证信息:', {
-    hasCookie: !!adminKeyVerified,
-    cookieValue: adminKeyVerified,
-    referer: referer,
-    userAgent: !!userAgent
-  })
-  
-  // 双重验证：Cookie 或 Referer + User-Agent
-  if (adminKeyVerified === 'true') {
-    console.log('✅ 通过Cookie验证')
-    return true
-  }
-  
-  if (referer.includes('/admin/') && userAgent) {
-    console.log('✅ 通过Referer+UserAgent验证')
-    return true
-  }
-  
-  console.warn('❌ 未通过验证')
-  return false
-}
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 export async function GET(request: NextRequest) {
   try {
-    // 验证管理员权限
-    if (!validateAdmin(request)) {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       console.warn('🚫 未授权访问增长数据API')
       return NextResponse.json(
-        { success: false, error: '未授权访问' },
-        { status: 401 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       )
     }
 

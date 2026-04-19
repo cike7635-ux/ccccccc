@@ -100,6 +100,54 @@ created_at: string
   keyUsageHistoryTotal?: number
   aiUsageRecordsTotal?: number
   gameHistoryTotal?: number
+  
+  // 主题相关
+  themes?: Theme[]
+  tasks?: Task[]
+}
+
+// 主题类型
+export interface Theme {
+  id: string
+  creator_id: string | null
+  title: string
+  description: string | null
+  type: string | null
+  is_public: boolean | null
+  is_official: boolean | null
+  task_count: number | null
+  created_at: string
+  updated_at: string
+  
+  // 兼容字段
+  creatorId?: string | null
+  title?: string
+  description?: string | null
+  type?: string | null
+  isPublic?: boolean | null
+  isOfficial?: boolean | null
+  taskCount?: number | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+// 任务类型
+export interface Task {
+  id: string
+  theme_id: string | null
+  description: string
+  type: string | null
+  order_index: number | null
+  is_ai_generated: boolean | null
+  created_at: string
+  
+  // 兼容字段
+  themeId?: string | null
+  description?: string
+  type?: string | null
+  orderIndex?: number | null
+  isAiGenerated?: boolean | null
+  createdAt?: string
 }
 
 // ============================================
@@ -670,7 +718,11 @@ export function normalizeUserDetail(data: any): UserDetail {
     // 驼峰格式的计数字段
     keyUsageHistoryTotal: data.key_usage_history_total || data.keyUsageHistoryTotal || 0,
     aiUsageRecordsTotal: data.ai_usage_records_total || data.aiUsageRecordsTotal || 0,
-    gameHistoryTotal: data.game_history_total || data.gameHistoryTotal || 0
+    gameHistoryTotal: data.game_history_total || data.gameHistoryTotal || 0,
+    
+    // 主题和任务
+    themes: data.themes || [],
+    tasks: data.tasks || []
   }
   
   // 调试信息（开发环境）

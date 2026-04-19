@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 
-// 生成AI密钥
 export async function POST(request: NextRequest) {
   try {
-    // 验证管理员权限
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    );
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
 
+    const supabase = createAdminClient();
     const body = await request.json();
     const {
       boostType = 'cycle',

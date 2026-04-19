@@ -1,41 +1,6 @@
-// /app/api/admin/users/[id]/route.ts - 添加PATCH方法
+// /app/api/admin/users/[id]/route.ts - 修复版
 import { NextRequest, NextResponse } from 'next/server'
-
-// 简化：直接创建 Supabase 客户端
-function createAdminClient() {
-  const { createClient } = require('@supabase/supabase-js')
-  
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    throw new Error('缺少 NEXT_PUBLIC_SUPABASE_URL 环境变量')
-  }
-  
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error('缺少 SUPABASE_SERVICE_ROLE_KEY 环境变量')
-  }
-  
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    }
-  )
-}
-
-// 验证管理员权限
-function isAdminAuthenticated(request: NextRequest): boolean {
-  const authMethods = {
-    cookie: request.cookies.get('admin_key_verified')?.value,
-    referer: request.headers.get('referer'),
-    userAgent: request.headers.get('user-agent')
-  }
-
-  return !!(authMethods.cookie || 
-    (authMethods.referer?.includes('/admin/') && authMethods.userAgent))
-}
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 // 计算新的过期时间（遵循续费规则）
 function calculateNewExpiry(
@@ -65,15 +30,15 @@ export async function PATCH(
 ) {
   try {
     const userId = params.id
-    
-    // 验证管理员权限
-    if (!isAdminAuthenticated(request)) {
+
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       return NextResponse.json(
-        { success: false, error: '未授权访问' },
-        { status: 401 }
+        { success: false, error: validation.error },
+        { status: validation.status }
       )
     }
-    
+
     const supabaseAdmin = createAdminClient()
     
     // 解析请求体
@@ -182,7 +147,7 @@ export async function PATCH(
   } catch (error: any) {
     console.error('更新用户信息异常:', error)
     return NextResponse.json(
-      { success: false, error: error.message || '服务器错误' },
+      { success: false, error: process.env.NODE_ENV === 'development' ? error.message : '服务器错误' },
       { status: 500 }
     )
   }
@@ -195,6 +160,15 @@ export async function GET(
 ) {
   try {
     const userId = params.id
+
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      )
+    }
+
     const supabaseAdmin = createAdminClient()
     
     // 🔧 优化查询，避免过多嵌套导致的性能问题
@@ -246,13 +220,36 @@ export async function GET(
       .order('created_at', { ascending: false })
       .limit(50) // 限制返回数量
     
+    // 获取用户创建的主题
+    const { data: userThemes } = await supabaseAdmin
+      .from('themes')
+      .select('*')
+      .eq('creator_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50) // 限制返回数量
+    
+    // 获取用户主题关联的任务
+    let userTasks: any[] = []
+    if (userThemes && userThemes.length > 0) {
+      const themeIds = userThemes.map((t: any) => t.id)
+      const { data: tasks } = await supabaseAdmin
+        .from('tasks')
+        .select('*')
+        .in('theme_id', themeIds)
+        .order('created_at', { ascending: false })
+        .limit(100) // 限制返回数量
+      userTasks = tasks || []
+    }
+    
     return NextResponse.json({
       success: true,
       data: {
         ...user,
         current_key: currentKey,
         key_history: keyHistory || [],
-        ai_records: aiRecords || []
+        ai_records: aiRecords || [],
+        themes: userThemes || [],
+        tasks: userTasks
       }
     })
     
@@ -271,6 +268,15 @@ export async function DELETE(
 ) {
   try {
     const userId = params.id
+
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      )
+    }
+
     const supabaseAdmin = createAdminClient()
     
     // 1. 先检查用户是否存在

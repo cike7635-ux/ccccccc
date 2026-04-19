@@ -1,6 +1,6 @@
 // /app/api/admin/keys/[id]/route.ts
-import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth'
 
 // 获取密钥详情（增强版）
 export async function GET(
@@ -10,40 +10,24 @@ export async function GET(
   try {
     const keyId = parseInt(context.params.id)
     if (!keyId || isNaN(keyId)) {
-      return NextResponse.json({ 
-        success: false, 
-        error: '无效的密钥ID' 
+      return NextResponse.json({
+        success: false,
+        error: '无效的密钥ID'
       }, { status: 400 })
     }
 
     console.log(`🔍 获取密钥详情 ID: ${keyId} (增强版)`)
-    
-    // 验证管理员权限
-    const authMethods = {
-      cookie: request.cookies.get('admin_key_verified')?.value,
-      referer: request.headers.get('referer'),
-      userAgent: request.headers.get('user-agent')
-    }
 
-    const isAuthenticated = authMethods.cookie || 
-      (authMethods.referer?.includes('/admin/') && authMethods.userAgent)
-
-    if (!isAuthenticated) {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
       console.log('❌ 未授权访问')
-      return NextResponse.json({ 
-        success: false, 
-        error: '未授权访问' 
-      }, { status: 401 })
+      return NextResponse.json({
+        success: false,
+        error: validation.error
+      }, { status: validation.status })
     }
 
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { 
-        auth: { persistSession: false },
-        db: { schema: 'public' }
-      }
-    )
+    const supabaseAdmin = createAdminClient()
 
     // 1. 获取密钥详情
     console.log('📦 查询密钥基本信息...')
@@ -361,20 +345,16 @@ export async function PUT(
     }
 
     console.log(`🔧 操作密钥 ID: ${keyId}`)
-    
-    // 验证管理员权限...
-    const authMethods = {
-      cookie: request.cookies.get('admin_key_verified')?.value,
-      referer: request.headers.get('referer'),
-      userAgent: request.headers.get('user-agent')
+
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      )
     }
 
-    const isAuthenticated = authMethods.cookie || 
-      (authMethods.referer?.includes('/admin/') && authMethods.userAgent)
-
-    if (!isAuthenticated) {
-      return NextResponse.json({ success: false, error: '未授权访问' }, { status: 401 })
-    }
+    const supabaseAdmin = createAdminClient()
 
     // 解析请求数据
     let body
@@ -390,12 +370,6 @@ export async function PUT(
     if (!action || !['disable', 'enable', 'delete'].includes(action)) {
       return NextResponse.json({ success: false, error: '不支持的操作类型' }, { status: 400 })
     }
-
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    )
 
     const now = new Date().toISOString()
     let result

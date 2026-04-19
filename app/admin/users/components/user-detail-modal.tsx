@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { 
-  X, RefreshCw, Copy, Check, Calendar, Key, Brain, Gamepad2, Mail, 
-  User, Clock, Shield, ExternalLink, Tag, History, Activity, 
+import {
+  X, RefreshCw, Copy, Check, Calendar, Key, Brain, Gamepad2, Mail,
+  User, Clock, Shield, ExternalLink, Tag, History, Activity,
   Venus, Mars, Users, Wifi, WifiOff, AlertCircle, Download,
-  ChevronDown, ChevronUp
+  ChevronDown, ChevronUp, Palette, ListTodo
 } from 'lucide-react'
 import { UserDetail } from '../types'
 
@@ -139,7 +139,7 @@ const extractTextFromJson = (data: any): string => {
 };
 
 export default function UserDetailModal({ isOpen, onClose, userDetail, loading, onRefresh }: UserDetailModalProps) {
-  const [activeTab, setActiveTab] = useState<'basic' | 'keys' | 'ai' | 'games'>('basic')
+  const [activeTab, setActiveTab] = useState<'basic' | 'keys' | 'ai' | 'games' | 'themes'>('basic')
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [expandedAIRecord, setExpandedAIRecord] = useState<number | null>(null)
   
@@ -153,6 +153,12 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
     hasMore: false
   });
   const [loadingMoreAI, setLoadingMoreAI] = useState(false);
+
+  // 🔧 新增：主题分页状态
+  const [displayedThemes, setDisplayedThemes] = useState<any[]>([]);
+  const [expandedThemes, setExpandedThemes] = useState<Record<string, boolean>>({});
+  const [loadingMoreThemes, setLoadingMoreThemes] = useState(false);
+  const THEMES_PAGE_SIZE = 20;
 
   // 🔧 修复：获取API返回的总记录数 - 增强版
   const getTotalRecords = () => {
@@ -416,6 +422,34 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
       [gameId]: !prev[gameId]
     }));
   };
+
+  const toggleThemeExpanded = (themeId: string) => {
+    setExpandedThemes(prev => ({
+      ...prev,
+      [themeId]: !prev[themeId]
+    }));
+  };
+
+  const loadMoreThemes = () => {
+    if (loadingMoreThemes) return;
+    setLoadingMoreThemes(true);
+    setTimeout(() => {
+      setDisplayedThemes(prev => {
+        const currentLength = prev.length;
+        const nextThemes = (userDetail.themes || []).slice(currentLength, currentLength + THEMES_PAGE_SIZE);
+        return [...prev, ...nextThemes];
+      });
+      setLoadingMoreThemes(false);
+    }, 300);
+  };
+
+  // 初始化显示的主题
+  useEffect(() => {
+    if (userDetail?.themes) {
+      setDisplayedThemes(userDetail.themes.slice(0, THEMES_PAGE_SIZE));
+      setExpandedThemes({});
+    }
+  }, [userDetail?.themes]);
 
   // 🔧 修复：安全获取密钥使用历史
   const keyUsageHistory = useMemo(() => {
@@ -917,7 +951,8 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                   { id: 'basic' as const, label: '基本信息', icon: User, count: null },
                   { id: 'keys' as const, label: '密钥记录', icon: Key, count: totals.keyTotal },
                   { id: 'ai' as const, label: 'AI使用', icon: Brain, count: totals.aiTotal },
-                  { id: 'games' as const, label: '游戏记录', icon: Gamepad2, count: totals.gameTotal }
+                  { id: 'games' as const, label: '游戏记录', icon: Gamepad2, count: totals.gameTotal },
+                  { id: 'themes' as const, label: '主题', icon: Palette, count: userDetail.themes?.length || 0 }
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -1881,6 +1916,156 @@ export default function UserDetailModal({ isOpen, onClose, userDetail, loading, 
                           </tbody>
                         </table>
                       </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 主题标签页 */}
+              {activeTab === 'themes' && (
+                <div className="p-4 md:p-6">
+                  <div className="mb-4 md:mb-6 grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">主题总数</p>
+                      <p className="text-xl md:text-2xl font-bold text-pink-400">{userDetail.themes?.length || 0}</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">任务总数</p>
+                      <p className="text-xl md:text-2xl font-bold text-blue-400">{userDetail.tasks?.length || 0}</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-3 md:p-5">
+                      <p className="text-xs md:text-sm text-gray-400 mb-2">公开主题</p>
+                      <p className="text-xl md:text-2xl font-bold text-green-400">
+                        {userDetail.themes?.filter(t => t.is_public).length || 0}
+                      </p>
+                    </div>
+                  </div>
+
+                  {!userDetail.themes || userDetail.themes.length === 0 ? (
+                    <div className="text-center py-8 md:py-12">
+                      <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Palette className="w-8 h-8 md:w-10 md:h-10 text-gray-600" />
+                      </div>
+                      <p className="text-gray-400 text-base md:text-lg">暂无主题记录</p>
+                      <p className="text-gray-500 text-xs md:text-sm mt-2">该用户尚未创建过主题</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* 主题列表 - 分页显示 */}
+                      {displayedThemes.map((theme, index) => {
+                        const themeTasks = userDetail.tasks?.filter(t => t.theme_id === theme.id) || []
+                        const isExpanded = expandedThemes[theme.id] || false
+                        const visibleTasks = isExpanded ? themeTasks.slice(0, 20) : themeTasks.slice(0, 5)
+                        const hasMoreTasks = themeTasks.length > 20
+                        
+                        return (
+                          <div
+                            key={theme.id || index}
+                            className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 md:p-5 hover:border-gray-600/50 transition-all"
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <Palette className="w-4 h-4 text-pink-400 flex-shrink-0" />
+                                  <h3 className="text-white font-medium text-sm md:text-base">{theme.title}</h3>
+                                  {theme.is_official && (
+                                    <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded">
+                                      官方
+                                    </span>
+                                  )}
+                                  {theme.is_public ? (
+                                    <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded">
+                                      公开
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 bg-gray-500/20 text-gray-400 text-xs rounded">
+                                      私有
+                                    </span>
+                                  )}
+                                </div>
+                                {theme.description && (
+                                  <p className="text-gray-400 text-sm mb-2">{theme.description}</p>
+                                )}
+                                <div className="flex items-center gap-4 text-xs text-gray-500">
+                                  <span>创建时间: {formatDate(theme.created_at)}</span>
+                                  <span>任务数: {themeTasks.length}</span>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => toggleThemeExpanded(theme.id)}
+                                className="ml-2 px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300 flex items-center gap-1"
+                              >
+                                {isExpanded ? '收起' : '展开'}
+                                {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                              </button>
+                            </div>
+
+                            {themeTasks.length > 0 && (
+                              <div className="mt-4 pt-4 border-t border-gray-800/30">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <ListTodo className="w-4 h-4 text-blue-400" />
+                                  <span className="text-gray-300 text-sm font-medium">
+                                    任务列表 ({themeTasks.length})
+                                  </span>
+                                </div>
+                                <div className="space-y-2">
+                                  {visibleTasks.map((task, taskIndex) => (
+                                    <div
+                                      key={task.id || taskIndex}
+                                      className="flex items-start gap-2 bg-gray-800/30 rounded-lg p-2 md:p-3"
+                                    >
+                                      <span className="text-gray-500 text-xs mt-0.5">
+                                        {task.order_index ?? taskIndex + 1}.
+                                      </span>
+                                      <span className="text-gray-300 text-xs md:text-sm flex-1">
+                                        {task.description}
+                                      </span>
+                                      {task.is_ai_generated && (
+                                        <span className="text-xs bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded">
+                                          AI
+                                        </span>
+                                      )}
+                                    </div>
+                                  ))}
+                                  {!isExpanded && themeTasks.length > 5 && (
+                                    <div className="text-center text-gray-500 text-xs py-2">
+                                      还有 {themeTasks.length - 5} 个任务，点击展开查看全部
+                                    </div>
+                                  )}
+                                  {isExpanded && hasMoreTasks && (
+                                    <div className="text-center text-gray-500 text-xs py-2">
+                                      已显示全部 {themeTasks.length} 个任务
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                      
+                      {/* 加载更多主题 */}
+                      {displayedThemes.length < userDetail.themes.length && (
+                        <div className="text-center pt-4">
+                          <button
+                            onClick={loadMoreThemes}
+                            disabled={loadingMoreThemes}
+                            className="px-6 py-3 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:from-pink-600 hover:to-pink-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center mx-auto"
+                          >
+                            {loadingMoreThemes ? (
+                              <>
+                                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                                加载中...
+                              </>
+                            ) : (
+                              <>
+                                <Palette className="w-4 h-4 mr-2" />
+                                加载更多主题 ({userDetail.themes.length - displayedThemes.length} 条)
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

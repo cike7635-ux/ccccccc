@@ -1,9 +1,18 @@
 // /app/api/admin/settings/clear-cache/route.ts
 import { NextRequest, NextResponse } from 'next/server';
+import { validateAdminSession } from '@/lib/server/admin-auth';
 import { getSystemConfig } from '@/lib/config/system-config';
 
 export async function POST(request: NextRequest) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
     const systemConfig = getSystemConfig();
     
     // 清理配置缓存

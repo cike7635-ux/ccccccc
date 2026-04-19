@@ -988,27 +988,35 @@ async function callOpenRouter(sysPrompt: string, userPrompt: string): Promise<st
       console.log(`📋 请求模型 ID: ${modelId}`);
       
       try {
+        // 构建请求体
+        const requestBody: any = {
+          model: modelId,
+          messages: [
+            { role: "system", content: sysPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          response_format: { type: "json_object" },
+          temperature: model.temperature,
+          max_tokens: model.max_tokens
+        };
+
+        // 对于OpenRouter，添加provider配置，强制使用DeepSeek官方，禁止回退
+        if (model.provider === 'openrouter') {
+          requestBody.provider = {
+            order: ["DeepSeek"],
+            allow_fallbacks: false
+          };
+          requestBody.zdr = false;
+          requestBody.data_collection = "allow";
+        }
+
         const resp = await fetch(model.api_url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${apiKey}`,
           },
-          body: JSON.stringify({
-            model: modelId,
-            messages: [
-              { role: "system", content: sysPrompt },
-              { role: "user", content: userPrompt },
-            ],
-            response_format: { type: "json_object" },
-            temperature: model.temperature,
-            max_tokens: model.max_tokens,
-            // 🔧 核心修改：添加 provider 对象，强制指定供应商并禁止回退
-            provider: {
-              order: ["DeepSeek"],
-              allow_fallbacks: false
-            }
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         console.log(`📡 API 响应状态: ${resp.status} ${resp.statusText}`);
@@ -1069,13 +1077,23 @@ async function updateModelStats(modelId: string, success: boolean) {
 
     const field = success ? 'success_count' : 'fail_count';
     
-    // 使用简单的更新方式，避免使用 raw
-    await supabase
+    // 先获取当前模型的统计数据
+    const { data: model } = await supabase
       .from('ai_models')
-      .update({
-        last_used_at: new Date().toISOString()
-      })
-      .eq('id', modelId);
+      .select('success_count, fail_count')
+      .eq('id', modelId)
+      .single();
+
+    if (model) {
+      // 更新计数器和最后使用时间
+      await supabase
+        .from('ai_models')
+        .update({
+          [field]: (model[field] || 0) + 1,
+          last_used_at: new Date().toISOString()
+        })
+        .eq('id', modelId);
+    }
   } catch (error) {
     console.error('更新模型统计失败:', error);
   }

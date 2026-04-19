@@ -1,24 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 import { getSystemConfig } from '@/lib/config/system-config';
-
-// 创建Supabase管理员客户端
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
 
 export async function GET() {
   try {
     const systemConfig = getSystemConfig();
     const [configs, adminEmails] = await Promise.all([
       systemConfig.getAllConfigs(),
-      // 从环境变量获取管理员邮箱
       Promise.resolve(process.env.ADMIN_EMAILS?.split(',') || ['2200691917@qq.com'])
     ]);
 
-    // 获取维护模式配置
     const maintenanceConfig = await systemConfig.getMaintenanceConfig();
 
     return NextResponse.json({
@@ -30,11 +21,10 @@ export async function GET() {
         enableApiLogging: configs.enable_api_logging || true,
         enableErrorAlerts: configs.enable_error_alerts || true,
         alertEmail: configs.alert_email || '2200691917@qq.com',
-        // 返回所有配置用于显示
         allConfigs: configs
       }
     });
-    
+
   } catch (error: any) {
     console.error('获取系统配置失败:', error);
     return NextResponse.json(
@@ -46,6 +36,15 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { success: false, error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const supabaseAdmin = createAdminClient();
     const body = await request.json();
     const systemConfig = getSystemConfig();
     

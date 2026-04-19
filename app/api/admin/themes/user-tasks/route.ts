@@ -1,42 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { validateAdminSession, createAdminClient } from '@/lib/server/admin-auth';
 
-// 创建Supabase管理员客户端
-function createAdminClient() {
-  const { createClient } = require('@supabase/supabase-js')
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    }
-  )
-}
-
-// 验证管理员权限
-function validateAdmin(request: NextRequest): boolean {
-  const adminKeyVerified = request.cookies.get('admin_key_verified')?.value
-  const referer = request.headers.get('referer') || ''
-  const userAgent = request.headers.get('user-agent') || ''
-
-  if (adminKeyVerified === 'true') {
-    return true
-  }
-
-  if (referer.includes('/admin/') && userAgent) {
-    return true
-  }
-
-  return false
+// 验证 themeId 格式
+function isValidUUID(id: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(id);
 }
 
 // 获取用户主题的任务
 export async function GET(request: NextRequest) {
   try {
-    if (!validateAdmin(request)) {
-      return NextResponse.json({ error: '未授权访问' }, { status: 403 });
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json({ error: validation.error }, { status: validation.status });
     }
 
     const supabaseAdmin = createAdminClient()
@@ -45,6 +21,10 @@ export async function GET(request: NextRequest) {
 
     if (!themeId) {
       return NextResponse.json({ error: '缺少 themeId 参数' }, { status: 400 });
+    }
+
+    if (!isValidUUID(themeId)) {
+      return NextResponse.json({ error: '无效的 themeId 格式' }, { status: 400 });
     }
 
     const { data, error } = await supabaseAdmin
@@ -71,8 +51,9 @@ export async function GET(request: NextRequest) {
 // 删除用户任务
 export async function DELETE(request: NextRequest) {
   try {
-    if (!validateAdmin(request)) {
-      return NextResponse.json({ error: '未授权访问' }, { status: 403 });
+    const validation = await validateAdminSession(request);
+    if (!validation.isValid) {
+      return NextResponse.json({ error: validation.error }, { status: validation.status });
     }
 
     const supabaseAdmin = createAdminClient()
@@ -81,6 +62,10 @@ export async function DELETE(request: NextRequest) {
 
     if (!taskId) {
       return NextResponse.json({ error: '缺少任务ID' }, { status: 400 });
+    }
+
+    if (!isValidUUID(taskId)) {
+      return NextResponse.json({ error: '无效的任务ID格式' }, { status: 400 });
     }
 
     // 先获取任务所属的主题ID
